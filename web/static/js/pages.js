@@ -166,6 +166,14 @@ async function editHost(id) {
                     <label class="form-label">操作系统</label>
                     <input type="text" class="form-control" name="os" value="${host.os || ''}">
                 </div>
+                <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 15px;">
+                    <label class="form-label">SSH 用户名</label>
+                    <input type="text" class="form-control" name="username" value="${host.credential ? host.credential.username : 'root'}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">SSH 密码 (留空则不修改)</label>
+                    <input type="password" class="form-control" name="password" placeholder="••••••">
+                </div>
                 <div class="form-group">
                     <label class="form-label">分组</label>
                     <input type="text" class="form-control" name="group" value="${host.group ? host.group.name : ''}" disabled>
@@ -204,22 +212,22 @@ async function editHost(id) {
 }
 
 async function deleteHost(id) {
-    if (!confirm('确定删除该主机吗？此操作不可恢复。')) return;
-    
-    try {
-        showLoading();
-        const response = await apiRequest(`/cmdb/hosts/${id}`, { method: 'DELETE' });
-        if (response.code === 0) {
-            await loadCMDB();
-        } else {
-            alert('删除失败: ' + response.message);
+    showConfirm('删除主机', '确定要删除该主机吗？此操作不可恢复，且会删除关联的凭据。', async () => {
+        try {
+            showLoading();
+            const response = await apiRequest(`/cmdb/hosts/${id}`, { method: 'DELETE' });
+            if (response.code === 0) {
+                await loadCMDB();
+            } else {
+                alert('删除失败: ' + response.message);
+            }
+        } catch (error) {
+            console.error('删除主机失败:', error);
+            alert('删除失败，请查看控制台日志');
+        } finally {
+            hideLoading();
         }
-    } catch (error) {
-        console.error('删除主机失败:', error);
-        alert('删除失败，请查看控制台日志');
-    } finally {
-        hideLoading();
-    }
+    });
 }
 
 async function refreshHosts() {

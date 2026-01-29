@@ -68,9 +68,32 @@ function showModal(title, body, onConfirm) {
     }
 }
 
+// 显示确认框 (基于 Modal 美化)
+function showConfirm(title, message, onConfirm) {
+    const body = `
+        <div style="text-align: center; padding: 20px 0;">
+            <i class="fas fa-exclamation-circle" style="font-size: 48px; color: var(--warning-color); margin-bottom: 16px;"></i>
+            <p style="font-size: 16px; color: var(--text-primary); margin: 0;">${message}</p>
+        </div>
+    `;
+    
+    // 使用 showModal，但自定义确认按钮样式
+    showModal(title, body, onConfirm);
+    
+    const confirmBtn = document.getElementById('modalConfirm');
+    confirmBtn.className = 'btn btn-danger'; // 红色按钮表示危险操作
+    confirmBtn.innerHTML = '<i class="fas fa-check"></i> 确定';
+}
+
 // 隐藏模态框
 function hideModal() {
     document.getElementById('modal').classList.remove('show');
+    // 重置确认按钮样式
+    const confirmBtn = document.getElementById('modalConfirm');
+    if (confirmBtn) {
+        confirmBtn.className = 'btn btn-primary';
+        confirmBtn.innerHTML = '确定';
+    }
 }
 
 // 格式化时间

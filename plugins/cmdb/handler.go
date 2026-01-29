@@ -37,10 +37,12 @@ func (h *HostHandler) List(c *gin.Context) {
 
 // Create 创建主机
 func (h *HostHandler) Create(c *gin.Context) {
-	// 定义请求结构，包含 group_name
+	// 定义请求结构，包含 group_name 和 凭据信息
 	var req struct {
 		Host
 		GroupName string `json:"group_name"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
 	}
 	
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -50,11 +52,25 @@ func (h *HostHandler) Create(c *gin.Context) {
 
 	host := req.Host
 	
-	// 处理分组
-	if req.GroupName != "" {
-		var group HostGroup
-		if err := h.db.FirstOrCreate(&group, HostGroup{Name: req.GroupName}).Error; err == nil {
-			host.GroupID = group.ID
+	// 1. 处理分组 (默认分组)
+	if req.GroupName == "" {
+		req.GroupName = "Default"
+	}
+	var group HostGroup
+	if err := h.db.FirstOrCreate(&group, HostGroup{Name: req.GroupName}).Error; err == nil {
+		host.GroupID = group.ID
+	}
+
+	// 2. 处理凭据 (自动创建)
+	if req.Username != "" {
+		cred := Credential{
+			Name:     host.Name + "-cred",
+			Type:     "password",
+			Username: req.Username,
+			Password: req.Password,
+		}
+		if err := h.db.Create(&cred).Error; err == nil {
+			host.CredentialID = cred.ID
 		}
 	}
 
@@ -85,9 +101,44 @@ func (h *HostHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := c.ShouldBindJSON(&host); err != nil {
+	var req struct {
+		Host
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
+	}
+
+	// 更新基本字段
+	host.Name = req.Name
+	host.IP = req.IP
+	host.Port = req.Port
+	host.OS = req.OS
+	// host.Description = req.Description // 如果需要支持更多字段
+
+	// 更新或创建凭据
+	if req.Username != "" {
+		if host.CredentialID != "" {
+			// 更新现有凭据
+			h.db.Model(&Credential{}).Where("id = ?", host.CredentialID).Updates(map[string]interface{}{
+				"username": req.Username,
+				"password": req.Password,
+			})
+		} else {
+			// 创建新凭据
+			cred := Credential{
+				Name:     host.Name + "-cred",
+				Type:     "password",
+				Username: req.Username,
+				Password: req.Password,
+			}
+			if err := h.db.Create(&cred).Error; err == nil {
+				host.CredentialID = cred.ID
+			}
+		}
 	}
 
 	if err := h.db.Save(&host).Error; err != nil {
