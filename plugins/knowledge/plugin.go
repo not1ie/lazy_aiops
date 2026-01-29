@@ -3,7 +3,6 @@ package knowledge
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -32,11 +31,122 @@ func (p *KnowledgePlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
 	p.cfg = cfg
 	
-	p.service = NewKnowledgeService(c.DB, c)
+p.service = NewKnowledgeService(c.DB, c)
 	return nil
 }
 
-// ... (Start/Stop/Migrate remain same)
+func (p *KnowledgePlugin) Start() error { return nil }
+func (p *KnowledgePlugin) Stop() error  { return nil }
+
+func (p *KnowledgePlugin) Migrate() error {
+	return p.core.DB.AutoMigrate(&Document{})
+}
+
+func (p *KnowledgePlugin) RegisterRoutes(g *gin.RouterGroup) {
+	h := &KnowledgeHandler{
+		db:      p.core.DB,
+		service: p.service,
+	}
+
+	// 文档管理
+	g.GET("/docs", h.ListDocs)
+	g.POST("/docs", h.CreateDoc)
+	g.GET("/docs/:id", h.GetDoc)
+	g.PUT("/docs/:id", h.UpdateDoc)
+	g.DELETE("/docs/:id", h.DeleteDoc)
+
+	// 智能问答
+	g.POST("/ask", h.Ask)
+}
+
+// Handler
+type KnowledgeHandler struct {
+	db      *gorm.DB
+	service *KnowledgeService
+}
+
+func (h *KnowledgeHandler) ListDocs(c *gin.Context) {
+	var docs []Document
+	query := h.db.Model(&Document{})
+	
+	if keyword := c.Query("keyword"); keyword != "" {
+		query = query.Where("title LIKE ? OR content LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if category := c.Query("category"); category != "" {
+		query = query.Where("category = ?", category)
+	}
+	
+	if err := query.Order("updated_at desc").Find(&docs).Error; err != nil {
+		c.JSON(500, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"code": 0, "data": docs})
+}
+
+func (h *KnowledgeHandler) CreateDoc(c *gin.Context) {
+	var doc Document
+	if err := c.ShouldBindJSON(&doc); err != nil {
+		c.JSON(400, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	doc.CreatedBy = c.GetString("username")
+	if err := h.db.Create(&doc).Error; err != nil {
+		c.JSON(500, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"code": 0, "data": doc})
+}
+
+func (h *KnowledgeHandler) GetDoc(c *gin.Context) {
+	var doc Document
+	if err := h.db.First(&doc, c.Param("id")).Error; err != nil {
+		c.JSON(404, gin.H{"code": 404, "message": "文档不存在"})
+		return
+	}
+	c.JSON(200, gin.H{"code": 0, "data": doc})
+}
+
+func (h *KnowledgeHandler) UpdateDoc(c *gin.Context) {
+	var doc Document
+	if err := h.db.First(&doc, c.Param("id")).Error; err != nil {
+		c.JSON(404, gin.H{"code": 404, "message": "文档不存在"})
+		return
+	}
+	
+	var updateData Document
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.JSON(400, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	
+doc.Title = updateData.Title
+doc.Content = updateData.Content
+doc.Tags = updateData.Tags
+doc.Category = updateData.Category
+	h.db.Save(&doc)
+	c.JSON(200, gin.H{"code": 0, "data": doc})
+}
+
+func (h *KnowledgeHandler) DeleteDoc(c *gin.Context) {
+	h.db.Delete(&Document{}, c.Param("id"))
+	c.JSON(200, gin.H{"code": 0, "message": "删除成功"})
+}
+
+func (h *KnowledgeHandler) Ask(c *gin.Context) {
+	var req QARequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	resp, err := h.service.Ask(context.Background(), req.Question)
+	if err != nil {
+		c.JSON(500, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"code": 0, "data": resp})
+}
 
 // KnowledgeService
 type KnowledgeService struct {
@@ -49,7 +159,6 @@ func NewKnowledgeService(db *gorm.DB, c *core.Core) *KnowledgeService {
 }
 
 func (s *KnowledgeService) Ask(ctx context.Context, question string) (*QAResponse, error) {
-	// 1. 简单检索
 	var docs []Document
 	keywords := strings.Fields(question)
 	query := s.db.Model(&Document{})
@@ -71,12 +180,10 @@ func (s *KnowledgeService) Ask(ctx context.Context, question string) (*QARespons
 		return nil, err
 	}
 	
-	// 2. 调用核心 AI 服务进行 RAG 总结
 	var answer string
 	if len(docs) == 0 {
 		answer = "抱歉，知识库中没有找到与您问题相关的文档。建议您添加相关 Runbook。"
 	} else {
-		// 构建 Prompt
 		contextStr := "以下是相关的知识库文档：\n"
 		for i, doc := range docs {
 			contextStr += fmt.Sprintf("文档%d [%s]:\n%s\n\n", i+1, doc.Title, doc.Content)

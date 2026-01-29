@@ -1,15 +1,13 @@
 package executor
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
-	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
@@ -191,41 +189,23 @@ func (h *ExecutorHandler) executeOnHost(execution *BatchExecution, host hostInfo
 	result.Status = 1
 	h.db.Save(&result)
 
-	// 建立SSH连接
-	client, err := h.connectSSH(host, execution.Timeout)
-	if err != nil {
-		result.Status = 3
-		result.Stderr = "连接失败: " + err.Error()
-		finishedAt := time.Now()
-		result.FinishedAt = &finishedAt
-		result.Duration = int(finishedAt.Sub(now).Seconds())
-		h.db.Save(&result)
-		return &result
+	// 使用核心 SSH 客户端
+	client := &core.SSHClient{
+		Host:     host.IP,
+		Port:     host.Port,
+		Username: host.Username,
+		Password: host.Password,
+		Key:      host.PrivateKey,
+		Timeout:  time.Duration(execution.Timeout) * time.Second,
 	}
-	defer client.Close()
 
-	// 执行命令
-	session, err := client.NewSession()
-	if err != nil {
-		result.Status = 3
-		result.Stderr = "创建会话失败: " + err.Error()
-		finishedAt := time.Now()
-		result.FinishedAt = &finishedAt
-		h.db.Save(&result)
-		return &result
-	}
-	defer session.Close()
-
-	var stdout, stderr bytes.Buffer
-	session.Stdout = &stdout
-	session.Stderr = &stderr
-
-	err = session.Run(execution.Content)
+	stdout, stderr, err := client.Execute(execution.Content)
+	
 	finishedAt := time.Now()
 	result.FinishedAt = &finishedAt
 	result.Duration = int(finishedAt.Sub(now).Seconds())
-	result.Stdout = stdout.String()
-	result.Stderr = stderr.String()
+	result.Stdout = stdout
+	result.Stderr = stderr
 
 	if err != nil {
 		result.Status = 3
@@ -241,39 +221,7 @@ func (h *ExecutorHandler) executeOnHost(execution *BatchExecution, host hostInfo
 	return &result
 }
 
-func (h *ExecutorHandler) connectSSH(host hostInfo, timeout int) (*ssh.Client, error) {
-	var authMethods []ssh.AuthMethod
-
-	if host.Password != "" {
-		authMethods = append(authMethods, ssh.Password(host.Password))
-	}
-	if host.PrivateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(host.PrivateKey))
-		if err == nil {
-			authMethods = append(authMethods, ssh.PublicKeys(signer))
-		}
-	}
-
-	config := &ssh.ClientConfig{
-		User:            host.Username,
-		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Duration(timeout) * time.Second,
-	}
-
-	addr := fmt.Sprintf("%s:%d", host.IP, host.Port)
-	conn, err := net.DialTimeout("tcp", addr, config.Timeout)
-	if err != nil {
-		return nil, err
-	}
-
-	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
-	if err != nil {
-		return nil, err
-	}
-
-	return ssh.NewClient(c, chans, reqs), nil
-}
+// 移除旧的 connectSSH 方法
 
 // ListExecutions 执行列表
 func (h *ExecutorHandler) ListExecutions(c *gin.Context) {

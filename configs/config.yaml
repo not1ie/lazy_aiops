@@ -84,5 +84,7 @@ plugins:
   knowledge:
     enabled: true
     config:
-      # 可选：复用 ai 插件的 key
       api_key: ""
+  # 故障自愈
+  remediation:
+    enabled: true

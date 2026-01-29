@@ -320,6 +320,9 @@ async function loadCurrentPage() {
             case 'task':
                 await loadTask();
                 break;
+            case 'remediation':
+                await loadRemediation();
+                break;
             case 'workflow':
                 await loadWorkflow();
                 break;
@@ -520,6 +523,10 @@ async function loadDomain() {
 
 async function loadTask() {
     document.getElementById('taskPage').innerHTML = '<div class="empty-state"><i class="fas fa-tasks"></i><p>任务调度功能开发中...</p></div>';
+}
+
+async function loadRemediation() {
+    document.getElementById('remediationPage').innerHTML = '<div class="empty-state"><i class="fas fa-magic"></i><p>故障自愈功能开发中...</p></div>';
 }
 
 async function loadWorkflow() {

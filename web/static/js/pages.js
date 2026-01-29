@@ -129,64 +129,91 @@ function showAddHostModal() {
 
 // ==================== 任务调度 ====================
 async function loadTask() {
+// ... (existing loadTask)
+}
+
+// ==================== 故障自愈 ====================
+async function loadRemediation() {
     try {
-        const response = await apiRequest('/task/tasks');
+        const response = await apiRequest('/remediation/logs');
         
         const html = `
             <div class="page-header">
                 <h1 class="page-title">
-                    <i class="fas fa-tasks"></i>
-                    任务调度
+                    <i class="fas fa-magic"></i>
+                    故障自愈
                 </h1>
-                <p class="page-description">管理定时任务和脚本执行</p>
+                <p class="page-description">自动检测告警并执行预定义的恢复脚本</p>
             </div>
 
-            <div class="toolbar">
-                <div class="toolbar-left">
-                    <button class="btn btn-primary" onclick="showAddTaskModal()">
-                        <i class="fas fa-plus"></i> 创建任务
-                    </button>
-                    <button class="btn btn-secondary" onclick="loadTask()">
-                        <i class="fas fa-sync-alt"></i> 刷新
-                    </button>
+            <div class="stats-grid">
+                <div class="stat-card success">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" id="remSuccessCount">0</div>
+                            <div class="stat-label">自愈成功</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value" id="remRunningCount">0</div>
+                            <div class="stat-label">正在处理</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-spinner fa-spin"></i>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">自愈执行记录</h3>
+                    <button class="btn btn-secondary btn-sm" onclick="loadRemediation()">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                </div>
                 <div class="card-body">
                     <div class="table-container">
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th>任务名称</th>
-                                    <th>Cron表达式</th>
+                                    <th>告警ID</th>
+                                    <th>目标</th>
                                     <th>状态</th>
-                                    <th>下次执行</th>
+                                    <th>执行动作</th>
+                                    <th>开始时间</th>
+                                    <th>持续时间</th>
                                     <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${response.code === 0 && response.data && response.data.length > 0 ?
-                                    response.data.map(task => `
+                                    response.data.map(log => `
                                         <tr>
-                                            <td><strong>${task.name}</strong></td>
-                                            <td><code>${task.cron || '-'}</code></td>
-                                            <td><span class="badge badge-${task.enabled ? 'success' : 'secondary'}">${task.enabled ? '启用' : '禁用'}</span></td>
-                                            <td>${formatTime(task.next_run)}</td>
+                                            <td><code style="font-size: 11px;">${log.alert_id.substring(0, 8)}...</code></td>
+                                            <td>${log.target}</td>
                                             <td>
-                                                <button class="btn btn-primary btn-sm" onclick="runTask('${task.id}')">
-                                                    <i class="fas fa-play"></i>
-                                                </button>
-                                                <button class="btn btn-secondary btn-sm" onclick="editTask('${task.id}')">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
-                                                <button class="btn btn-danger btn-sm" onclick="deleteTask('${task.id}')">
-                                                    <i class="fas fa-trash"></i>
+                                                <span class="badge badge-${log.status === 'success' ? 'success' : (log.status === 'running' ? 'warning' : 'danger')}">
+                                                    ${log.status === 'success' ? '成功' : (log.status === 'running' ? '处理中' : '失败')}
+                                                </span>
+                                            </td>
+                                            <td><code style="font-size: 11px;">${log.action.substring(0, 20)}${log.action.length > 20 ? '...' : ''}</code></td>
+                                            <td>${formatTime(log.started_at)}</td>
+                                            <td>${log.duration}s</td>
+                                            <td>
+                                                <button class="btn btn-secondary btn-sm" onclick="viewRemediationDetail('${log.id}')">
+                                                    <i class="fas fa-info-circle"></i> 详情
                                                 </button>
                                             </td>
                                         </tr>
                                     `).join('') :
-                                    '<tr><td colspan="5" class="text-center">暂无任务</td></tr>'
+                                    '<tr><td colspan="7" class="text-center">暂无自愈记录</td></tr>'
                                 }
                             </tbody>
                         </table>
@@ -195,9 +222,51 @@ async function loadTask() {
             </div>
         `;
 
-        document.getElementById('taskPage').innerHTML = html;
+        document.getElementById('remediationPage').innerHTML = html;
+        
+        // 更新统计
+        if (response.data) {
+            const success = response.data.filter(l => l.status === 'success').length;
+            const running = response.data.filter(l => l.status === 'running').length;
+            document.getElementById('remSuccessCount').textContent = success;
+            document.getElementById('remRunningCount').textContent = running;
+        }
     } catch (error) {
-        console.error('加载任务失败:', error);
+        console.error('加载自愈数据失败:', error);
+    }
+}
+
+async function viewRemediationDetail(id) {
+    try {
+        showLoading();
+        const response = await apiRequest(`/remediation/logs/${id}`);
+        hideLoading();
+        
+        if (response.code === 0) {
+            const log = response.data;
+            const body = `
+                <div style="font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; max-height: 400px; overflow-y: auto;">
+                    <div style="color: #569cd6; margin-bottom: 10px;"># 自愈详情 [ID: ${log.id}]</div>
+                    <div style="margin-bottom: 5px;"><span style="color: #9cdcfe;">状态:</span> ${log.status}</div>
+                    <div style="margin-bottom: 5px;"><span style="color: #9cdcfe;">目标:</span> ${log.target}</div>
+                    <div style="margin-bottom: 10px;"><span style="color: #9cdcfe;">动作:</span><br>${log.action}</div>
+                    
+                    <div style="border-top: 1px solid #333; margin: 10px 0; padding-top: 10px;">
+                        <span style="color: #ce9178;">STDOUT:</span><br>
+                        ${log.stdout || '(无输出)'}
+                    </div>
+                    ${log.stderr ? `
+                    <div style="color: #f44747; margin-top: 10px;">
+                        <span>STDERR:</span><br>
+                        ${log.stderr}
+                    </div>` : ''}
+                </div>
+            `;
+            showModal('自愈执行结果', body);
+        }
+    } catch (error) {
+        hideLoading();
+        console.error('获取自愈详情失败:', error);
     }
 }
 

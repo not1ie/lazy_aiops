@@ -1,6 +1,9 @@
 package alert
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/internal/plugin"
@@ -31,6 +34,27 @@ func (p *AlertPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 		interval = v
 	}
 	p.aggregator = NewAggregator(c.DB, interval)
+
+	// 设置 AI 分析器
+	p.aggregator.SetAIAnalyzer(func(alerts []*Alert) string {
+		if len(alerts) == 0 {
+			return ""
+		}
+		var prompt strings.Builder
+		prompt.WriteString("你是一个专业的运维专家。请分析以下聚合在一起的告警事件，找出它们的共同点、可能的根本原因，并给出排查建议。\n\n告警列表：\n")
+		for i, a := range alerts {
+			prompt.WriteString(fmt.Sprintf("%d. [%s] %s - 目标: %s, 指标: %s, 当前值: %s\n", 
+				i+1, a.Severity, a.RuleName, a.Target, a.Metric, a.Value))
+		}
+		prompt.WriteString("\n请以简练的中文回答。")
+
+		analysis, _, err := p.core.AI.CallSimple(prompt.String())
+		if err != nil {
+			return "AI 分析失败: " + err.Error()
+		}
+		return analysis
+	})
+
 	return nil
 }
 
