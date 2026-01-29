@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lazy Auto Ops - AI驱动的运维平台</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- 登录页面 -->
+    <div id="loginPage" class="login-page active">
+        <div class="login-container">
+            <div class="login-box">
+                <div class="login-header">
+                    <div class="logo-icon">
+                        <i class="fas fa-rocket"></i>
+                    </div>
+                    <h1>Lazy Auto Ops</h1>
+                    <p>AI驱动的轻量级运维平台</p>
+                </div>
+                <form id="loginForm">
+                    <div class="input-group">
+                        <label>用户名</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="username" placeholder="请输入用户名" required autocomplete="username">
+                            <i class="fas fa-user"></i>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>密码</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="password" placeholder="请输入密码" required autocomplete="current-password">
+                            <i class="fas fa-lock"></i>
+                        </div>
+                    </div>
+                    <div class="remember-forgot">
+                        <label>
+                            <input type="checkbox" id="rememberMe">
+                            记住我
+                        </label>
+                    </div>
+                    <button type="submit" class="btn-login" id="loginBtn">
+                        <i class="fas fa-sign-in-alt"></i>
+                        <span>登录</span>
+                    </button>
+                    <div id="loginError" class="error-message">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span id="loginErrorText">登录失败</span>
+                    </div>
+                </form>
+                <div class="login-footer">
+                    <p>默认测试账号</p>
+                    <div class="default-account">
+                        <i class="fas fa-info-circle"></i>
+                        admin / admin123
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主页面 -->
+    <div id="mainPage" class="main-page">
+        <!-- 顶部导航栏 -->
+        <header class="top-navbar">
+            <div class="navbar-left">
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="logo">
+                    <i class="fas fa-rocket"></i>
+                    <span>Lazy Auto Ops</span>
+                </div>
+            </div>
+            <div class="navbar-right">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" placeholder="搜索功能...">
+                </div>
+                <div class="user-menu">
+                    <div class="user-info">
+                        <i class="fas fa-user-circle"></i>
+                        <span id="userName">Admin</span>
+                    </div>
+                    <button id="logoutBtn" class="btn-logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- 侧边栏 -->
+        <aside class="sidebar" id="sidebar">
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">概览</div>
+                    <a href="#" class="nav-item active" data-page="dashboard">
+                        <i class="fas fa-home"></i>
+                        <span>仪表板</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">资产管理</div>
+                    <a href="#" class="nav-item" data-page="cmdb">
+                        <i class="fas fa-server"></i>
+                        <span>CMDB</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="k8s">
+                        <i class="fab fa-docker"></i>
+                        <span>Kubernetes</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">监控告警</div>
+                    <a href="#" class="nav-item" data-page="monitor">
+                        <i class="fas fa-chart-line"></i>
+                        <span>监控中心</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="alert">
+                        <i class="fas fa-bell"></i>
+                        <span>告警管理</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="domain">
+                        <i class="fas fa-globe"></i>
+                        <span>域名监控</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">自动化</div>
+                    <a href="#" class="nav-item" data-page="task">
+                        <i class="fas fa-tasks"></i>
+                        <span>任务调度</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="workflow">
+                        <i class="fas fa-project-diagram"></i>
+                        <span>工作流</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="ansible">
+                        <i class="fas fa-cogs"></i>
+                        <span>Ansible</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="executor">
+                        <i class="fas fa-terminal"></i>
+                        <span>批量执行</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">CI/CD</div>
+                    <a href="#" class="nav-item" data-page="cicd">
+                        <i class="fas fa-code-branch"></i>
+                        <span>流水线</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="gitops">
+                        <i class="fab fa-git-alt"></i>
+                        <span>GitOps</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">配置管理</div>
+                    <a href="#" class="nav-item" data-page="nacos">
+                        <i class="fas fa-file-code"></i>
+                        <span>Nacos</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">AI能力</div>
+                    <a href="#" class="nav-item" data-page="ai">
+                        <i class="fas fa-robot"></i>
+                        <span>AI助手</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">其他</div>
+                    <a href="#" class="nav-item" data-page="workorder">
+                        <i class="fas fa-clipboard-list"></i>
+                        <span>工单管理</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="oncall">
+                        <i class="fas fa-user-clock"></i>
+                        <span>值班管理</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="cost">
+                        <i class="fas fa-dollar-sign"></i>
+                        <span>成本分析</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="topology">
+                        <i class="fas fa-sitemap"></i>
+                        <span>服务拓扑</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content" id="mainContent">
+            <!-- 仪表板 -->
+            <div id="dashboardPage" class="page-content active"></div>
+            
+            <!-- CMDB -->
+            <div id="cmdbPage" class="page-content"></div>
+            
+            <!-- K8s -->
+            <div id="k8sPage" class="page-content"></div>
+            
+            <!-- 监控 -->
+            <div id="monitorPage" class="page-content"></div>
+            
+            <!-- 告警 -->
+            <div id="alertPage" class="page-content"></div>
+            
+            <!-- 域名 -->
+            <div id="domainPage" class="page-content"></div>
+            
+            <!-- 任务 -->
+            <div id="taskPage" class="page-content"></div>
+            
+            <!-- 工作流 -->
+            <div id="workflowPage" class="page-content"></div>
+            
+            <!-- Ansible -->
+            <div id="ansiblePage" class="page-content"></div>
+            
+            <!-- 批量执行 -->
+            <div id="executorPage" class="page-content"></div>
+            
+            <!-- CI/CD -->
+            <div id="cicdPage" class="page-content"></div>
+            
+            <!-- GitOps -->
+            <div id="gitopsPage" class="page-content"></div>
+            
+            <!-- Nacos -->
+            <div id="nacosPage" class="page-content"></div>
+            
+            <!-- AI -->
+            <div id="aiPage" class="page-content"></div>
+            
+            <!-- 工单 -->
+            <div id="workorderPage" class="page-content"></div>
+            
+            <!-- 值班 -->
+            <div id="oncallPage" class="page-content"></div>
+            
+            <!-- 成本 -->
+            <div id="costPage" class="page-content"></div>
+            
+            <!-- 拓扑 -->
+            <div id="topologyPage" class="page-content"></div>
+        </main>
+    </div>
+
+    <!-- 加载提示 -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>加载中...</p>
+        </div>
+    </div>
+
+    <!-- 通用模态框 -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">标题</h3>
+                <button class="modal-close" id="modalClose">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                内容
+            </div>
+            <div class="modal-footer" id="modalFooter">
+                <button class="btn btn-secondary" id="modalCancel">取消</button>
+                <button class="btn btn-primary" id="modalConfirm">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/pages.js"></script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+/* ==================== Apple风格设计系统 ==================== */
+
+:root {
+    /* Apple配色 - 深色模式 */
+    --apple-bg-primary: #000000;
+    --apple-bg-secondary: #1c1c1e;
+    --apple-bg-tertiary: #2c2c2e;
+    --apple-bg-elevated: #3a3a3c;
+    
+    --apple-text-primary: #ffffff;
+    --apple-text-secondary: #98989d;
+    --apple-text-tertiary: #636366;
+    
+    --apple-accent: #0a84ff;
+    --apple-accent-hover: #409cff;
+    --apple-success: #30d158;
+    --apple-warning: #ff9f0a;
+    --apple-danger: #ff453a;
+    
+    /* Apple字体 */
+    --apple-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif;
+    --apple-font-mono: "SF Mono", Monaco, "Courier New", monospace;
+    
+    /* Apple间距 */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+    --space-2xl: 48px;
+    
+    /* Apple圆角 */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --radius-full: 9999px;
+    
+    /* Apple阴影 */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+    
+    /* Apple动画 */
+    --ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
+    --ease-decelerate: cubic-bezier(0.0, 0.0, 0.2, 1);
+    --ease-accelerate: cubic-bezier(0.4, 0.0, 1, 1);
+    --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--apple-font);
+    background: var(--apple-bg-primary);
+    color: var(--apple-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* 毛玻璃效果 */
+.glass {
+    background: rgba(28, 28, 30, 0.7);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* 动画 */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.fade-in { animation: fadeIn 0.5s var(--ease-standard); }
+.slide-in { animation: slideIn 0.5s var(--ease-standard); }
+.scale-in { animation: scaleIn 0.4s var(--ease-spring); }

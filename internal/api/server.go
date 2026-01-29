@@ -1,0 +1,137 @@
+package api
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/internal/config"
+	"github.com/lazyautoops/lazy-auto-ops/internal/core"
+	"github.com/lazyautoops/lazy-auto-ops/internal/plugin"
+)
+
+type Server struct {
+	config  *config.Config
+	core    *core.Core
+	pm      *plugin.Manager
+	engine  *gin.Engine
+}
+
+func NewServer(cfg *config.Config, c *core.Core, pm *plugin.Manager) *Server {
+	gin.SetMode(cfg.Server.Mode)
+	engine := gin.New()
+	engine.Use(gin.Recovery(), gin.Logger(), CORSMiddleware())
+
+	return &Server{
+		config: cfg,
+		core:   c,
+		pm:     pm,
+		engine: engine,
+	}
+}
+
+func (s *Server) Run() error {
+	s.setupRoutes()
+	return s.engine.Run(":" + s.config.Server.Port)
+}
+
+func (s *Server) setupRoutes() {
+	// 静态文件服务
+	s.engine.StaticFile("/", "./web/static/index.html")
+	s.engine.Static("/static", "./web/static")
+
+	// 健康检查
+	s.engine.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// API v1
+	v1 := s.engine.Group("/api/v1")
+
+	// 公开接口
+	s.setupPublicRoutes(v1)
+
+	// 需要认证的接口
+	auth := v1.Group("")
+	auth.Use(AuthMiddleware(s.core.Auth))
+	s.setupAuthRoutes(auth)
+
+	// 注册插件路由
+	for _, p := range s.pm.GetLoadedPlugins() {
+		pluginGroup := auth.Group("/" + p.Name())
+		p.RegisterRoutes(pluginGroup)
+	}
+}
+
+func (s *Server) setupPublicRoutes(g *gin.RouterGroup) {
+	// 登录
+	g.POST("/login", func(c *gin.Context) {
+		var req core.LoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+			return
+		}
+
+		resp, err := s.core.Auth.Login(&req)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": resp})
+	})
+
+	// 系统信息
+	g.GET("/system/info", func(c *gin.Context) {
+		plugins := make([]gin.H, 0)
+		for _, p := range s.pm.GetLoadedPlugins() {
+			plugins = append(plugins, gin.H{
+				"name":        p.Name(),
+				"version":     p.Version(),
+				"description": p.Description(),
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"name":    "Lazy Auto Ops",
+				"version": "1.0.0",
+				"plugins": plugins,
+			},
+		})
+	})
+}
+
+func (s *Server) setupAuthRoutes(g *gin.RouterGroup) {
+	// 获取当前用户信息
+	g.GET("/user/info", func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		user, err := s.core.Auth.GetUserByID(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "获取用户信息失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": user})
+	})
+
+	// 插件列表
+	g.GET("/plugins", func(c *gin.Context) {
+		available := s.pm.ListAvailable()
+		loaded := make([]gin.H, 0)
+		for _, p := range s.pm.GetLoadedPlugins() {
+			loaded = append(loaded, gin.H{
+				"name":        p.Name(),
+				"version":     p.Version(),
+				"description": p.Description(),
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"available": available,
+				"loaded":    loaded,
+			},
+		})
+	})
+}

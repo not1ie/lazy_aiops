@@ -1,0 +1,250 @@
+package alert
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+type AlertHandler struct {
+	db         *gorm.DB
+	aggregator *Aggregator
+	notifier   func(channelID, title, content string) error
+}
+
+func NewAlertHandler(db *gorm.DB, aggregator *Aggregator) *AlertHandler {
+	return &AlertHandler{db: db, aggregator: aggregator}
+}
+
+func (h *AlertHandler) SetNotifier(notifier func(channelID, title, content string) error) {
+	h.notifier = notifier
+}
+
+// ListRules 规则列表
+func (h *AlertHandler) ListRules(c *gin.Context) {
+	var rules []AlertRule
+	if err := h.db.Find(&rules).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": rules})
+}
+
+// CreateRule 创建规则
+func (h *AlertHandler) CreateRule(c *gin.Context) {
+	var rule AlertRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Create(&rule).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": rule})
+}
+
+// UpdateRule 更新规则
+func (h *AlertHandler) UpdateRule(c *gin.Context) {
+	id := c.Param("id")
+	var rule AlertRule
+	if err := h.db.First(&rule, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "规则不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&rule).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": rule})
+}
+
+// DeleteRule 删除规则
+func (h *AlertHandler) DeleteRule(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&AlertRule{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ListAlerts 告警列表
+func (h *AlertHandler) ListAlerts(c *gin.Context) {
+	var alerts []Alert
+	query := h.db.Order("fired_at DESC")
+
+	if status := c.Query("status"); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if severity := c.Query("severity"); severity != "" {
+		query = query.Where("severity = ?", severity)
+	}
+	if target := c.Query("target"); target != "" {
+		query = query.Where("target LIKE ?", "%"+target+"%")
+	}
+
+	if err := query.Limit(200).Find(&alerts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": alerts})
+}
+
+// GetAlert 获取告警详情
+func (h *AlertHandler) GetAlert(c *gin.Context) {
+	id := c.Param("id")
+	var alert Alert
+	if err := h.db.First(&alert, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "告警不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": alert})
+}
+
+// AckAlert 确认告警
+func (h *AlertHandler) AckAlert(c *gin.Context) {
+	id := c.Param("id")
+	var alert Alert
+	if err := h.db.First(&alert, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "告警不存在"})
+		return
+	}
+
+	now := time.Now()
+	h.db.Model(&alert).Updates(map[string]interface{}{
+		"status":   1,
+		"acked_at": now,
+		"acked_by": c.GetString("username"),
+	})
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "确认成功"})
+}
+
+// ResolveAlert 解决告警
+func (h *AlertHandler) ResolveAlert(c *gin.Context) {
+	id := c.Param("id")
+	var alert Alert
+	if err := h.db.First(&alert, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "告警不存在"})
+		return
+	}
+
+	h.aggregator.Resolve(alert.Fingerprint)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已解决"})
+}
+
+// ReceiveAlert 接收告警(Webhook)
+func (h *AlertHandler) ReceiveAlert(c *gin.Context) {
+	var req struct {
+		RuleID    string            `json:"rule_id"`
+		RuleName  string            `json:"rule_name"`
+		Target    string            `json:"target"`
+		Metric    string            `json:"metric"`
+		Value     string            `json:"value"`
+		Threshold string            `json:"threshold"`
+		Severity  string            `json:"severity"`
+		Labels    map[string]string `json:"labels"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	labelsJSON, _ := json.Marshal(req.Labels)
+	alert := &Alert{
+		RuleID:    req.RuleID,
+		RuleName:  req.RuleName,
+		Target:    req.Target,
+		Metric:    req.Metric,
+		Value:     req.Value,
+		Threshold: req.Threshold,
+		Severity:  req.Severity,
+		Status:    0,
+		FiredAt:   time.Now(),
+		Labels:    string(labelsJSON),
+	}
+
+	// 通过聚合器处理
+	processedAlert, shouldNotify := h.aggregator.Process(alert)
+
+	// 发送通知
+	if shouldNotify && h.notifier != nil {
+		summary := h.aggregator.GenerateSummary(processedAlert.GroupKey)
+		title := "🚨 告警通知: " + processedAlert.RuleName
+		// TODO: 获取规则关联的通知组
+		go h.notifier("", title, summary)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": processedAlert})
+}
+
+// GetStats 获取统计
+func (h *AlertHandler) GetStats(c *gin.Context) {
+	// 聚合器统计
+	aggStats := h.aggregator.GetStats()
+
+	// 数据库统计
+	var totalAlerts, activeAlerts, resolvedAlerts int64
+	h.db.Model(&Alert{}).Count(&totalAlerts)
+	h.db.Model(&Alert{}).Where("status = 0").Count(&activeAlerts)
+	h.db.Model(&Alert{}).Where("status = 2").Count(&resolvedAlerts)
+
+	// 今日统计
+	today := time.Now().Truncate(24 * time.Hour)
+	var todayAlerts int64
+	h.db.Model(&Alert{}).Where("fired_at >= ?", today).Count(&todayAlerts)
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"total":          totalAlerts,
+			"active":         activeAlerts,
+			"resolved":       resolvedAlerts,
+			"today":          todayAlerts,
+			"aggregation":    aggStats,
+		},
+	})
+}
+
+// ListSilences 静默列表
+func (h *AlertHandler) ListSilences(c *gin.Context) {
+	var silences []AlertSilence
+	if err := h.db.Find(&silences).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": silences})
+}
+
+// CreateSilence 创建静默
+func (h *AlertHandler) CreateSilence(c *gin.Context) {
+	var silence AlertSilence
+	if err := c.ShouldBindJSON(&silence); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	silence.CreatedBy = c.GetString("username")
+	if err := h.db.Create(&silence).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": silence})
+}
+
+// DeleteSilence 删除静默
+func (h *AlertHandler) DeleteSilence(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&AlertSilence{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}

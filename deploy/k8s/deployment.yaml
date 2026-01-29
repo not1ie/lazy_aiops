@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lazy-auto-ops
+  labels:
+    app: lazy-auto-ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lazy-auto-ops
+  template:
+    metadata:
+      labels:
+        app: lazy-auto-ops
+    spec:
+      containers:
+      - name: lazy-auto-ops
+        image: lazy-auto-ops:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: LAO_SERVER_MODE
+          value: "release"
+        - name: LAO_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: lazy-auto-ops-secret
+              key: jwt-secret
+        volumeMounts:
+        - name: config
+          mountPath: /app/configs/config.yaml
+          subPath: config.yaml
+        - name: data
+          mountPath: /app/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: config
+        configMap:
+          name: lazy-auto-ops-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: lazy-auto-ops-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lazy-auto-ops
+spec:
+  selector:
+    app: lazy-auto-ops
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lazy-auto-ops-config
+data:
+  config.yaml: |
+    server:
+      port: "8080"
+      mode: "release"
+    database:
+      driver: "sqlite"
+      dsn: "data/lazy-auto-ops.db"
+    jwt:
+      expire: 24
+    plugins:
+      cmdb:
+        enabled: true
+      monitor:
+        enabled: true
+      task:
+        enabled: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lazy-auto-ops-secret
+type: Opaque
+stringData:
+  jwt-secret: "your-production-secret-key-change-me"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lazy-auto-ops-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

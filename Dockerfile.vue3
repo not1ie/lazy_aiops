@@ -1,0 +1,76 @@
+# 多阶段构建 - Vue3 + Go
+
+# 阶段1: 构建Vue3前端
+FROM node:18-alpine AS frontend
+
+WORKDIR /app/web-vue
+
+# 复制前端依赖文件
+COPY web-vue/package*.json ./
+
+# 安装依赖
+RUN npm install
+
+# 复制前端源码
+COPY web-vue/ ./
+
+# 构建前端
+RUN npm run build
+
+# 阶段2: 构建Go后端
+FROM golang:1.21-bullseye AS backend
+
+# 接收构建参数
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GO111MODULE=on
+
+# 配置 Go 代理
+ENV GOPROXY=${GOPROXY}
+ENV GO111MODULE=${GO111MODULE}
+ENV CGO_ENABLED=1
+
+WORKDIR /app
+
+# 安装依赖
+RUN apt-get update && apt-get install -y gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+
+# 复制Go依赖文件
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 复制源码
+COPY . .
+
+# 复制前端构建产物
+COPY --from=frontend /app/web-vue/dist ./web/static
+
+# 构建Go应用
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o lazy-auto-ops ./cmd/server
+
+# 阶段3: 运行阶段
+FROM debian:bullseye-slim
+
+WORKDIR /app
+
+# 安装运行时依赖
+RUN apt-get update && \
+    apt-get install -y ca-certificates tzdata && \
+    rm -rf /var/lib/apt/lists/*
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+
+# 复制二进制文件和资源
+COPY --from=backend /app/lazy-auto-ops .
+COPY --from=backend /app/configs ./configs
+COPY --from=backend /app/web ./web
+
+# 创建数据目录
+RUN mkdir -p data
+
+EXPOSE 8080
+
+CMD ["./lazy-auto-ops"]

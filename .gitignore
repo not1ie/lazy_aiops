@@ -1,0 +1,32 @@
+# Binaries
+bin/
+lazy-auto-ops
+
+# Data and Logs
+data/
+logs/
+*.log
+*.db
+*.sqlite
+
+# OS and Editor
+.DS_Store
+.idea/
+.vscode/
+._*
+
+# Node
+node_modules/
+dist/
+npm-debug.log
+yarn-error.log
+
+# Go
+go.work
+
+# Secrets and Local Configs
+configs/config.local.yaml
+.env
+
+# Temporary
+tmp/

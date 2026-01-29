@@ -1,0 +1,547 @@
+/* ==================== Apple风格设计系统 ==================== */
+
+:root {
+    /* Apple配色 - 深色模式 */
+    --apple-bg-primary: #000000;
+    --apple-bg-secondary: #1c1c1e;
+    --apple-bg-tertiary: #2c2c2e;
+    --apple-bg-elevated: #3a3a3c;
+    
+    --apple-text-primary: #ffffff;
+    --apple-text-secondary: #98989d;
+    --apple-text-tertiary: #636366;
+    
+    --apple-accent: #0a84ff;
+    --apple-accent-hover: #409cff;
+    --apple-success: #30d158;
+    --apple-warning: #ff9f0a;
+    --apple-danger: #ff453a;
+    
+    /* Apple字体 */
+    --apple-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif;
+    --apple-font-mono: "SF Mono", Monaco, "Courier New", monospace;
+    
+    /* Apple间距 */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+    --space-2xl: 48px;
+    --space-3xl: 64px;
+    
+    /* Apple圆角 */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --radius-2xl: 24px;
+    --radius-full: 9999px;
+    
+    /* Apple阴影 */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+    
+    /* Apple动画 */
+    --ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
+    --ease-decelerate: cubic-bezier(0.0, 0.0, 0.2, 1);
+    --ease-accelerate: cubic-bezier(0.4, 0.0, 1, 1);
+    --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* ==================== 全局样式 ==================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--apple-font);
+    background: var(--apple-bg-primary);
+    color: var(--apple-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==================== 毛玻璃效果 ==================== */
+.glass {
+    background: rgba(28, 28, 30, 0.7);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.glass-light {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* ==================== 卡片系统 ==================== */
+.apple-card {
+    background: var(--apple-bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    transition: all 0.3s var(--ease-standard);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.apple-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.apple-card-elevated {
+    background: var(--apple-bg-elevated);
+    box-shadow: var(--shadow-md);
+}
+
+/* ==================== 按钮系统 ==================== */
+.apple-btn {
+    padding: 10px 20px;
+    border-radius: var(--radius-full);
+    border: none;
+    font-family: var(--apple-font);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s var(--ease-standard);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.apple-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.apple-btn:active::before {
+    width: 300px;
+    height: 300px;
+}
+
+.apple-btn-primary {
+    background: var(--apple-accent);
+    color: white;
+}
+
+.apple-btn-primary:hover {
+    background: var(--apple-accent-hover);
+    transform: scale(1.02);
+}
+
+.apple-btn-primary:active {
+    transform: scale(0.98);
+}
+
+.apple-btn-secondary {
+    background: var(--apple-bg-tertiary);
+    color: var(--apple-text-primary);
+}
+
+.apple-btn-secondary:hover {
+    background: var(--apple-bg-elevated);
+}
+
+.apple-btn-ghost {
+    background: transparent;
+    color: var(--apple-accent);
+    border: 1px solid var(--apple-accent);
+}
+
+.apple-btn-ghost:hover {
+    background: rgba(10, 132, 255, 0.1);
+}
+
+/* ==================== 输入框系统 ==================== */
+.apple-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--apple-bg-tertiary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    color: var(--apple-text-primary);
+    font-family: var(--apple-font);
+    font-size: 15px;
+    transition: all 0.3s var(--ease-standard);
+}
+
+.apple-input:focus {
+    outline: none;
+    border-color: var(--apple-accent);
+    background: var(--apple-bg-elevated);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.1);
+}
+
+.apple-input::placeholder {
+    color: var(--apple-text-tertiary);
+}
+
+/* ==================== 动画系统 ==================== */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -1000px 0;
+    }
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.5s var(--ease-standard);
+}
+
+.slide-in {
+    animation: slideIn 0.5s var(--ease-standard);
+}
+
+.scale-in {
+    animation: scaleIn 0.4s var(--ease-spring);
+}
+
+/* ==================== 骨架屏 ==================== */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--apple-bg-secondary) 0%,
+        var(--apple-bg-tertiary) 50%,
+        var(--apple-bg-secondary) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: var(--radius-md);
+}
+
+.skeleton-text {
+    height: 16px;
+    margin-bottom: 8px;
+}
+
+.skeleton-title {
+    height: 24px;
+    width: 60%;
+    margin-bottom: 16px;
+}
+
+.skeleton-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+}
+
+/* ==================== 进度条 ==================== */
+.apple-progress {
+    width: 100%;
+    height: 4px;
+    background: var(--apple-bg-tertiary);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.apple-progress-bar {
+    height: 100%;
+    background: var(--apple-accent);
+    border-radius: var(--radius-full);
+    transition: width 0.3s var(--ease-standard);
+    position: relative;
+    overflow: hidden;
+}
+
+.apple-progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.3),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+}
+
+/* ==================== 标签系统 ==================== */
+.apple-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.apple-badge-primary {
+    background: rgba(10, 132, 255, 0.2);
+    color: var(--apple-accent);
+}
+
+.apple-badge-success {
+    background: rgba(48, 209, 88, 0.2);
+    color: var(--apple-success);
+}
+
+.apple-badge-warning {
+    background: rgba(255, 159, 10, 0.2);
+    color: var(--apple-warning);
+}
+
+.apple-badge-danger {
+    background: rgba(255, 69, 58, 0.2);
+    color: var(--apple-danger);
+}
+
+/* ==================== 分隔线 ==================== */
+.apple-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: var(--space-lg) 0;
+}
+
+/* ==================== 工具提示 ==================== */
+.apple-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.apple-tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    padding: 6px 12px;
+    background: var(--apple-bg-elevated);
+    color: var(--apple-text-primary);
+    font-size: 13px;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s var(--ease-standard);
+    box-shadow: var(--shadow-md);
+}
+
+.apple-tooltip:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-4px);
+}
+
+/* ==================== 开关按钮 ==================== */
+.apple-switch {
+    position: relative;
+    display: inline-block;
+    width: 51px;
+    height: 31px;
+}
+
+.apple-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.apple-switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--apple-bg-tertiary);
+    transition: 0.3s var(--ease-standard);
+    border-radius: var(--radius-full);
+}
+
+.apple-switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 27px;
+    width: 27px;
+    left: 2px;
+    bottom: 2px;
+    background: white;
+    transition: 0.3s var(--ease-spring);
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.apple-switch input:checked + .apple-switch-slider {
+    background: var(--apple-success);
+}
+
+.apple-switch input:checked + .apple-switch-slider:before {
+    transform: translateX(20px);
+}
+
+/* ==================== 下拉菜单 ==================== */
+.apple-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.apple-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    background: var(--apple-bg-secondary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    min-width: 200px;
+    opacity: 0;
+    transform: translateY(-10px);
+    pointer-events: none;
+    transition: all 0.3s var(--ease-standard);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+
+.apple-dropdown:hover .apple-dropdown-menu {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: all;
+}
+
+.apple-dropdown-item {
+    padding: 12px 16px;
+    color: var(--apple-text-primary);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: background 0.2s var(--ease-standard);
+}
+
+.apple-dropdown-item:hover {
+    background: var(--apple-bg-tertiary);
+}
+
+/* ==================== 通知系统 ==================== */
+.apple-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: var(--apple-bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    box-shadow: var(--shadow-xl);
+    min-width: 320px;
+    max-width: 400px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    animation: slideIn 0.5s var(--ease-spring);
+    z-index: 10000;
+}
+
+.apple-notification-success {
+    border-left: 4px solid var(--apple-success);
+}
+
+.apple-notification-warning {
+    border-left: 4px solid var(--apple-warning);
+}
+
+.apple-notification-danger {
+    border-left: 4px solid var(--apple-danger);
+}
+
+/* ==================== 加载动画 ==================== */
+.apple-spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--apple-accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ==================== 响应式 ==================== */
+@media (max-width: 768px) {
+    :root {
+        --space-lg: 16px;
+        --space-xl: 24px;
+        --space-2xl: 32px;
+    }
+    
+    .apple-card {
+        padding: var(--space-md);
+    }
+    
+    .apple-notification {
+        left: 20px;
+        right: 20px;
+        min-width: auto;
+    }
+}
+
+/* ==================== 深色模式优化 ==================== */
+@media (prefers-color-scheme: dark) {
+    /* 已经是深色模式，无需额外处理 */
+}
+
+/* ==================== 打印样式 ==================== */
+@media print {
+    .apple-card {
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+    
+    .apple-btn {
+        border: 1px solid #000;
+    }
+}

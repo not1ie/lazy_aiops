@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  lazy-auto-ops:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        - GOPROXY=https://goproxy.cn,direct
+        - GO111MODULE=on
+    container_name: lazy-auto-ops
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/configs/config.yaml:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - LAO_SERVER_MODE=release
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 可选: MySQL数据库
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: lazy-auto-ops-mysql
+  #   restart: unless-stopped
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: rootpassword
+  #     MYSQL_DATABASE: lazy_auto_ops
+  #     MYSQL_USER: lazyops
+  #     MYSQL_PASSWORD: lazyops123
+  #   volumes:
+  #     - mysql-data:/var/lib/mysql
+  #   ports:
+  #     - "3306:3306"
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+  # 可选: Redis缓存
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: lazy-auto-ops-redis
+  #   restart: unless-stopped
+  #   command: redis-server --requirepass redis123
+  #   volumes:
+  #     - redis-data:/data
+  #   ports:
+  #     - "6379:6379"
+
+  # 可选: 前端 (后续添加)
+  # lazy-auto-ops-web:
+  #   image: nginx:alpine
+  #   container_name: lazy-auto-ops-web
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ../../web/dist:/usr/share/nginx/html:ro
+  #   depends_on:
+  #     - lazy-auto-ops
+
+# volumes:
+#   mysql-data:
+#   redis-data:

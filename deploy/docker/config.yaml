@@ -1,0 +1,22 @@
+server:
+  port: "8080"
+  mode: "release"
+
+database:
+  driver: "sqlite"
+  dsn: "data/lazy-auto-ops.db"
+
+jwt:
+  secret: "your-production-secret-key-change-me"
+  expire: 24
+
+plugins:
+  cmdb:
+    enabled: true
+    config: {}
+  monitor:
+    enabled: true
+    config: {}
+  task:
+    enabled: true
+    config: {}
