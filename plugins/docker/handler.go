@@ -147,5 +147,5 @@ func (h *DockerHandler) getClient(dockerHostID string) (*core.SSHClient, error) 
 		Password: host.Credential.Password,
 		Key:      host.Credential.PrivateKey,
 		Timeout:  10 * time.Second,
-	},
+	}, nil
 }
