@@ -26,26 +26,7 @@ func (p *AIPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
 	p.cfg = cfg
 
-	// 从配置获取LLM设置
-	provider := "openai"
-	apiKey := ""
-	baseURL := ""
-	model := "gpt-3.5-turbo"
-
-	if v, ok := cfg["provider"].(string); ok {
-		provider = v
-	}
-	if v, ok := cfg["api_key"].(string); ok {
-		apiKey = v
-	}
-	if v, ok := cfg["base_url"].(string); ok {
-		baseURL = v
-	}
-	if v, ok := cfg["model"].(string); ok {
-		model = v
-	}
-
-	p.service = NewAIService(c.DB, provider, apiKey, baseURL, model)
+	p.service = NewAIService(c.DB, c)
 	return nil
 }
 

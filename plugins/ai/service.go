@@ -1,41 +1,23 @@
 package ai
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 
+	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"gorm.io/gorm"
 )
 
 type AIService struct {
-	db       *gorm.DB
-	provider string
-	apiKey   string
-	baseURL  string
-	model    string
+	db   *gorm.DB
+	core *core.Core
 }
 
-func NewAIService(db *gorm.DB, provider, apiKey, baseURL, model string) *AIService {
-	if baseURL == "" {
-		switch provider {
-		case "openai":
-			baseURL = "https://api.openai.com/v1"
-		case "azure":
-			// Azure需要自定义
-		case "ollama":
-			baseURL = "http://localhost:11434/api"
-		}
-	}
+func NewAIService(db *gorm.DB, c *core.Core) *AIService {
 	return &AIService{
-		db:       db,
-		provider: provider,
-		apiKey:   apiKey,
-		baseURL:  baseURL,
-		model:    model,
+		db:   db,
+		core: c,
 	}
 }
 
@@ -68,8 +50,18 @@ func (s *AIService) Chat(sessionID, userID, message, context string) (*ChatRespo
 	var history []ChatMessage
 	s.db.Where("session_id = ?", session.ID).Order("created_at").Limit(20).Find(&history)
 
-	// 调用LLM
-	reply, tokens, err := s.callLLM(history, context)
+	// 调用核心LLM服务
+	messages := make([]map[string]string, 0)
+	for _, msg := range history {
+		messages = append(messages, map[string]string{"role": msg.Role, "content": msg.Content})
+	}
+
+	systemPrompt := "你是Lazy Auto Ops运维平台的AI助手，专注于帮助用户解决运维问题、分析日志、诊断故障。请用中文回答。"
+	if context != "" {
+		systemPrompt += "\n\n上下文信息:\n" + context
+	}
+
+	reply, tokens, err := s.core.AI.CallLLM(systemPrompt, messages)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +97,7 @@ func (s *AIService) AnalyzeLogs(logs, context string) (*AnalyzeResponse, error) 
 - suggestions: 建议列表
 - severity: 整体严重程度 (critical/warning/info)`, logs, context)
 
-	reply, _, err := s.callLLMSimple(prompt)
+	reply, _, err := s.core.AI.CallSimple(prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +119,7 @@ func (s *AIService) AnalyzeError(errorMsg, stackTrace, context string) (*Analyze
 
 请以JSON格式返回分析结果。`, errorMsg, stackTrace, context)
 
-	reply, _, err := s.callLLMSimple(prompt)
+	reply, _, err := s.core.AI.CallSimple(prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +138,7 @@ func (s *AIService) SuggestFix(issue, context string) (string, error) {
 
 请给出详细的修复步骤和相关命令。`, issue, context)
 
-	reply, _, err := s.callLLMSimple(prompt)
+	reply, _, err := s.core.AI.CallSimple(prompt)
 	return reply, err
 }
 
@@ -164,94 +156,14 @@ func (s *AIService) SuggestOptimize(target, metrics, context string) (string, er
 
 请给出具体的优化建议和配置调整。`, target, metrics, context)
 
-	reply, _, err := s.callLLMSimple(prompt)
+	reply, _, err := s.core.AI.CallSimple(prompt)
 	return reply, err
 }
 
-// callAI 调用AI进行分析（用于日志分析）
+// callAI 内部辅助方法，调用AI进行分析
 func (s *AIService) callAI(prompt string) (string, error) {
-	reply, _, err := s.callLLMSimple(prompt)
+	reply, _, err := s.core.AI.CallSimple(prompt)
 	return reply, err
-}
-
-func (s *AIService) callLLM(history []ChatMessage, context string) (string, int, error) {
-	messages := make([]map[string]string, 0)
-
-	// 系统提示
-	systemPrompt := "你是Lazy Auto Ops运维平台的AI助手，专注于帮助用户解决运维问题、分析日志、诊断故障。请用中文回答。"
-	if context != "" {
-		systemPrompt += "\n\n上下文信息:\n" + context
-	}
-	messages = append(messages, map[string]string{"role": "system", "content": systemPrompt})
-
-	// 历史消息
-	for _, msg := range history {
-		messages = append(messages, map[string]string{"role": msg.Role, "content": msg.Content})
-	}
-
-	return s.doRequest(messages)
-}
-
-func (s *AIService) callLLMSimple(prompt string) (string, int, error) {
-	messages := []map[string]string{
-		{"role": "system", "content": "你是一个专业的运维工程师AI助手，请用中文回答。"},
-		{"role": "user", "content": prompt},
-	}
-	return s.doRequest(messages)
-}
-
-func (s *AIService) doRequest(messages []map[string]string) (string, int, error) {
-	if s.apiKey == "" {
-		// 没有配置API Key时返回模拟响应
-		return "AI服务未配置，请在配置文件中设置 api_key。\n\n示例配置:\n```yaml\nplugins:\n  ai:\n    enabled: true\n    config:\n      provider: openai\n      api_key: your-api-key\n      model: gpt-3.5-turbo\n```", 0, nil
-	}
-
-	reqBody := map[string]interface{}{
-		"model":    s.model,
-		"messages": messages,
-	}
-
-	jsonData, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequest("POST", s.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", 0, err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			TotalTokens int `json:"total_tokens"`
-		} `json:"usage"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", 0, err
-	}
-
-	if result.Error.Message != "" {
-		return "", 0, fmt.Errorf("API error: %s", result.Error.Message)
-	}
-
-	if len(result.Choices) == 0 {
-		return "", 0, fmt.Errorf("no response from AI")
-	}
-
-	return result.Choices[0].Message.Content, result.Usage.TotalTokens, nil
 }
 
 func (s *AIService) parseAnalyzeResponse(reply string) (*AnalyzeResponse, error) {
@@ -271,7 +183,8 @@ func (s *AIService) parseAnalyzeResponse(reply string) (*AnalyzeResponse, error)
 			Severity:    "info",
 			Suggestions: []string{},
 			Issues:      []Issue{},
-		}, nil
+		},
+		 nil
 	}
 	return &resp, nil
 }
