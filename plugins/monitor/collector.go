@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"gorm.io/gorm"
 )
 
@@ -294,32 +296,58 @@ func (c *Collector) collectNetwork() NetworkMetrics {
 
 // collectHosts 采集主机指标
 func (c *Collector) collectHosts() []HostMetrics {
-	// 从CMDB获取主机列表并采集指标
-	// 这里返回模拟数据
-	return []HostMetrics{
-		{
-			HostID:   "host-1",
-			Hostname: "web-01",
-			IP:       "192.168.1.10",
-			Status:   "online",
-			CPU:      45.0,
-			Memory:   62.0,
-			Disk:     38.0,
-			Uptime:   "15天",
-			LastSeen: time.Now(),
-		},
-		{
-			HostID:   "host-2",
-			Hostname: "web-02",
-			IP:       "192.168.1.11",
-			Status:   "online",
-			CPU:      38.0,
-			Memory:   55.0,
-			Disk:     42.0,
-			Uptime:   "15天",
-			LastSeen: time.Now(),
-		},
+	var hosts []cmdb.Host
+	if err := c.db.Find(&hosts).Error; err != nil {
+		return []HostMetrics{}
 	}
+
+	var metrics []HostMetrics
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for _, host := range hosts {
+		wg.Add(1)
+		go func(h cmdb.Host) {
+			defer wg.Done()
+			
+			// 探测主机是否在线 (TCP Ping)
+			start := time.Now()
+			status := "offline"
+			port := h.Port
+			if port == 0 {
+				port = 22
+			}
+			
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", h.IP, port), 2*time.Second)
+			if err == nil {
+				conn.Close()
+				status = "online"
+			}
+			
+			// 更新 CMDB 状态
+			newStatusInt := 0
+			if status == "online" {
+				newStatusInt = 1
+			}
+			if h.Status != newStatusInt {
+				c.db.Model(&h).Update("status", newStatusInt)
+			}
+
+			mu.Lock()
+			metrics = append(metrics, HostMetrics{
+				HostID:   h.ID,
+				Hostname: h.Name,
+				IP:       h.IP,
+				Status:   status,
+				Uptime:   time.Since(start).String(), // 这里暂时用探测耗时代替uptime
+				LastSeen: time.Now(),
+			})
+			mu.Unlock()
+		}(host)
+	}
+	
+	wg.Wait()
+	return metrics
 }
 
 // getCPUUsageLinux Linux系统CPU使用率
