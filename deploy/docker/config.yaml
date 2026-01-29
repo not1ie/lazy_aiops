@@ -1,22 +1,93 @@
 server:
   port: "8080"
-  mode: "release"
+  mode: "debug"
 
 database:
   driver: "sqlite"
   dsn: "data/lazy-auto-ops.db"
 
 jwt:
-  secret: "your-production-secret-key-change-me"
+  secret: "lazy-auto-ops-secret-change-me-in-production"
   expire: 24
 
 plugins:
+  # 资产管理
   cmdb:
     enabled: true
-    config: {}
+  # 监控
   monitor:
     enabled: true
-    config: {}
+  # 告警中心 - AI智能降噪
+  alert:
+    enabled: true
+    config:
+      aggregate_interval: 60
+  # 通知中心
+  notify:
+    enabled: true
+  # 任务调度
   task:
     enabled: true
-    config: {}
+  # K8s管理
+  k8s:
+    enabled: true
+  # AI运维助手
+  ai:
+    enabled: true
+    config:
+      provider: "openai"
+      api_key: ""
+      model: "gpt-3.5-turbo"
+  # GitOps
+  gitops:
+    enabled: true
+  # WebTerminal
+  terminal:
+    enabled: true
+  # 防火墙SNMP
+  firewall:
+    enabled: true
+  # 域名/SSL监控
+  domain:
+    enabled: true
+  # SQL审计
+  sqlaudit:
+    enabled: true
+  # 运维工单
+  workorder:
+    enabled: true
+  # 值班排班
+  oncall:
+    enabled: true
+  # 运维编排
+  workflow:
+    enabled: true
+  # 批量执行
+  executor:
+    enabled: true
+  # CI/CD集成
+  cicd:
+    enabled: true
+  # Ansible管理
+  ansible:
+    enabled: true
+  # Docker管理
+  docker:
+    enabled: true
+  # Nacos配置中心
+  nacos:
+    enabled: true
+  # 服务拓扑
+  topology:
+    enabled: true
+  # 成本分析
+  cost:
+    enabled: true
+  # AI知识库
+  knowledge:
+    enabled: true
+    config:
+      api_key: ""
+  # 故障自愈
+  remediation:
+    enabled: true
