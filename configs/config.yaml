@@ -71,6 +71,9 @@ plugins:
   # Ansible管理
   ansible:
     enabled: true
+  # Docker管理
+  docker:
+    enabled: true
   # Nacos配置中心
   nacos:
     enabled: true

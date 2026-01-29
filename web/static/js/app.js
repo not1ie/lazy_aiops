@@ -308,6 +308,9 @@ async function loadCurrentPage() {
             case 'k8s':
                 await loadK8s();
                 break;
+            case 'docker':
+                await loadDocker();
+                break;
             case 'monitor':
                 await loadMonitor();
                 break;
@@ -507,6 +510,10 @@ async function loadCMDB() {
 
 async function loadK8s() {
     document.getElementById('k8sPage').innerHTML = '<div class="empty-state"><i class="fab fa-docker"></i><p>Kubernetes 功能开发中...</p></div>';
+}
+
+async function loadDocker() {
+    document.getElementById('dockerPage').innerHTML = '<div class="empty-state"><i class="fab fa-docker"></i><p>Docker 功能加载中...</p></div>';
 }
 
 async function loadMonitor() {

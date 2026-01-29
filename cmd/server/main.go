@@ -15,6 +15,7 @@ import (
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/cicd"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/cost"
+	_ "github.com/lazyautoops/lazy-auto-ops/plugins/docker"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/domain"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/executor"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/firewall"

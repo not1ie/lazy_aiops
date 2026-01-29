@@ -29,7 +29,7 @@ WORKDIR /app
 
 # 安装运行时依赖
 RUN apt-get update && \
-    apt-get install -y ca-certificates tzdata && \
+    apt-get install -y ca-certificates tzdata ansible sshpass && \
     rm -rf /var/lib/apt/lists/*
 
 # 设置时区

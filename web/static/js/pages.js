@@ -332,6 +332,187 @@ function showAddTaskModal() {
     });
 }
 
+// ==================== Docker 管理 ====================
+async function loadDocker() {
+    try {
+        const response = await apiRequest('/docker/hosts');
+        
+        const html = `
+            <div class="page-header">
+                <h1 class="page-title">
+                    <i class="fab fa-docker"></i>
+                    Docker 管理
+                </h1>
+                <p class="page-description">远程管理 Docker 容器主机</p>
+            </div>
+
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <button class="btn btn-primary" onclick="showAddDockerHostModal()">
+                        <i class="fas fa-plus"></i> 添加主机
+                    </button>
+                    <button class="btn btn-secondary" onclick="loadDocker()">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>名称</th>
+                                    <th>状态</th>
+                                    <th>容器数</th>
+                                    <th>镜像数</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${response.code === 0 && response.data && response.data.length > 0 ?
+                                    response.data.map(host => `
+                                        <tr>
+                                            <td><strong>${host.name}</strong></td>
+                                            <td><span class="badge badge-secondary">${host.status || 'Unknown'}</span></td>
+                                            <td>${host.container_count || 0}</td>
+                                            <td>${host.image_count || 0}</td>
+                                            <td>
+                                                <button class="btn btn-primary btn-sm" onclick="viewContainers('${host.id}', '${host.name}')">
+                                                    <i class="fas fa-box"></i> 容器
+                                                </button>
+                                                <button class="btn btn-danger btn-sm" onclick="deleteDockerHost('${host.id}')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `).join('') :
+                                    '<tr><td colspan="5" class="text-center">暂无 Docker 主机</td></tr>'
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('dockerPage').innerHTML = html;
+    } catch (error) {
+        console.error('加载 Docker 失败:', error);
+    }
+}
+
+function showAddDockerHostModal() {
+    // 获取 CMDB 主机列表
+    apiRequest('/cmdb/hosts').then(resp => {
+        const hosts = resp.data || [];
+        const options = hosts.map(h => `<option value="${h.id}">${h.name} (${h.ip})</option>`).join('');
+        
+        const body = `
+            <form id="addDockerHostForm">
+                <div class="form-group">
+                    <label class="form-label">名称</label>
+                    <input type="text" class="form-control" name="name" required placeholder="例如: Production Docker">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">关联主机 (需在CMDB中配置凭据)</label>
+                    <select class="form-control" name="host_id" required>
+                        ${options}
+                    </select>
+                </div>
+            </form>
+        `;
+
+        showModal('添加 Docker 主机', body, async () => {
+            const form = document.getElementById('addDockerHostForm');
+            const formData = new FormData(form);
+            
+            try {
+                showLoading();
+                const response = await apiRequest('/docker/hosts', {
+                    method: 'POST',
+                    body: JSON.stringify(Object.fromEntries(formData))
+                });
+                if (response.code === 0) await loadDocker();
+            } catch (error) {
+                console.error('添加失败', error);
+            } finally {
+                hideLoading();
+            }
+        });
+    });
+}
+
+async function viewContainers(hostId, hostName) {
+    showLoading();
+    try {
+        const response = await apiRequest(`/docker/hosts/${hostId}/containers`);
+        hideLoading();
+        
+        if (response.code !== 0) {
+            alert('获取容器失败: ' + response.message);
+            return;
+        }
+
+        const containers = response.data;
+        const body = `
+            <div class="table-container" style="max-height: 500px; overflow-y: auto;">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>名称</th>
+                            <th>镜像</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${containers.map(c => `
+                            <tr>
+                                <td><code style="font-size: 11px;">${c.id.substring(0, 12)}</code></td>
+                                <td>${c.names[0].replace('/', '')}</td>
+                                <td>${c.image}</td>
+                                <td>${c.status}</td>
+                                <td>
+                                    ${c.state === 'running' ? 
+                                        `<button class="btn btn-warning btn-sm" onclick="dockerAction('${hostId}', '${c.id}', 'stop')"><i class="fas fa-stop"></i></button>` :
+                                        `<button class="btn btn-success btn-sm" onclick="dockerAction('${hostId}', '${c.id}', 'start')"><i class="fas fa-play"></i></button>`
+                                    }
+                                    <button class="btn btn-secondary btn-sm" onclick="dockerAction('${hostId}', '${c.id}', 'restart')"><i class="fas fa-sync"></i></button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        showModal(`容器列表 - ${hostName}`, body);
+    } catch (error) {
+        hideLoading();
+        console.error(error);
+    }
+}
+
+async function dockerAction(hostId, containerId, action) {
+    try {
+        await apiRequest(`/docker/hosts/${hostId}/containers/${containerId}/${action}`, { method: 'POST' });
+        // 刷新列表 (这有点hacky，因为我们在模态框里，这里简单处理)
+        alert('操作成功');
+        // 关闭模态框并重新打开以刷新? 或者直接不做任何事
+    } catch (error) {
+        alert('操作失败');
+    }
+}
+
+async function deleteDockerHost(id) {
+    if (!confirm('确定删除?')) return;
+    await apiRequest(`/docker/hosts/${id}`, { method: 'DELETE' });
+    await loadDocker();
+}
+
 // ==================== 监控中心 ====================
 async function loadMonitor() {
     const html = `
