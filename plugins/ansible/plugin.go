@@ -3,7 +3,7 @@ package ansible
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
-	"github.com/lazyautoops/lazy-auto-ops/internal/plugin"
+	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
 )
 
 func init() {

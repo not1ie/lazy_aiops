@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
-	"github.com/lazyautoops/lazy-auto-ops/internal/plugin"
+	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/alert"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"gorm.io/gorm"

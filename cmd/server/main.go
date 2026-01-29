@@ -6,7 +6,7 @@ import (
 	"github.com/lazyautoops/lazy-auto-ops/internal/api"
 	"github.com/lazyautoops/lazy-auto-ops/internal/config"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
-	"github.com/lazyautoops/lazy-auto-ops/internal/plugin"
+	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
 
 	// 核心插件
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/ai"
