@@ -20,7 +20,7 @@ RUN go mod download
 COPY . .
 
 # 构建
-RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o lazy-auto-ops ./cmd/server
+RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o app_server ./cmd/server && ls -l app_server
 
 # 运行阶段 - 使用 Debian slim
 FROM debian:bullseye-slim
@@ -36,7 +36,7 @@ RUN apt-get update && \
 ENV TZ=Asia/Shanghai
 
 # 复制二进制文件和配置
-COPY --from=builder /app/lazy-auto-ops .
+COPY --from=builder /app/app_server ./lazy-auto-ops
 COPY --from=builder /app/configs ./configs
 COPY --from=builder /app/web ./web
 

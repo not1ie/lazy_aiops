@@ -79,7 +79,7 @@ function showAddHostModal() {
         <form id="addHostForm">
             <div class="form-group">
                 <label class="form-label">主机名</label>
-                <input type="text" class="form-control" name="hostname" required>
+                <input type="text" class="form-control" name="name" required>
             </div>
             <div class="form-group">
                 <label class="form-label">IP地址</label>
@@ -108,6 +108,9 @@ function showAddHostModal() {
         const form = document.getElementById('addHostForm');
         const formData = new FormData(form);
         const data = Object.fromEntries(formData);
+        
+        // 数据类型转换
+        data.port = parseInt(data.port, 10);
 
         try {
             showLoading();
@@ -300,7 +303,8 @@ function showAddTaskModal() {
         const data = {
             name: formData.get('name'),
             cron: formData.get('cron'),
-            script: formData.get('script'),
+            content: formData.get('script'), // 后端字段名为 content
+            type: 'shell', // 默认为 shell
             enabled: formData.get('enabled') === 'on'
         };
 
