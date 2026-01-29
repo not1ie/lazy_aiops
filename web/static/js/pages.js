@@ -136,6 +136,96 @@ function showAddHostModal() {
     });
 }
 
+async function editHost(id) {
+    try {
+        showLoading();
+        const response = await apiRequest(`/cmdb/hosts/${id}`);
+        hideLoading();
+        
+        if (response.code !== 0) {
+            alert('获取主机详情失败: ' + response.message);
+            return;
+        }
+        
+        const host = response.data;
+        const body = `
+            <form id="editHostForm">
+                <div class="form-group">
+                    <label class="form-label">主机名</label>
+                    <input type="text" class="form-control" name="name" value="${host.name}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">IP地址</label>
+                    <input type="text" class="form-control" name="ip" value="${host.ip}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">SSH端口</label>
+                    <input type="number" class="form-control" name="port" value="${host.port || 22}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">操作系统</label>
+                    <input type="text" class="form-control" name="os" value="${host.os || ''}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">分组</label>
+                    <input type="text" class="form-control" name="group" value="${host.group ? host.group.name : ''}" disabled>
+                    <small style="color: var(--text-disabled);">修改分组请使用"移动分组"功能(待开发)</small>
+                </div>
+            </form>
+        `;
+
+        showModal('编辑主机', body, async () => {
+            const form = document.getElementById('editHostForm');
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData);
+            data.port = parseInt(data.port, 10);
+            
+            try {
+                showLoading();
+                const updateResp = await apiRequest(`/cmdb/hosts/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data)
+                });
+                if (updateResp.code === 0) {
+                    await loadCMDB();
+                } else {
+                    alert('更新失败: ' + updateResp.message);
+                }
+            } catch (error) {
+                console.error('更新主机失败:', error);
+            } finally {
+                hideLoading();
+            }
+        });
+    } catch (error) {
+        hideLoading();
+        console.error('编辑主机失败:', error);
+    }
+}
+
+async function deleteHost(id) {
+    if (!confirm('确定删除该主机吗？此操作不可恢复。')) return;
+    
+    try {
+        showLoading();
+        const response = await apiRequest(`/cmdb/hosts/${id}`, { method: 'DELETE' });
+        if (response.code === 0) {
+            await loadCMDB();
+        } else {
+            alert('删除失败: ' + response.message);
+        }
+    } catch (error) {
+        console.error('删除主机失败:', error);
+        alert('删除失败，请查看控制台日志');
+    } finally {
+        hideLoading();
+    }
+}
+
+async function refreshHosts() {
+    await loadCMDB();
+}
+
 // ==================== 任务调度 ====================
 async function loadTask() {
 // ... (existing loadTask)
