@@ -37,10 +37,25 @@ func (h *HostHandler) List(c *gin.Context) {
 
 // Create 创建主机
 func (h *HostHandler) Create(c *gin.Context) {
-	var host Host
-	if err := c.ShouldBindJSON(&host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+	// 定义请求结构，包含 group_name
+	var req struct {
+		Host
+		GroupName string `json:"group_name"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
 		return
+	}
+
+	host := req.Host
+	
+	// 处理分组
+	if req.GroupName != "" {
+		var group HostGroup
+		if err := h.db.FirstOrCreate(&group, HostGroup{Name: req.GroupName}).Error; err == nil {
+			host.GroupID = group.ID
+		}
 	}
 
 	if err := h.db.Create(&host).Error; err != nil {

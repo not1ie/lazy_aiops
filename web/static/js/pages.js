@@ -111,6 +111,12 @@ function showAddHostModal() {
         
         // 数据类型转换
         data.port = parseInt(data.port, 10);
+        
+        // 重命名 group -> group_name 以避免后端类型不匹配 (Group struct vs string)
+        if (data.group) {
+            data.group_name = data.group;
+            delete data.group;
+        }
 
         try {
             showLoading();
