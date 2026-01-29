@@ -605,9 +605,10 @@ async function dockerAction(hostId, containerId, action) {
 }
 
 async function deleteDockerHost(id) {
-    if (!confirm('确定删除?')) return;
-    await apiRequest(`/docker/hosts/${id}`, { method: 'DELETE' });
-    await loadDocker();
+    showConfirm('删除 Docker 主ique', '确定删除该 Docker 主机吗？这不会停止运行中的容器。', async () => {
+        await apiRequest(`/docker/hosts/${id}`, { method: 'DELETE' });
+        await loadDocker();
+    });
 }
 
 // ==================== 监控中心 ====================
@@ -1057,13 +1058,14 @@ function showAddDocModal() {
 }
 
 async function deleteDoc(id) {
-    if (!confirm('确定删除该文档吗？')) return;
-    try {
-        const response = await apiRequest(`/knowledge/docs/${id}`, { method: 'DELETE' });
-        if (response.code === 0) await loadKnowledge();
-    } catch (error) {
-        console.error('删除文档失败:', error);
-    }
+    showConfirm('删除文档', '确定删除该文档吗？此操作不可恢复。', async () => {
+        try {
+            const response = await apiRequest(`/knowledge/docs/${id}`, { method: 'DELETE' });
+            if (response.code === 0) await loadKnowledge();
+        } catch (error) {
+            console.error('删除文档失败:', error);
+        }
+    });
 }
 
 // ==================== 工作流编排 ====================

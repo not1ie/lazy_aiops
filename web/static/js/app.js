@@ -57,15 +57,47 @@ function showModal(title, body, onConfirm) {
     modal.classList.add('show');
 
     const confirmBtn = document.getElementById('modalConfirm');
+    // 移除之前的事件监听器
     const newConfirmBtn = confirmBtn.cloneNode(true);
     confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
 
-    if (onConfirm) {
-        newConfirmBtn.addEventListener('click', () => {
+    const handleConfirm = () => {
+        if (onConfirm) {
             onConfirm();
-            hideModal();
-        });
+        }
+        hideModal();
+    };
+
+    if (onConfirm) {
+        newConfirmBtn.style.display = 'block';
+        newConfirmBtn.addEventListener('click', handleConfirm);
+    } else {
+        newConfirmBtn.style.display = 'none';
     }
+
+    // 快捷键支持：Enter 确认, Esc 取消
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            handleConfirm();
+            cleanup();
+        } else if (e.key === 'Escape') {
+            hideModal();
+            cleanup();
+        }
+    };
+
+    const cleanup = () => {
+        document.removeEventListener('keydown', handleKeyDown);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    
+    // 给第一个输入框自动对焦
+    setTimeout(() => {
+        const firstInput = document.getElementById('modalBody').querySelector('input');
+        if (firstInput) firstInput.focus();
+    }, 100);
 }
 
 // 显示确认框 (基于 Modal 美化)
