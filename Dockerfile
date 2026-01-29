@@ -12,9 +12,6 @@ ENV CGO_ENABLED=1
 
 WORKDIR /app
 
-# 安装依赖
-RUN apt-get update && apt-get install -y gcc libc6-dev && rm -rf /var/lib/apt/lists/*
-
 # 复制依赖文件
 COPY go.mod go.sum ./
 RUN go mod download
@@ -23,10 +20,7 @@ RUN go mod download
 COPY . .
 
 # 构建
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o lazy-auto-ops ./cmd/server
+RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o lazy-auto-ops ./cmd/server
 
 # 运行阶段 - 使用 Debian slim
 FROM debian:bullseye-slim
