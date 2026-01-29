@@ -341,6 +341,9 @@ async function loadCurrentPage() {
             case 'ai':
                 await loadAI();
                 break;
+            case 'knowledge':
+                await loadKnowledge();
+                break;
             case 'workorder':
                 await loadWorkorder();
                 break;
@@ -545,6 +548,10 @@ async function loadNacos() {
 
 async function loadAI() {
     document.getElementById('aiPage').innerHTML = '<div class="empty-state"><i class="fas fa-robot"></i><p>AI 助手功能开发中...</p></div>';
+}
+
+async function loadKnowledge() {
+    document.getElementById('knowledgePage').innerHTML = '<div class="empty-state"><i class="fas fa-book"></i><p>知识库功能开发中...</p></div>';
 }
 
 async function loadWorkorder() {

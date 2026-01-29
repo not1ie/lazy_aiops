@@ -381,6 +381,8 @@ async function loadAlert() {
 }
 
 // ==================== AI 助手 ====================
+let chatSessionId = null;
+
 async function loadAI() {
     const html = `
         <div class="page-header">
@@ -397,93 +399,314 @@ async function loadAI() {
                     <i class="fas fa-comments"></i>
                     智能对话
                 </h3>
+                <button class="btn btn-secondary btn-sm" onclick="newChat()">
+                    <i class="fas fa-plus"></i> 新对话
+                </button>
             </div>
             <div class="card-body">
                 <div id="aiChatBox" style="min-height: 400px; max-height: 600px; overflow-y: auto; padding: 20px; background: var(--bg-darker); border-radius: var(--border-radius); margin-bottom: 16px;">
                     <div style="text-align: center; color: var(--text-disabled); padding: 40px;">
                         <i class="fas fa-robot" style="font-size: 48px; margin-bottom: 16px;"></i>
                         <p>你好！我是AI运维助手，有什么可以帮助你的吗？</p>
+                        <p style="font-size: 14px; margin-top: 8px;">我可以帮你分析日志、写脚本、或者解答运维疑问。</p>
                     </div>
                 </div>
                 <div style="display: flex; gap: 12px;">
-                    <input type="text" id="aiInput" class="form-control" placeholder="输入你的问题..." style="flex: 1;">
-                    <button class="btn btn-primary" onclick="sendAIMessage()">
+                    <input type="text" id="aiInput" class="form-control" placeholder="输入你的问题... (按下回车发送)" style="flex: 1;">
+                    <button class="btn btn-primary" id="sendAiBtn" onclick="sendAIMessage()">
                         <i class="fas fa-paper-plane"></i> 发送
                     </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-header">
-                    <div>
-                        <div class="stat-value">156</div>
-                        <div class="stat-label">日志分析</div>
-                    </div>
-                    <div class="stat-icon">
-                        <i class="fas fa-file-alt"></i>
-                    </div>
-                </div>
-            </div>
-
-            <div class="stat-card success">
-                <div class="stat-header">
-                    <div>
-                        <div class="stat-value">89</div>
-                        <div class="stat-label">故障诊断</div>
-                    </div>
-                    <div class="stat-icon">
-                        <i class="fas fa-stethoscope"></i>
-                    </div>
-                </div>
-            </div>
-
-            <div class="stat-card warning">
-                <div class="stat-header">
-                    <div>
-                        <div class="stat-value">23</div>
-                        <div class="stat-label">优化建议</div>
-                    </div>
-                    <div class="stat-icon">
-                        <i class="fas fa-lightbulb"></i>
-                    </div>
                 </div>
             </div>
         </div>
     `;
 
     document.getElementById('aiPage').innerHTML = html;
+    
+    // 绑定回车事件
+    document.getElementById('aiInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendAIMessage();
+    });
 }
 
-function sendAIMessage() {
+function newChat() {
+    chatSessionId = null;
+    loadAI();
+}
+
+async function sendAIMessage() {
     const input = document.getElementById('aiInput');
+    const sendBtn = document.getElementById('sendAiBtn');
     const message = input.value.trim();
     
     if (!message) return;
 
     const chatBox = document.getElementById('aiChatBox');
+    
+    // 如果是第一次对话，清空欢迎语
+    if (chatBox.querySelector('.fas.fa-robot')) {
+        chatBox.innerHTML = '';
+    }
+
+    // 添加用户消息
     chatBox.innerHTML += `
         <div style="margin-bottom: 16px; text-align: right;">
-            <div style="display: inline-block; background: var(--primary-color); color: white; padding: 10px 16px; border-radius: 12px; max-width: 70%;">
-                ${message}
+            <div style="display: inline-block; background: var(--primary-color); color: white; padding: 10px 16px; border-radius: 12px; max-width: 80%; text-align: left;">
+                ${message.replace(/\n/g, '<br>')}
             </div>
         </div>
     `;
 
     input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
 
-    // 模拟AI回复
-    setTimeout(() => {
-        chatBox.innerHTML += `
-            <div style="margin-bottom: 16px;">
-                <div style="display: inline-block; background: var(--bg-card); color: var(--text-primary); padding: 10px 16px; border-radius: 12px; max-width: 70%;">
-                    <i class="fas fa-robot"></i> 我正在分析你的问题，请稍候...
+    // 添加等待状态
+    const waitingId = 'waiting_' + Date.now();
+    chatBox.innerHTML += `
+        <div id="${waitingId}" style="margin-bottom: 16px;">
+            <div style="display: inline-block; background: var(--bg-card); color: var(--text-primary); padding: 10px 16px; border-radius: 12px; max-width: 80%;">
+                <i class="fas fa-robot"></i> <i class="fas fa-spinner fa-spin"></i> 思考中...
+            </div>
+        </div>
+    `;
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    try {
+        const response = await apiRequest('/ai/chat', {
+            method: 'POST',
+            body: JSON.stringify({
+                message: message,
+                session_id: chatSessionId
+            })
+        });
+
+        document.getElementById(waitingId).remove();
+
+        if (response.code === 0) {
+            chatSessionId = response.data.session_id;
+            const reply = response.data.reply;
+            
+            chatBox.innerHTML += `
+                <div style="margin-bottom: 16px;">
+                    <div style="display: inline-block; background: var(--bg-card); color: var(--text-primary); padding: 10px 16px; border-radius: 12px; max-width: 80%; line-height: 1.6;">
+                        <div style="margin-bottom: 4px; font-weight: bold;"><i class="fas fa-robot"></i> AI 助手</div>
+                        <div>${reply.replace(/\n/g, '<br>')}</div>
+                    </div>
+                </div>
+            `;
+        } else {
+            chatBox.innerHTML += `
+                <div style="margin-bottom: 16px;">
+                    <div style="display: inline-block; background: #fee2e2; color: #991b1b; padding: 10px 16px; border-radius: 12px;">
+                        出错了: ${response.message}
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        document.getElementById(waitingId).remove();
+        chatBox.innerHTML += `<div style="color: var(--danger-color); margin-bottom: 16px;">网络错误，请重试。</div>`;
+    } finally {
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+}
+
+// ==================== 知识库 ====================
+async function loadKnowledge() {
+    try {
+        const response = await apiRequest('/knowledge/docs');
+        
+        const html = `
+            <div class="page-header">
+                <h1 class="page-title">
+                    <i class="fas fa-book"></i>
+                    AI 知识库
+                </h1>
+                <p class="page-description">沉淀运维经验，AI 智能辅助检索</p>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card" style="cursor: pointer;" onclick="showAskModal()">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value">智能提问</div>
+                            <div class="stat-label">基于知识库回答</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-question-circle"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="stat-card" onclick="showAddDocModal()">
+                    <div class="stat-header">
+                        <div>
+                            <div class="stat-value">添加文档</div>
+                            <div class="stat-label">上传 Runbook 或 经验</div>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-plus-circle"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">文档列表</h3>
+                    <div class="toolbar-right">
+                        <input type="text" class="form-control" placeholder="搜索文档..." onkeyup="searchDocs(this.value)">
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>标题</th>
+                                    <th>分类</th>
+                                    <th>标签</th>
+                                    <th>作者</th>
+                                    <th>更新时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="docsTableBody">
+                                ${response.code === 0 && response.data && response.data.length > 0 ?
+                                    response.data.map(doc => `
+                                        <tr>
+                                            <td><strong>${doc.title}</strong></td>
+                                            <td><span class="badge badge-secondary">${doc.category || '未分类'}</span></td>
+                                            <td>${(doc.tags || '').split(',').map(t => t ? `<span class="badge badge-outline">${t}</span>` : '').join(' ')}</td>
+                                            <td>${doc.created_by}</td>
+                                            <td>${formatTime(doc.updated_at)}</td>
+                                            <td>
+                                                <button class="btn btn-secondary btn-sm" onclick="viewDoc('${doc.id}')">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                                <button class="btn btn-danger btn-sm" onclick="deleteDoc('${doc.id}')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `).join('') :
+                                    '<tr><td colspan="6" class="text-center">暂无文档数据</td></tr>'
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         `;
-        chatBox.scrollTop = chatBox.scrollHeight;
-    }, 500);
+
+        document.getElementById('knowledgePage').innerHTML = html;
+    } catch (error) {
+        console.error('加载知识库失败:', error);
+    }
+}
+
+function showAskModal() {
+    const body = `
+        <div class="form-group">
+            <label class="form-label">请输入您的问题</label>
+            <input type="text" id="askQuestion" class="form-control" placeholder="例如：Nginx 502 怎么排查？">
+        </div>
+        <div id="askResult" style="margin-top: 20px; padding: 15px; background: var(--bg-darker); border-radius: 8px; display: none; line-height: 1.6;">
+            <div id="askAnswer"></div>
+            <div id="askRefs" style="margin-top: 15px; font-size: 12px; color: var(--text-disabled); border-top: 1px solid var(--border-color); pt: 10px;"></div>
+        </div>
+    `;
+
+    showModal('智能问答', body, async () => {
+        const question = document.getElementById('askQuestion').value;
+        if (!question) return;
+
+        const resultEl = document.getElementById('askResult');
+        const answerEl = document.getElementById('askAnswer');
+        
+        resultEl.style.display = 'block';
+        answerEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在检索知识库...';
+
+        try {
+            const response = await apiRequest('/knowledge/ask', {
+                method: 'POST',
+                body: JSON.stringify({ question })
+            });
+
+            if (response.code === 0) {
+                answerEl.innerHTML = `<strong>AI 回答：</strong><br>${response.data.answer.replace(/\n/g, '<br>')}`;
+                if (response.data.references && response.data.references.length > 0) {
+                    const refs = response.data.references.map(r => `<li>${r.title}</li>`).join('');
+                    document.getElementById('askRefs').innerHTML = `参考文档：<ul>${refs}</ul>`;
+                }
+            }
+        } catch (error) {
+            answerEl.innerHTML = '问答请求失败。';
+        }
+    });
+}
+
+function showAddDocModal() {
+    const body = `
+        <form id="addDocForm">
+            <div class="form-group">
+                <label class="form-label">标题</label>
+                <input type="text" class="form-control" name="title" required placeholder="例如：MySQL 主从切换步骤">
+            </div>
+            <div class="form-group">
+                <label class="form-label">内容 (Markdown)</label>
+                <textarea class="form-control" name="content" rows="10" required></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">分类</label>
+                <select class="form-control" name="category">
+                    <option value="runbook">Runbook (操作手册)</option>
+                    <option value="post-mortem">Post-mortem (事故回顾)</option>
+                    <option value="guide">Guide (指南)</option>
+                    <option value="other">其他</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">标签 (逗号分隔)</label>
+                <input type="text" class="form-control" name="tags" placeholder="mysql,ops,ha">
+            </div>
+        </form>
+    `;
+
+    showModal('添加文档', body, async () => {
+        const form = document.getElementById('addDocForm');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+
+        try {
+            showLoading();
+            const response = await apiRequest('/knowledge/docs', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (response.code === 0) {
+                await loadKnowledge();
+            }
+        } catch (error) {
+            console.error('添加文档失败:', error);
+        } finally {
+            hideLoading();
+        }
+    });
+}
+
+async function deleteDoc(id) {
+    if (!confirm('确定删除该文档吗？')) return;
+    try {
+        const response = await apiRequest(`/knowledge/docs/${id}`, { method: 'DELETE' });
+        if (response.code === 0) await loadKnowledge();
+    } catch (error) {
+        console.error('删除文档失败:', error);
+    }
 }
 
 // ==================== 工作流编排 ====================
