@@ -80,3 +80,9 @@ plugins:
   # 成本分析
   cost:
     enabled: true
+  # AI知识库
+  knowledge:
+    enabled: true
+    config:
+      # 可选：复用 ai 插件的 key
+      api_key: ""

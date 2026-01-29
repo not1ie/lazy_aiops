@@ -35,6 +35,7 @@
 | | terminal | WebSocket SSH终端 |
 | **可视化** | topology | 服务拓扑、依赖分析 |
 | **成本** | cost | 云费用统计、预算管理、优化建议 |
+| **知识库** | knowledge | AI 驱动的运维知识库、智能问答 |
 
 ## 快速开始
 
@@ -210,6 +211,24 @@ curl -X POST http://localhost:8080/api/v1/cost/budgets \
 # 优化建议
 curl http://localhost:8080/api/v1/cost/optimizations \
   -H "Authorization: Bearer $TOKEN"
+```
+
+### 知识库 (AI)
+```bash
+# 创建文档
+curl -X POST http://localhost:8080/api/v1/knowledge/docs \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "title": "502 Bad Gateway 排查指南",
+    "content": "当遇到 Nginx 502 错误时，首先检查后端服务是否存活...",
+    "category": "runbook",
+    "tags": "nginx,error"
+  }'
+
+# 智能提问
+curl -X POST http://localhost:8080/api/v1/knowledge/ask \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"question": "Nginx 报错 502 怎么办？"}'
 ```
 
 ## 配置 AI
