@@ -113,10 +113,9 @@ function showAddHostModal() {
         data.port = parseInt(data.port, 10);
         
         // 重命名 group -> group_name 以避免后端类型不匹配 (Group struct vs string)
-        if (data.group) {
-            data.group_name = data.group;
-            delete data.group;
-        }
+        // 无论是否为空，都要处理，否则后端尝试将空字符串解析为 HostGroup 结构体会报错
+        data.group_name = data.group || "";
+        delete data.group;
 
         try {
             showLoading();
