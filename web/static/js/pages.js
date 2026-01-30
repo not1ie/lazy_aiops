@@ -57,7 +57,7 @@ async function loadCMDB() {
                                             <td>
                                                 <div style="display: flex; align-items: center; gap: 10px;">
                                                     <i class="fab fa-${osIcon}" style="font-size: 20px; color: var(--text-secondary);"></i>
-                                                    <strong>${host.hostname || '-'}</strong>
+                                                    <strong>${host.name || '-'}</strong>
                                                 </div>
                                             </td>
                                             <td>${host.ip || '-'}</td>
