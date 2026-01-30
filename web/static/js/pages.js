@@ -187,15 +187,14 @@ async function editHost(id) {
                     <label class="form-label">SSH 用户名</label>
                     <input type="text" class="form-control" name="username" value="${host.credential ? host.credential.username : 'root'}">
                 </div>
-                            <div class="form-group">
-                                <label class="form-label">SSH 密码 (留空则不修改)</label>
-                                <div class="input-wrapper" style="position: relative;">
-                                    <input type="password" class="form-control" name="password" placeholder="••••••" id="editHostPassword">
-                                    <i class="fas fa-eye" onclick="togglePasswordVisibility('editHostPassword', this)" style="position: absolute; right: 10px; top: 10px; cursor: pointer; color: var(--text-disabled);"></i>
-                                </div>
-                            </div>
-                
-                <div class="form-group">
+                                            <div class="form-group">
+                                                <label class="form-label">SSH 密码 (留空则不修改)</label>
+                                                <div class="input-wrapper" style="position: relative;">
+                                                    <input type="password" class="form-control" name="password" value="${host.credential ? host.credential.password : ''}" placeholder="••••••" id="editHostPassword">
+                                                    <i class="fas fa-eye" onclick="togglePasswordVisibility('editHostPassword', this)" style="position: absolute; right: 10px; top: 10px; cursor: pointer; color: var(--text-disabled);"></i>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
                     <label class="form-label">分组</label>
                     <input type="text" class="form-control" name="group" value="${host.group ? host.group.name : ''}" disabled>
                     <small style="color: var(--text-disabled);">修改分组请使用"移动分组"功能(待开发)</small>

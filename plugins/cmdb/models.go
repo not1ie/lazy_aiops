@@ -54,7 +54,7 @@ type Credential struct {
 	Name       string `gorm:"size:64" json:"name"`
 	Type       string `gorm:"size:32" json:"type"` // password, key
 	Username   string `gorm:"size:64" json:"username"`
-	Password   string `gorm:"size:256" json:"-"`
-	PrivateKey string `gorm:"type:text" json:"-"`
-	Passphrase string `gorm:"size:256" json:"-"`
+	Password   string `gorm:"size:256" json:"password,omitempty"`
+	PrivateKey string `gorm:"type:text" json:"private_key,omitempty"`
+	Passphrase string `gorm:"size:256" json:"passphrase,omitempty"`
 }
