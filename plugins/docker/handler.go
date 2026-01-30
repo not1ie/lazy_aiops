@@ -36,8 +36,8 @@ func (h *DockerHandler) ListHosts(c *gin.Context) {
 // AddHost 添加主机
 func (h *DockerHandler) AddHost(c *gin.Context) {
 	var req struct {
-		HostID string `json:"host_id" binding:"required"
-		Name   string `json:"name"
+		HostID string `json:"host_id" binding:"required"`
+		Name   string `json:"name"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
@@ -258,7 +258,7 @@ func (h *DockerHandler) getClient(dockerHostID string) (*core.SSHClient, error) 
 		Password: host.Credential.Password,
 		Key:      host.Credential.PrivateKey,
 		Timeout:  10 * time.Second,
-	},
+	}, nil
 }
 
 // parseJSONList 解析Docker CLI返回的逐行JSON
