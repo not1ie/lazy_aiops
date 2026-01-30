@@ -230,7 +230,9 @@ async function deleteHost(id) {
 }
 
 async function refreshHosts() {
+    showLoading();
     await loadCMDB();
+    hideLoading();
 }
 
 // ==================== 任务调度 ====================
@@ -448,49 +450,45 @@ async function loadDocker() {
                     <button class="btn btn-primary" onclick="showAddDockerHostModal()">
                         <i class="fas fa-plus"></i> 添加主机
                     </button>
-                    <button class="btn btn-secondary" onclick="loadDocker()">
+                    <button class="btn btn-secondary" onclick="refreshDocker()">
                         <i class="fas fa-sync-alt"></i> 刷新
                     </button>
                 </div>
             </div>
 
-            <div class="card">
-                <div class="card-body">
-                    <div class="table-container">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>名称</th>
-                                    <th>状态</th>
-                                    <th>容器数</th>
-                                    <th>镜像数</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${response.code === 0 && response.data && response.data.length > 0 ?
-                                    response.data.map(host => `
-                                        <tr>
-                                            <td><strong>${host.name}</strong></td>
-                                            <td><span class="badge badge-secondary">${host.status || 'Unknown'}</span></td>
-                                            <td>${host.container_count || 0}</td>
-                                            <td>${host.image_count || 0}</td>
-                                            <td>
-                                                <button class="btn btn-primary btn-sm" onclick="viewContainers('${host.id}', '${host.name}')">
-                                                    <i class="fas fa-box"></i> 容器
-                                                </button>
-                                                <button class="btn btn-danger btn-sm" onclick="deleteDockerHost('${host.id}')">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    `).join('') :
-                                    '<tr><td colspan="5" class="text-center">暂无 Docker 主机</td></tr>'
-                                }
-                            </tbody>
-                        </table>
+            <div class="docker-hosts-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
+                ${response.code === 0 && response.data ? response.data.map(host => `
+                    <div class="card docker-host-card" style="cursor: pointer; transition: transform 0.2s;" onclick="openDockerHost('${host.id}', '${host.name}')" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
+                        <div class="card-body">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <div style="display: flex; align-items: center; gap: 15px;">
+                                    <div style="background: #e6f7ff; color: #1890ff; width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px;">
+                                        <i class="fab fa-docker"></i>
+                                    </div>
+                                    <div>
+                                        <h3 style="margin: 0; font-size: 18px;">${host.name}</h3>
+                                        <div style="color: var(--text-secondary); font-size: 12px; margin-top: 5px;">
+                                            <span class="badge badge-${host.status === 'online' ? 'success' : 'secondary'}">${host.status || 'Unknown'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button class="btn btn-icon" onclick="event.stopPropagation(); deleteDockerHost('${host.id}')" style="color: var(--danger-color);">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                            <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                                <div style="text-align: center;">
+                                    <div style="font-size: 20px; font-weight: bold;">${host.container_count || '-'}</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">容器</div>
+                                </div>
+                                <div style="text-align: center;">
+                                    <div style="font-size: 20px; font-weight: bold;">${host.image_count || '-'}</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">镜像</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                `).join('') : '<div class="empty-state"><i class="fab fa-docker"></i><p>暂无 Docker 主机</p></div>'}
             </div>
         `;
 
@@ -498,6 +496,12 @@ async function loadDocker() {
     } catch (error) {
         console.error('加载 Docker 失败:', error);
     }
+}
+
+async function refreshDocker() {
+    showLoading();
+    await loadDocker();
+    hideLoading();
 }
 
 function showAddDockerHostModal() {
