@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -63,34 +64,101 @@ func (h *DockerHandler) DeleteHost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
+// SyncHosts 强制同步所有主机状态
+func (h *DockerHandler) SyncHosts(c *gin.Context) {
+	var hosts []DockerHost
+	if err := h.db.Find(&hosts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	var wg sync.WaitGroup
+	for _, host := range hosts {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			h.syncHostInternal(id)
+		}(host.ID)
+	}
+	wg.Wait()
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "同步完成"})
+}
+
 // GetHostInfo 获取主机概览信息 (Docker Info)
 func (h *DockerHandler) GetHostInfo(c *gin.Context) {
 	id := c.Param("id")
+	
+	// 强制同步一次
+	if err := h.syncHostInternal(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "同步失败: " + err.Error()})
+		return
+	}
+
+	// 从数据库重新获取更新后的信息
+	var host DockerHost
+	h.db.First(&host, "id = ?", id)
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": host})
+}
+
+// syncHostInternal 内部同步逻辑
+func (h *DockerHandler) syncHostInternal(id string) error {
+	client, err := h.getClient(id)
+	if err != nil {
+		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("status", "offline")
+		return err
+	}
+
+	stdout, _, err := client.Execute("docker info --format '{{json .}}'")
+	if err != nil {
+		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("status", "error")
+		return err
+	}
+
+	var info map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &info); err != nil {
+		return err
+	}
+	
+	updates := map[string]interface{}{
+		"status": "online",
+	}
+	
+	if v, ok := info["Containers"].(float64); ok {
+		updates["container_count"] = int(v)
+	}
+	if v, ok := info["Images"].(float64); ok {
+		updates["image_count"] = int(v)
+	}
+	if v, ok := info["ServerVersion"].(string); ok {
+		updates["version"] = v
+	}
+
+	return h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// ContainerLogs 获取容器日志
+func (h *DockerHandler) ContainerLogs(c *gin.Context) {
+	id := c.Param("id")
+	containerID := c.Param("container_id")
+	tail := c.DefaultQuery("tail", "100")
+
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 
-	stdout, _, err := client.Execute("docker info --format '{{json .}}'")
+	// 使用 2>&1 合并 stdout 和 stderr
+	cmd := fmt.Sprintf("docker logs --tail %s %s 2>&1", tail, containerID)
+	stdout, _, err := client.Execute(cmd)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 
-	var info map[string]interface{}
-	json.Unmarshal([]byte(stdout), &info)
-	
-	// 更新数据库中的统计信息
-	if v, ok := info["Containers"].(float64); ok {
-		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("container_count", int(v))
-	}
-	if v, ok := info["Images"].(float64); ok {
-		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("image_count", int(v))
-	}
-	h.db.Model(&DockerHost{}).Where("id = ?", id).Update("status", "online")
-
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": info})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stdout})
 }
 
 // ================= Container Management =================

@@ -36,12 +36,14 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	h := NewDockerHandler(p.core.DB)
 	g.GET("/hosts", h.ListHosts)
 	g.POST("/hosts", h.AddHost)
+	g.POST("/hosts/sync", h.SyncHosts) // 全局同步
 	g.DELETE("/hosts/:id", h.DeleteHost)
 	g.GET("/hosts/:id/info", h.GetHostInfo)
 	
 	// Containers
 	g.GET("/hosts/:id/containers", h.ListContainers)
 	g.GET("/hosts/:id/containers/:container_id", h.InspectContainer)
+	g.GET("/hosts/:id/containers/:container_id/logs", h.ContainerLogs) // 日志
 	g.POST("/hosts/:id/containers/:container_id/:action", h.ContainerAction) // action: start, stop, restart, remove
 	
 	// Images
