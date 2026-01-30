@@ -101,6 +101,20 @@ function showModal(title, body, onConfirm) {
     }, 100);
 }
 
+// 切换密码可见性
+function togglePasswordVisibility(inputId, icon) {
+    const input = document.getElementById(inputId);
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+    }
+}
+
 // 显示确认框 (基于 Modal 美化)
 function showConfirm(title, message, onConfirm) {
     const body = `

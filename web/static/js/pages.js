@@ -41,12 +41,27 @@ async function loadCMDB() {
                                 </tr>
                             </thead>
                             <tbody id="hostsTableBody">
-                                ${response.code === 0 && response.data && response.data.length > 0 ? 
-                                    response.data.map(host => `
+                                    ${response.code === 0 && response.data && response.data.length > 0 ? 
+                                    response.data.map(host => {
+                                        let osIcon = 'linux';
+                                        const osName = (host.os || '').toLowerCase();
+                                        if (osName.includes('ubuntu')) osIcon = 'ubuntu';
+                                        else if (osName.includes('centos') || osName.includes('redhat')) osIcon = 'redhat';
+                                        else if (osName.includes('debian')) osIcon = 'debian';
+                                        else if (osName.includes('fedora')) osIcon = 'fedora';
+                                        else if (osName.includes('windows')) osIcon = 'windows';
+                                        else if (osName.includes('apple') || osName.includes('macos')) osIcon = 'apple';
+                                        
+                                        return `
                                         <tr>
-                                            <td><strong>${host.hostname || '-'}</strong></td>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 10px;">
+                                                    <i class="fab fa-${osIcon}" style="font-size: 20px; color: var(--text-secondary);"></i>
+                                                    <strong>${host.hostname || '-'}</strong>
+                                                </div>
+                                            </td>
                                             <td>${host.ip || '-'}</td>
-                                            <td>${host.os || '-'}</td>
+                                            <td>${host.os || 'Unknown'}</td>
                                             <td><span class="badge badge-success">在线</span></td>
                                             <td>${host.group || '默认'}</td>
                                             <td>
@@ -58,7 +73,7 @@ async function loadCMDB() {
                                                 </button>
                                             </td>
                                         </tr>
-                                    `).join('') :
+                                    `}).join('') :
                                     '<tr><td colspan="6" class="text-center">暂无主机数据</td></tr>'
                                 }
                             </tbody>
@@ -95,7 +110,10 @@ function showAddHostModal() {
             </div>
             <div class="form-group">
                 <label class="form-label">密码</label>
-                <input type="password" class="form-control" name="password">
+                <div class="input-wrapper" style="position: relative;">
+                    <input type="password" class="form-control" name="password" id="addHostPassword">
+                    <i class="fas fa-eye" onclick="togglePasswordVisibility('addHostPassword', this)" style="position: absolute; right: 10px; top: 10px; cursor: pointer; color: var(--text-disabled);"></i>
+                </div>
             </div>
             <div class="form-group">
                 <label class="form-label">分组</label>
@@ -169,10 +187,14 @@ async function editHost(id) {
                     <label class="form-label">SSH 用户名</label>
                     <input type="text" class="form-control" name="username" value="${host.credential ? host.credential.username : 'root'}">
                 </div>
-                <div class="form-group">
-                    <label class="form-label">SSH 密码 (留空则不修改)</label>
-                    <input type="password" class="form-control" name="password" placeholder="••••••">
-                </div>
+                            <div class="form-group">
+                                <label class="form-label">SSH 密码 (留空则不修改)</label>
+                                <div class="input-wrapper" style="position: relative;">
+                                    <input type="password" class="form-control" name="password" placeholder="••••••" id="editHostPassword">
+                                    <i class="fas fa-eye" onclick="togglePasswordVisibility('editHostPassword', this)" style="position: absolute; right: 10px; top: 10px; cursor: pointer; color: var(--text-disabled);"></i>
+                                </div>
+                            </div>
+                
                 <div class="form-group">
                     <label class="form-label">分组</label>
                     <input type="text" class="form-control" name="group" value="${host.group ? host.group.name : ''}" disabled>
