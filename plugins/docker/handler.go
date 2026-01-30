@@ -21,6 +21,8 @@ func NewDockerHandler(db *gorm.DB) *DockerHandler {
 	return &DockerHandler{db: db}
 }
 
+// ================= Host Management =================
+
 // ListHosts 主机列表
 func (h *DockerHandler) ListHosts(c *gin.Context) {
 	var hosts []DockerHost
@@ -34,8 +36,8 @@ func (h *DockerHandler) ListHosts(c *gin.Context) {
 // AddHost 添加主机
 func (h *DockerHandler) AddHost(c *gin.Context) {
 	var req struct {
-		HostID string `json:"host_id" binding:"required"`
-		Name   string `json:"name"`
+		HostID string `json:"host_id" binding:"required"
+		Name   string `json:"name"
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
@@ -61,6 +63,38 @@ func (h *DockerHandler) DeleteHost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
+// GetHostInfo 获取主机概览信息 (Docker Info)
+func (h *DockerHandler) GetHostInfo(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	stdout, _, err := client.Execute("docker info --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	var info map[string]interface{}
+	json.Unmarshal([]byte(stdout), &info)
+	
+	// 更新数据库中的统计信息
+	if v, ok := info["Containers"].(float64); ok {
+		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("container_count", int(v))
+	}
+	if v, ok := info["Images"].(float64); ok {
+		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("image_count", int(v))
+	}
+	h.db.Model(&DockerHost{}).Where("id = ?", id).Update("status", "online")
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": info})
+}
+
+// ================= Container Management =================
+
 // ListContainers 容器列表
 func (h *DockerHandler) ListContainers(c *gin.Context) {
 	id := c.Param("id")
@@ -70,40 +104,48 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 		return
 	}
 
-	// 远程执行 docker ps
 	stdout, _, err := client.Execute("docker ps -a --format '{{json .}}'")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 
-	containers := make([]DockerContainer, 0)
-	lines := strings.Split(strings.TrimSpace(stdout), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &raw); err == nil {
-			containers = append(containers, DockerContainer{
-				ID:     raw["ID"].(string),
-				Names:  []string{raw["Names"].(string)},
-				Image:  raw["Image"].(string),
-				State:  raw["State"].(string),
-				Status: raw["Status"].(string),
-				Ports:  raw["Ports"].(string),
-			})
-		}
-	}
-
+	containers := parseJSONList(stdout)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": containers})
 }
 
-// Action 容器操作
-func (h *DockerHandler) Action(c *gin.Context) {
+// InspectContainer 容器详情 (Env, Network, Mounts)
+func (h *DockerHandler) InspectContainer(c *gin.Context) {
 	id := c.Param("id")
 	containerID := c.Param("container_id")
-	action := c.Param("action") // start, stop, restart
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	stdout, _, err := client.Execute(fmt.Sprintf("docker inspect %s", containerID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	// docker inspect 返回的是一个数组，我们只取第一个
+	var result []interface{}
+	json.Unmarshal([]byte(stdout), &result)
+	
+	if len(result) > 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": result[0]})
+	} else {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "容器未找到"})
+	}
+}
+
+// ContainerAction 容器操作 (Start/Stop/Restart/Remove)
+func (h *DockerHandler) ContainerAction(c *gin.Context) {
+	id := c.Param("id")
+	containerID := c.Param("container_id")
+	action := c.Param("action")
 
 	client, err := h.getClient(id)
 	if err != nil {
@@ -111,12 +153,18 @@ func (h *DockerHandler) Action(c *gin.Context) {
 		return
 	}
 
-	if action != "start" && action != "stop" && action != "restart" {
+	var cmd string
+	switch action {
+	case "start", "stop", "restart":
+		cmd = fmt.Sprintf("docker %s %s", action, containerID)
+	case "remove":
+		cmd = fmt.Sprintf("docker rm -f %s", containerID)
+	default:
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "不支持的操作"})
 		return
 	}
 
-	_, stderr, err := client.Execute(fmt.Sprintf("docker %s %s", action, containerID))
+	_, stderr, err := client.Execute(cmd)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
 		return
@@ -124,6 +172,69 @@ func (h *DockerHandler) Action(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
 }
+
+// ================= Image Management =================
+
+// ListImages 镜像列表
+func (h *DockerHandler) ListImages(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	stdout, _, err := client.Execute("docker images --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	images := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": images})
+}
+
+// RemoveImage 删除镜像
+func (h *DockerHandler) RemoveImage(c *gin.Context) {
+	id := c.Param("id")
+	imageID := c.Param("image_id")
+	
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	_, stderr, err := client.Execute(fmt.Sprintf("docker rmi %s", imageID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ================= Network Management =================
+
+// ListNetworks 网络列表
+func (h *DockerHandler) ListNetworks(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	stdout, _, err := client.Execute("docker network ls --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	networks := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": networks})
+}
+
+// ================= Helper Functions =================
 
 func (h *DockerHandler) getClient(dockerHostID string) (*core.SSHClient, error) {
 	var dHost DockerHost
@@ -147,5 +258,21 @@ func (h *DockerHandler) getClient(dockerHostID string) (*core.SSHClient, error) 
 		Password: host.Credential.Password,
 		Key:      host.Credential.PrivateKey,
 		Timeout:  10 * time.Second,
-	}, nil
+	},
+}
+
+// parseJSONList 解析Docker CLI返回的逐行JSON
+func parseJSONList(output string) []map[string]interface{} {
+	var list []map[string]interface{}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var item map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &item); err == nil {
+			list = append(list, item)
+		}
+	}
+	return list
 }

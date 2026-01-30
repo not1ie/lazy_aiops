@@ -37,6 +37,17 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/hosts", h.ListHosts)
 	g.POST("/hosts", h.AddHost)
 	g.DELETE("/hosts/:id", h.DeleteHost)
+	g.GET("/hosts/:id/info", h.GetHostInfo)
+	
+	// Containers
 	g.GET("/hosts/:id/containers", h.ListContainers)
-	g.POST("/hosts/:id/containers/:container_id/:action", h.Action)
+	g.GET("/hosts/:id/containers/:container_id", h.InspectContainer)
+	g.POST("/hosts/:id/containers/:container_id/:action", h.ContainerAction) // action: start, stop, restart, remove
+	
+	// Images
+	g.GET("/hosts/:id/images", h.ListImages)
+	g.DELETE("/hosts/:id/images/:image_id", h.RemoveImage)
+	
+	// Networks
+	g.GET("/hosts/:id/networks", h.ListNetworks)
 }
