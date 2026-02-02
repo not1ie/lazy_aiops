@@ -15,6 +15,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/configs/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock # 挂载 Docker Socket 以管理本机
     environment:
       - TZ=Asia/Shanghai
       - LAO_SERVER_MODE=release
