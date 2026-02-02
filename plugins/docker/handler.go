@@ -73,31 +73,34 @@ func (h *DockerHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
-	// 1. 测试标准命令
-	cmdHuman := "docker info"
-	stdoutHuman, stderrHuman, errHuman := client.Execute(cmdHuman)
-	
-	// 2. 测试JSON格式命令 (后端实际使用的命令)
-	cmdJSON := "docker system info --format '{{json .}}'"
-	stdoutJSON, stderrJSON, errJSON := client.Execute(cmdJSON)
+	// 1. Basic Info (Human)
+	cmdInfo := "docker info"
+	outInfo, errInfo, _ := client.Execute(cmdInfo)
+
+	// 2. Info JSON (Sync)
+	cmdInfoJson := "docker system info --format '{{json .}}'"
+	outInfoJson, errInfoJson, _ := client.Execute(cmdInfoJson)
+
+	// 3. PS JSON (List)
+	cmdPsJson := "docker ps -a --format '{{json .}}'"
+	outPsJson, errPsJson, _ := client.Execute(cmdPsJson)
 	
 	result := gin.H{
-		"ssh_connected": true,
-		"command":       cmdHuman,
-		"stdout":        stdoutHuman,
-		"stderr":        stderrHuman,
-		
-		"command_json":  cmdJSON,
-		"stdout_json":   stdoutJSON,
-		"stderr_json":   stderrJSON,
-		"error_json":    "",
-	}
-
-	if errHuman != nil {
-		result["error"] = errHuman.Error()
-	}
-	if errJSON != nil {
-		result["error_json"] = errJSON.Error()
+		"step1_info": gin.H{
+			"cmd": cmdInfo,
+			"out": outInfo,
+			"err": errInfo,
+		},
+		"step2_sync": gin.H{
+			"cmd": cmdInfoJson,
+			"out": outInfoJson,
+			"err": errInfoJson,
+		},
+		"step3_list": gin.H{
+			"cmd": cmdPsJson,
+			"out": outPsJson,
+			"err": errPsJson,
+		},
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
