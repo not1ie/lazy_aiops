@@ -493,11 +493,18 @@ async function loadDocker() {
                                         </div>
                                     </div>
                                 </div>
-                                <button class="btn btn-icon" onclick="event.stopPropagation(); deleteDockerHost('${host.id}')" style="color: var(--danger-color);">
+                                <button class="btn btn-icon" onclick="event.stopPropagation(); deleteDockerHost('${host.id}')" title="删除环境">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
-                            <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                            
+                            <div style="margin-bottom: 15px;">
+                                <button class="btn btn-outline-primary btn-sm btn-block" onclick="event.stopPropagation(); testDockerConnection('${host.id}', '${host.name}')">
+                                    <i class="fas fa-stethoscope"></i> 诊断连接
+                                </button>
+                            </div>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: var(--bg-main); padding: 10px; border-radius: 6px;">
                                 <div style="text-align: center;">
                                     <div style="font-size: 20px; font-weight: bold;">${host.container_count || '-'}</div>
                                     <div style="font-size: 12px; color: var(--text-secondary);">容器</div>
@@ -634,6 +641,41 @@ async function deleteDockerHost(id) {
         await apiRequest(`/docker/hosts/${id}`, { method: 'DELETE' });
         await loadDocker();
     });
+}
+
+async function testDockerConnection(id, name) {
+    showLoading();
+    try {
+        const response = await apiRequest(`/docker/hosts/${id}/test`, { method: 'POST' });
+        hideLoading();
+        
+        const res = response.data;
+        let statusHtml = '';
+        if (res.error) {
+            statusHtml = `<div class="alert alert-danger">❌ 连接/执行失败: ${res.error}</div>`;
+        } else if (res.stderr && res.stderr.trim() !== '') {
+            // Docker 有时会把 info 输出到 stderr 或者 warnings
+            statusHtml = `<div class="alert alert-warning">⚠️ 命令执行有警告</div>`;
+        } else {
+            statusHtml = `<div class="alert alert-success">✅ 连接并执行成功</div>`;
+        }
+
+        const body = `
+            ${statusHtml}
+            <div style="font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; max-height: 400px; overflow-y: auto;">
+                <div style="color: #569cd6;">$ ${res.command}</div>
+                <div style="color: #ce9178;">STDERR:</div>
+                <div style="margin-bottom: 10px;">${res.stderr || '(无)'}</div>
+                <div style="color: #b5cea8;">STDOUT:</div>
+                <div style="white-space: pre-wrap;">${res.stdout || '(无)'}</div>
+            </div>
+        `;
+        
+        showModal(`诊断报告 - ${name}`, body);
+    } catch (error) {
+        hideLoading();
+        alert('诊断请求失败: ' + error.message);
+    }
 }
 
 // ==================== 监控中心 ====================

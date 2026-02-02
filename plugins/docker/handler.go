@@ -64,6 +64,37 @@ func (h *DockerHandler) DeleteHost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
+// TestConnection 测试连接并返回原始输出 (用于调试)
+func (h *DockerHandler) TestConnection(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "获取SSH配置失败: " + err.Error()})
+		return
+	}
+
+	// 1. 测试 SSH 连接
+	// 2. 测试 Docker 命令
+	
+	cmd := "docker info"
+	stdout, stderr, err := client.Execute(cmd)
+	
+	result := gin.H{
+		"ssh_connected": true,
+		"command":       cmd,
+		"stdout":        stdout,
+		"stderr":        stderr,
+		"error":         "",
+	}
+
+	if err != nil {
+		result["error"] = err.Error()
+		// 如果 SSH 连接本身失败，err 会包含相关信息
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
 // SyncHosts 强制同步所有主机状态
 func (h *DockerHandler) SyncHosts(c *gin.Context) {
 	var hosts []DockerHost

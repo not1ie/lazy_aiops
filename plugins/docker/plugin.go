@@ -39,6 +39,7 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/hosts/sync", h.SyncHosts) // 全局同步
 	g.DELETE("/hosts/:id", h.DeleteHost)
 	g.GET("/hosts/:id/info", h.GetHostInfo)
+	g.POST("/hosts/:id/test", h.TestConnection) // 新增测试接口
 	
 	// Containers
 	g.GET("/hosts/:id/containers", h.ListContainers)
