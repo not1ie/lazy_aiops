@@ -1,9 +1,11 @@
 package docker
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -357,12 +359,35 @@ func (h *DockerHandler) ListNetworks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": networks})
 }
 
+// CommandExecutor 命令执行接口
+type CommandExecutor interface {
+	Execute(cmd string) (string, string, error)
+}
+
+// LocalExecutor 本地执行器
+type LocalExecutor struct{}
+
+func (l *LocalExecutor) Execute(cmd string) (string, string, error) {
+	// 使用 sh -c 执行命令
+	c := exec.Command("sh", "-c", cmd)
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+	err := c.Run()
+	return stdout.String(), stderr.String(), err
+}
+
 // ================= Helper Functions =================
 
-func (h *DockerHandler) getClient(dockerHostID string) (*core.SSHClient, error) {
+func (h *DockerHandler) getClient(dockerHostID string) (CommandExecutor, error) {
 	var dHost DockerHost
 	if err := h.db.First(&dHost, "id = ?", dockerHostID).Error; err != nil {
 		return nil, fmt.Errorf("Docker主机不存在")
+	}
+
+	// 支持 Local 模式
+	if dHost.HostID == "local" {
+		return &LocalExecutor{}, nil
 	}
 
 	var host cmdb.Host

@@ -536,21 +536,30 @@ function showAddDockerHostModal() {
     // 获取 CMDB 主机列表
     apiRequest('/cmdb/hosts').then(resp => {
         const hosts = resp.data || [];
-        const options = hosts.map(h => `<option value="${h.id}">${h.name} (${h.ip})</option>`).join('');
+        let options = `<option value="local">本机 (Local Socket)</option>`; // 添加本机选项
+        options += hosts.map(h => `<option value="${h.id}">${h.name} (${h.ip})</option>`).join('');
         
         const body = `
             <form id="addDockerHostForm">
                 <div class="form-group">
                     <label class="form-label">名称</label>
-                    <input type="text" class="form-control" name="name" required placeholder="例如: Production Docker">
+                    <input type="text" class="form-control" name="name" required placeholder="例如: Local Docker">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">关联主机 (需在CMDB中配置凭据)</label>
-                    <select class="form-control" name="host_id" required>
+                    <label class="form-label">关联主机</label>
+                    <select class="form-control" name="host_id" required onchange="toggleCredentialHint(this.value)">
                         ${options}
                     </select>
+                    <small id="credHint" style="color: var(--text-disabled); display: none;">注意：需要先在 CMDB 中配置 SSH 凭据</small>
+                    <small id="localHint" style="color: var(--success-color);">直接通过 /var/run/docker.sock 管理本机</small>
                 </div>
             </form>
+            <script>
+                function toggleCredentialHint(val) {
+                    document.getElementById('credHint').style.display = val === 'local' ? 'none' : 'block';
+                    document.getElementById('localHint').style.display = val === 'local' ? 'block' : 'none';
+                }
+            </script>
         `;
 
         showModal('添加 Docker 主机', body, async () => {
