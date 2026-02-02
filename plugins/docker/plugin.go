@@ -43,6 +43,7 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	
 	// Containers
 	g.GET("/hosts/:id/containers", h.ListContainers)
+	g.POST("/hosts/:id/containers", h.CreateContainer) // 创建容器
 	g.GET("/hosts/:id/containers/:container_id", h.InspectContainer)
 	g.GET("/hosts/:id/containers/:container_id/logs", h.ContainerLogs) // 日志
 	g.POST("/hosts/:id/containers/:container_id/:action", h.ContainerAction) // action: start, stop, restart, remove

@@ -303,6 +303,64 @@ func (h *DockerHandler) InspectContainer(c *gin.Context) {
 	}
 }
 
+// CreateContainer 创建并启动容器
+func (h *DockerHandler) CreateContainer(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name          string            `json:"name"`
+		Image         string            `json:"image" binding:"required"`
+		Ports         []string          `json:"ports"` // Format: "8080:80"
+		Env           map[string]string `json:"env"`
+		RestartPolicy string            `json:"restart_policy"`
+		AutoRemove    bool              `json:"auto_remove"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	// 构建 docker run 命令
+	var cmdBuilder strings.Builder
+	cmdBuilder.WriteString("docker run -d")
+
+	if req.Name != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --name %s", req.Name))
+	}
+
+	for _, p := range req.Ports {
+		if p != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" -p %s", p))
+		}
+	}
+
+	for k, v := range req.Env {
+		cmdBuilder.WriteString(fmt.Sprintf(" -e %s=%s", k, v))
+	}
+
+	if req.AutoRemove {
+		cmdBuilder.WriteString(" --rm")
+	} else if req.RestartPolicy != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --restart %s", req.RestartPolicy))
+	}
+
+	cmdBuilder.WriteString(fmt.Sprintf(" %s", req.Image))
+
+	// 执行
+	stdout, stderr, err := client.Execute(cmdBuilder.String())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("启动失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "容器创建成功", "container_id": strings.TrimSpace(stdout)})
+}
+
 // ContainerAction 容器操作 (Start/Stop/Restart/Remove)
 func (h *DockerHandler) ContainerAction(c *gin.Context) {
 	id := c.Param("id")
