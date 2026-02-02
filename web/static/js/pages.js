@@ -646,61 +646,88 @@ async function deleteDockerHost(id) {
 async function testDockerConnection(id, name) {
     showLoading();
     try {
-        const response = await apiRequest(`/docker/hosts/${id}/test`, { method: 'POST' });
+        // 添加时间戳防止缓存
+        const response = await apiRequest(`/docker/hosts/${id}/test?t=${new Date().getTime()}`, { method: 'POST' });
         hideLoading();
         
         const res = response.data;
-        const isSuccess = !res.error && (!res.stderr || res.stderr.trim() === '');
         
-        let statusHtml = '';
-        if (res.error) {
-            statusHtml = `
-                <div style="background: #fff1f0; border: 1px solid #ffa39e; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; color: #cf1322;">
-                    <i class="fas fa-times-circle" style="font-size: 20px;"></i>
-                    <div>
-                        <div style="font-weight: bold;">连接失败</div>
-                        <div style="font-size: 12px; opacity: 0.8;">请检查 SSH 凭据或网络连通性</div>
-                    </div>
-                </div>`;
-        } else if (res.stderr && res.stderr.trim() !== '') {
-            statusHtml = `
-                <div style="background: #fffbe6; border: 1px solid #ffe58f; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; color: #d48806;">
-                    <i class="fas fa-exclamation-circle" style="font-size: 20px;"></i>
-                    <div>
-                        <div style="font-weight: bold;">命令执行有警告</div>
-                        <div style="font-size: 12px; opacity: 0.8;">连接成功，但 Docker 返回了错误信息</div>
-                    </div>
-                </div>`;
-        } else {
-            statusHtml = `
-                <div style="background: #f6ffed; border: 1px solid #b7eb8f; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; color: #389e0d;">
-                    <i class="fas fa-check-circle" style="font-size: 20px;"></i>
-                    <div>
-                        <div style="font-weight: bold;">连接诊断通过</div>
-                        <div style="font-size: 12px; opacity: 0.8;">SSH 连接正常，Docker 命令执行成功</div>
-                    </div>
-                </div>`;
-        }
+        // 兼容旧版后端数据的适配器 (防止前后端版本不一致导致的 undefined)
+        const step1 = res.step1_info || { cmd: res.command, out: res.stdout, err: res.stderr };
+        const step2 = res.step2_sync || { cmd: res.command_json, out: res.stdout_json, err: res.stderr_json };
+        const step3 = res.step3_list || { cmd: 'docker ps (legacy)', out: '', err: '' }; // 旧版没有 step3
+
+        // Helper to check status
+        const checkStatus = (step) => {
+            if (!step) return { icon: 'question-circle', color: 'secondary', text: '未知' };
+            if (!step.out && step.err) return { icon: 'times-circle', color: 'danger', text: '失败' };
+            if (step.out) return { icon: 'check-circle', color: 'success', text: '成功' };
+            // 如果只有 cmd 没有 out 也没有 err (可能是新加的 step3 在旧后端为空)
+            return { icon: 'question-circle', color: 'warning', text: '无响应' };
+        };
+
+        const s1 = checkStatus(step1);
+        const s2 = checkStatus(step2);
+        const s3 = checkStatus(step3);
 
         const body = `
-            ${statusHtml}
-            <div style="font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; max-height: 500px; overflow-y: auto;">
-                <div style="color: #569cd6; font-weight: bold; margin-bottom: 5px;">>>> 检查 1: 标准输出 (docker info)</div>
-                <div style="white-space: pre-wrap; margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px;">${res.stdout || '(无输出)'}</div>
-                
-                <div style="color: #ce9178;" class="${res.stderr ? '' : 'd-none'}">STDERR:</div>
-                <div style="margin-bottom: 10px;" class="${res.stderr ? '' : 'd-none'}">${res.stderr}</div>
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <!-- Step 1: Connectivity -->
+                <div class="diagnosis-step">
+                    <div class="step-header">
+                        <i class="fas fa-${s1.icon} text-${s1.color}"></i>
+                        <span style="font-weight: 600;">基础连接 (SSH & Docker CLI)</span>
+                        <span class="badge badge-${s1.color}" style="margin-left: auto;">${s1.text}</span>
+                    </div>
+                    <div class="terminal-box">
+                        <div class="cmd">$ ${step1.cmd || 'unknown'}</div>
+                        ${step1.err ? `<div class="err">${step1.err}</div>` : ''}
+                        <div class="out">${step1.out ? step1.out.substring(0, 500) + (step1.out.length > 500 ? '...' : '') : '(无输出)'}</div>
+                    </div>
+                </div>
 
-                <div style="color: #569cd6; font-weight: bold; margin-bottom: 5px; margin-top: 15px;">>>> 检查 2: JSON 格式 (API使用)</div>
-                <div style="color: #888; font-style: italic;">$ ${res.command_json}</div>
-                ${res.error_json ? `<div style="color: #f44747;">执行错误: ${res.error_json}</div>` : ''}
-                ${res.stderr_json ? `<div style="color: #ce9178;">STDERR: ${res.stderr_json}</div>` : ''}
-                <div style="color: #b5cea8; white-space: pre-wrap; margin-top: 5px;">${res.stdout_json || '(无输出 - 这可能是导致数据不显示的原因)'}</div>
+                <!-- Step 2: API Sync -->
+                <div class="diagnosis-step">
+                    <div class="step-header">
+                        <i class="fas fa-${s2.icon} text-${s2.color}"></i>
+                        <span style="font-weight: 600;">数据同步 (JSON API)</span>
+                        <span class="badge badge-${s2.color}" style="margin-left: auto;">${s2.text}</span>
+                    </div>
+                    <div class="terminal-box">
+                        <div class="cmd">$ ${step2.cmd || 'unknown'}</div>
+                        ${step2.err ? `<div class="err">${step2.err}</div>` : ''}
+                        <div class="out">${step2.out || '(Empty Output)'}</div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Container List -->
+                <div class="diagnosis-step">
+                    <div class="step-header">
+                        <i class="fas fa-${s3.icon} text-${s3.color}"></i>
+                        <span style="font-weight: 600;">容器列表 (Docker PS)</span>
+                        <span class="badge badge-${s3.color}" style="margin-left: auto;">${s3.text}</span>
+                    </div>
+                    <div class="terminal-box">
+                        <div class="cmd">$ ${step3.cmd || 'unknown'}</div>
+                        ${step3.err ? `<div class="err">${step3.err}</div>` : ''}
+                        <div class="out">${step3.out || '(No containers found or empty output)'}</div>
+                    </div>
+                </div>
             </div>
+            
+            <style>
+                .diagnosis-step { border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+                .step-header { background: var(--bg-main); padding: 10px 15px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-color); }
+                .terminal-box { background: #1e1e1e; color: #d4d4d4; padding: 10px; font-family: monospace; font-size: 12px; max-height: 150px; overflow-y: auto; }
+                .cmd { color: #569cd6; margin-bottom: 4px; }
+                .err { color: #f44747; margin-bottom: 4px; }
+                .out { color: #b5cea8; white-space: pre-wrap; }
+            </style>
         `;
         
-        showModal(`诊断报告 - ${name}`, body, isSuccess ? async () => {
-            // 如果成功，尝试刷新列表
+        const allSuccess = s1.color === 'success' && s2.color === 'success' && s3.color === 'success';
+        
+        showModal(`深度诊断 - ${name}`, body, allSuccess ? async () => {
             await refreshDocker();
         } : null);
         
