@@ -49,6 +49,7 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	
 	// Images
 	g.GET("/hosts/:id/images", h.ListImages)
+	g.POST("/hosts/:id/images/pull", h.PullImage) // 拉取镜像
 	g.DELETE("/hosts/:id/images/:image_id", h.RemoveImage)
 	
 	// Networks

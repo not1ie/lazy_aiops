@@ -319,6 +319,36 @@ func (h *DockerHandler) ListImages(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": images})
 }
 
+// PullImage 拉取镜像
+func (h *DockerHandler) PullImage(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Image string `json:"image" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	// 异步拉取，避免阻塞？或者同步等待返回结果？Portainer 通常是长连接或轮询。
+	// 这里简化为同步等待，超时设长一点。
+	// 注意：docker pull 输出到 stdout
+	cmd := fmt.Sprintf("docker pull %s", req.Image)
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("拉取失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "拉取成功", "output": stdout})
+}
+
 // RemoveImage 删除镜像
 func (h *DockerHandler) RemoveImage(c *gin.Context) {
 	id := c.Param("id")
