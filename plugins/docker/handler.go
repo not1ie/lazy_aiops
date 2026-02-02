@@ -141,15 +141,27 @@ func (h *DockerHandler) syncHostInternal(id string) error {
 		return err
 	}
 
-	stdout, _, err := client.Execute("docker info --format '{{json .}}'")
-	if err != nil {
-		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("status", "error")
+	// 使用 docker system info 更稳健
+	stdout, stderr, err := client.Execute("docker system info --format '{{json .}}'")
+	
+	// 即使 err != nil，有时候 stdout 也有内容（比如有警告）
+	// 但如果 err != nil 且 stderr 有严重错误，那肯定是挂了
+	if err != nil && stdout == "" {
+		h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"status": "error", 
+			"version": fmt.Sprintf("Error: %s", stderr),
+		})
 		return err
 	}
 
 	var info map[string]interface{}
 	if err := json.Unmarshal([]byte(stdout), &info); err != nil {
-		return err
+		// JSON 解析失败
+		h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"status": "error",
+			"version": "JSON Parse Error",
+		})
+		return fmt.Errorf("JSON parse failed: %v | Output: %s", err, stdout)
 	}
 	
 	updates := map[string]interface{}{
@@ -203,9 +215,10 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 		return
 	}
 
-	stdout, _, err := client.Execute("docker ps -a --format '{{json .}}'")
+	// 远程执行 docker ps
+	stdout, stderr, err := client.Execute("docker ps -a --format '{{json .}}'")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
 		return
 	}
 
@@ -283,9 +296,9 @@ func (h *DockerHandler) ListImages(c *gin.Context) {
 		return
 	}
 
-	stdout, _, err := client.Execute("docker images --format '{{json .}}'")
+	stdout, stderr, err := client.Execute("docker images --format '{{json .}}'")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
 		return
 	}
 

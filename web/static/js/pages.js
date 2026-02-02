@@ -650,28 +650,65 @@ async function testDockerConnection(id, name) {
         hideLoading();
         
         const res = response.data;
+        const isSuccess = !res.error && (!res.stderr || res.stderr.trim() === '');
+        
         let statusHtml = '';
         if (res.error) {
-            statusHtml = `<div class="alert alert-danger">❌ 连接/执行失败: ${res.error}</div>`;
+            statusHtml = `
+                <div style="background: #fff1f0; border: 1px solid #ffa39e; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; color: #cf1322;">
+                    <i class="fas fa-times-circle" style="font-size: 20px;"></i>
+                    <div>
+                        <div style="font-weight: bold;">连接失败</div>
+                        <div style="font-size: 12px; opacity: 0.8;">请检查 SSH 凭据或网络连通性</div>
+                    </div>
+                </div>`;
         } else if (res.stderr && res.stderr.trim() !== '') {
-            // Docker 有时会把 info 输出到 stderr 或者 warnings
-            statusHtml = `<div class="alert alert-warning">⚠️ 命令执行有警告</div>`;
+            statusHtml = `
+                <div style="background: #fffbe6; border: 1px solid #ffe58f; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; color: #d48806;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 20px;"></i>
+                    <div>
+                        <div style="font-weight: bold;">命令执行有警告</div>
+                        <div style="font-size: 12px; opacity: 0.8;">连接成功，但 Docker 返回了错误信息</div>
+                    </div>
+                </div>`;
         } else {
-            statusHtml = `<div class="alert alert-success">✅ 连接并执行成功</div>`;
+            statusHtml = `
+                <div style="background: #f6ffed; border: 1px solid #b7eb8f; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; color: #389e0d;">
+                    <i class="fas fa-check-circle" style="font-size: 20px;"></i>
+                    <div>
+                        <div style="font-weight: bold;">连接诊断通过</div>
+                        <div style="font-size: 12px; opacity: 0.8;">SSH 连接正常，Docker 命令执行成功</div>
+                    </div>
+                </div>`;
         }
 
         const body = `
-            ${statusHtml}
-            <div style="font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; max-height: 400px; overflow-y: auto;">
-                <div style="color: #569cd6;">$ ${res.command}</div>
-                <div style="color: #ce9178;">STDERR:</div>
-                <div style="margin-bottom: 10px;">${res.stderr || '(无)'}</div>
-                <div style="color: #b5cea8;">STDOUT:</div>
-                <div style="white-space: pre-wrap;">${res.stdout || '(无)'}</div>
+            <div style="padding: 10px;">
+                ${statusHtml}
+                
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--text-secondary);">执行命令</div>
+                <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-bottom: 15px; border: 1px solid #eee;">
+                    $ ${res.command}
+                </div>
+
+                ${res.error ? `
+                    <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--danger-color);">错误信息 (Error)</div>
+                    <div style="background: #fff1f0; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-bottom: 15px; white-space: pre-wrap; color: #cf1322; border: 1px solid #ffa39e;">${res.error}</div>
+                ` : ''}
+
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--text-secondary);">标准错误输出 (STDERR)</div>
+                <div style="background: #2d2d2d; color: #f44747; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-bottom: 15px; white-space: pre-wrap; min-height: 40px; max-height: 150px; overflow-y: auto;">${res.stderr || '(无输出)'}</div>
+
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--text-secondary);">标准输出 (STDOUT)</div>
+                <div style="background: #2d2d2d; color: #b5cea8; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; white-space: pre-wrap; min-height: 60px; max-height: 300px; overflow-y: auto;">${res.stdout || '(无输出)'}</div>
             </div>
         `;
         
-        showModal(`诊断报告 - ${name}`, body);
+        showModal(`诊断报告 - ${name}`, body, isSuccess ? async () => {
+            // 如果成功，尝试刷新列表
+            await refreshDocker();
+        } : null);
+        
     } catch (error) {
         hideLoading();
         alert('诊断请求失败: ' + error.message);
