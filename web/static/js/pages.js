@@ -683,24 +683,19 @@ async function testDockerConnection(id, name) {
         }
 
         const body = `
-            <div style="padding: 10px;">
-                ${statusHtml}
+            ${statusHtml}
+            <div style="font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; max-height: 500px; overflow-y: auto;">
+                <div style="color: #569cd6; font-weight: bold; margin-bottom: 5px;">>>> 检查 1: 标准输出 (docker info)</div>
+                <div style="white-space: pre-wrap; margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px;">${res.stdout || '(无输出)'}</div>
                 
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--text-secondary);">执行命令</div>
-                <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-bottom: 15px; border: 1px solid #eee;">
-                    $ ${res.command}
-                </div>
+                <div style="color: #ce9178;" class="${res.stderr ? '' : 'd-none'}">STDERR:</div>
+                <div style="margin-bottom: 10px;" class="${res.stderr ? '' : 'd-none'}">${res.stderr}</div>
 
-                ${res.error ? `
-                    <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--danger-color);">错误信息 (Error)</div>
-                    <div style="background: #fff1f0; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-bottom: 15px; white-space: pre-wrap; color: #cf1322; border: 1px solid #ffa39e;">${res.error}</div>
-                ` : ''}
-
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--text-secondary);">标准错误输出 (STDERR)</div>
-                <div style="background: #2d2d2d; color: #f44747; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-bottom: 15px; white-space: pre-wrap; min-height: 40px; max-height: 150px; overflow-y: auto;">${res.stderr || '(无输出)'}</div>
-
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 5px; color: var(--text-secondary);">标准输出 (STDOUT)</div>
-                <div style="background: #2d2d2d; color: #b5cea8; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; white-space: pre-wrap; min-height: 60px; max-height: 300px; overflow-y: auto;">${res.stdout || '(无输出)'}</div>
+                <div style="color: #569cd6; font-weight: bold; margin-bottom: 5px; margin-top: 15px;">>>> 检查 2: JSON 格式 (API使用)</div>
+                <div style="color: #888; font-style: italic;">$ ${res.command_json}</div>
+                ${res.error_json ? `<div style="color: #f44747;">执行错误: ${res.error_json}</div>` : ''}
+                ${res.stderr_json ? `<div style="color: #ce9178;">STDERR: ${res.stderr_json}</div>` : ''}
+                <div style="color: #b5cea8; white-space: pre-wrap; margin-top: 5px;">${res.stdout_json || '(无输出 - 这可能是导致数据不显示的原因)'}</div>
             </div>
         `;
         

@@ -73,23 +73,31 @@ func (h *DockerHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
-	// 1. 测试 SSH 连接
-	// 2. 测试 Docker 命令
+	// 1. 测试标准命令
+	cmdHuman := "docker info"
+	stdoutHuman, stderrHuman, errHuman := client.Execute(cmdHuman)
 	
-	cmd := "docker info"
-	stdout, stderr, err := client.Execute(cmd)
+	// 2. 测试JSON格式命令 (后端实际使用的命令)
+	cmdJSON := "docker system info --format '{{json .}}'"
+	stdoutJSON, stderrJSON, errJSON := client.Execute(cmdJSON)
 	
 	result := gin.H{
 		"ssh_connected": true,
-		"command":       cmd,
-		"stdout":        stdout,
-		"stderr":        stderr,
-		"error":         "",
+		"command":       cmdHuman,
+		"stdout":        stdoutHuman,
+		"stderr":        stderrHuman,
+		
+		"command_json":  cmdJSON,
+		"stdout_json":   stdoutJSON,
+		"stderr_json":   stderrJSON,
+		"error_json":    "",
 	}
 
-	if err != nil {
-		result["error"] = err.Error()
-		// 如果 SSH 连接本身失败，err 会包含相关信息
+	if errHuman != nil {
+		result["error"] = errHuman.Error()
+	}
+	if errJSON != nil {
+		result["error_json"] = errJSON.Error()
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
