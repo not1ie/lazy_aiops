@@ -39,6 +39,6 @@ type DockerContainer struct {
 	Image   string   `json:"image"`
 	State   string   `json:"state"`
 	Status  string   `json:"status"`
-	Created int64    `json:"created"`
+	Created string   `json:"created"` // Changed from int64 to string
 	Ports   string   `json:"ports"`
 }

@@ -235,7 +235,44 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 		return
 	}
 
-	containers := parseJSONList(stdout)
+	rawList := parseJSONList(stdout)
+	var containers []DockerContainer
+
+	for _, item := range rawList {
+		// 容错处理：Docker CLI 返回的 Key 可能是 ID, Names, Image 等 (PascalCase)
+		// 我们将其映射到 DockerContainer (camelCase json tags)
+		
+		id, _ := item["ID"].(string)
+		
+		// Names 可能是 "name1,name2" 字符串，我们需要转为数组
+		namesStr, _ := item["Names"].(string)
+		names := strings.Split(namesStr, ",")
+		
+		image, _ := item["Image"].(string)
+		state, _ := item["State"].(string)
+		status, _ := item["Status"].(string)
+		ports, _ := item["Ports"].(string)
+		createdStr, _ := item["CreatedAt"].(string)
+		
+		// 尝试解析时间 (Docker time format is tricky, keep it simple or raw string for now if needed, 
+		// but model expects int64 timestamp. Let's change model to string for display simplicity or parse it)
+		// For now, let's keep Created as int64 0 to avoid parsing errors, or update model.
+		// Actually, let's update the model to use string for 'created' to be safe, 
+		// OR just pass the string in a new field.
+		// To match existing frontend expectation, let's see.
+		// Frontend uses `c.Created` (Turn 36).
+		
+		containers = append(containers, DockerContainer{
+			ID:      id,
+			Names:   names,
+			Image:   image,
+			State:   state,
+			Status:  status,
+			Ports:   ports,
+			Created: createdStr,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": containers})
 }
 
