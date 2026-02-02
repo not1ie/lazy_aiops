@@ -29,11 +29,10 @@ WORKDIR /app
 
 # 安装运行时依赖
 RUN apt-get update && \
-    apt-get install -y ca-certificates tzdata ansible sshpass curl gnupg lsb-release && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y docker-ce-cli && \
+    apt-get install -y ca-certificates tzdata ansible sshpass curl && \
+    curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz -o docker.tgz && \
+    tar xzvf docker.tgz --strip 1 -C /usr/local/bin docker/docker && \
+    rm docker.tgz && \
     rm -rf /var/lib/apt/lists/*
 
 # 设置时区
