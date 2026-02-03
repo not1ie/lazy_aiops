@@ -1,15 +1,16 @@
 # === Stage 1: Build Frontend (Vue3) ===
-FROM node:18-alpine AS frontend-builder
+FROM node:18 AS frontend-builder
 WORKDIR /app
+# 换源加速
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
 COPY frontend/package.json ./
-# 使用淘宝源加速
 RUN npm config set registry https://registry.npmmirror.com
 RUN npm install
 COPY frontend/ .
 RUN npm run build
 
 # === Stage 2: Build Backend (Go) ===
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21-bookworm AS builder
 
 # 接收构建参数
 ARG GOPROXY=https://goproxy.cn,direct
@@ -20,8 +21,8 @@ ENV GOPROXY=${GOPROXY}
 ENV GO111MODULE=${GO111MODULE}
 ENV CGO_ENABLED=1
 
-# 安装构建依赖 (gcc for cgo)
-RUN apk add --no-cache gcc musl-dev
+# 换源加速
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
 
 WORKDIR /app
 
@@ -36,23 +37,18 @@ COPY . .
 RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o app_server ./cmd/server && ls -l app_server
 
 # === Stage 3: Runtime Image ===
-FROM alpine:3.19
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
+# 换源加速
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+
 # 安装运行时依赖
-# docker-cli: Docker 客户端
-# ansible: 自动化工具
-# sshpass: SSH 密码支持
-# curl: 网络工具
-# tzdata: 时区支持
-RUN apk add --no-cache \
-    ca-certificates \
-    tzdata \
-    ansible \
-    sshpass \
-    curl \
-    docker-cli
+# 尝试直接安装 docker.io (Debian源包含)
+RUN apt-get update && \
+    apt-get install -y ca-certificates tzdata ansible sshpass curl docker.io && \
+    rm -rf /var/lib/apt/lists/*
 
 # 设置时区
 ENV TZ=Asia/Shanghai
