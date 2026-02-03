@@ -1,69 +1,34 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useUserStore } from '../stores/user'
-import MainLayout from '../layouts/MainLayout.vue'
+import Layout from '@/layout/index.vue'
 
 const routes = [
   {
     path: '/login',
     name: 'Login',
-    component: () => import('../views/Login.vue'),
-    meta: { requiresAuth: false }
+    component: () => import('@/views/login/index.vue')
   },
   {
     path: '/',
-    component: MainLayout,
+    component: Layout,
     redirect: '/dashboard',
-    meta: { requiresAuth: true },
     children: [
       {
         path: 'dashboard',
         name: 'Dashboard',
-        component: () => import('../views/Dashboard.vue')
+        component: () => import('@/views/dashboard/index.vue'),
+        meta: { title: '仪表盘', icon: 'Odometer' }
       },
       {
-        path: 'cmdb',
-        name: 'CMDB',
-        component: () => import('../views/CMDB.vue')
+        path: 'host',
+        name: 'Host',
+        component: () => import('@/views/cmdb/host.vue'),
+        meta: { title: '主机管理', icon: 'Monitor' }
       },
       {
-        path: 'monitor',
-        name: 'Monitor',
-        component: () => import('../views/Monitor.vue')
-      },
-      {
-        path: 'alert',
-        name: 'Alert',
-        component: () => import('../views/Alert.vue')
-      },
-      {
-        path: 'task',
-        name: 'Task',
-        component: () => import('../views/Task.vue')
-      },
-      {
-        path: 'ai/log-analysis',
-        name: 'AILogAnalysis',
-        component: () => import('../views/AI/LogAnalysis.vue')
-      },
-      {
-        path: 'sqlaudit',
-        name: 'SQLAudit',
-        component: () => import('../views/SQLAudit.vue')
-      },
-      {
-        path: 'k8s',
-        name: 'K8s',
-        component: () => import('../views/K8s.vue')
-      },
-      {
-        path: 'ansible',
-        name: 'Ansible',
-        component: () => import('../views/Ansible.vue')
-      },
-      {
-        path: 'executor',
-        name: 'Executor',
-        component: () => import('../views/Executor.vue')
+        path: 'docker',
+        name: 'Docker',
+        component: () => import('@/views/docker/index.vue'),
+        meta: { title: 'Docker管理', icon: 'Platform' }
       }
     ]
   }
@@ -74,17 +39,10 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
 router.beforeEach((to, from, next) => {
-  const userStore = useUserStore()
-  
-  if (to.meta.requiresAuth && !userStore.isLoggedIn) {
-    next('/login')
-  } else if (to.path === '/login' && userStore.isLoggedIn) {
-    next('/dashboard')
-  } else {
-    next()
-  }
+  const token = localStorage.getItem('token')
+  if (to.name !== 'Login' && !token) next({ name: 'Login' })
+  else next()
 })
 
 export default router
