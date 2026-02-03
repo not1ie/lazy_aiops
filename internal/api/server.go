@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/config"
@@ -35,9 +36,19 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) setupRoutes() {
-	// 静态文件服务
-	s.engine.StaticFile("/", "./web/static/index.html")
-	s.engine.Static("/static", "./web/static")
+	// SPA 前端静态文件服务
+	// 1. 静态资源 (assets, favicon等)
+	s.engine.Static("/assets", "./web/static/assets")
+	s.engine.StaticFile("/favicon.ico", "./web/static/favicon.ico")
+
+	// 2. 所有非 API 路径都返回 index.html (SPA History Mode)
+	s.engine.NoRoute(func(c *gin.Context) {
+		if !strings.HasPrefix(c.Request.URL.Path, "/api") {
+			c.File("./web/static/index.html")
+		} else {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "API not found"})
+		}
+	})
 
 	// 健康检查
 	s.engine.GET("/health", func(c *gin.Context) {

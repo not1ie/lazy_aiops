@@ -1,4 +1,14 @@
-# 构建阶段 - 使用 Debian 基础镜像避免 musl libc 问题
+# === Stage 1: Build Frontend (Vue3) ===
+FROM node:18 AS frontend-builder
+WORKDIR /app
+COPY frontend/package.json ./
+# 使用淘宝源加速
+RUN npm config set registry https://registry.npmmirror.com
+RUN npm install
+COPY frontend/ .
+RUN npm run build
+
+# === Stage 2: Build Backend (Go) ===
 FROM golang:1.21-bullseye AS builder
 
 # 接收构建参数
@@ -22,7 +32,7 @@ COPY . .
 # 构建
 RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o app_server ./cmd/server && ls -l app_server
 
-# 运行阶段 - 使用 Debian slim
+# === Stage 3: Runtime Image ===
 FROM debian:bullseye-slim
 
 WORKDIR /app
@@ -35,10 +45,12 @@ RUN apt-get update && \
 # 设置时区
 ENV TZ=Asia/Shanghai
 
-# 复制二进制文件和配置
+# 复制后端二进制文件
 COPY --from=builder /app/app_server ./lazy-auto-ops
+# 复制后端配置
 COPY --from=builder /app/configs ./configs
-COPY --from=builder /app/web ./web
+# 复制前端构建产物 (dist -> web)
+COPY --from=frontend-builder /app/dist ./web/static
 
 # 创建数据目录
 RUN mkdir -p data
