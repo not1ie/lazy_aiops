@@ -9,7 +9,7 @@ COPY frontend/ .
 RUN npm run build
 
 # === Stage 2: Build Backend (Go) ===
-FROM golang:1.21-bullseye AS builder
+FROM golang:1.21-bookworm AS builder
 
 # 接收构建参数
 ARG GOPROXY=https://goproxy.cn,direct
@@ -33,13 +33,17 @@ COPY . .
 RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o app_server ./cmd/server && ls -l app_server
 
 # === Stage 3: Runtime Image ===
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# 安装运行时依赖
+# 安装运行时依赖 (尝试安装 docker.io，如果失败则下载静态文件)
 RUN apt-get update && \
-    apt-get install -y ca-certificates tzdata ansible sshpass curl docker.io && \
+    apt-get install -y ca-certificates tzdata ansible sshpass curl && \
+    (apt-get install -y docker.io || \
+     (curl -k -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz -o docker.tgz && \
+      tar xzvf docker.tgz --strip 1 -C /usr/local/bin docker/docker && \
+      rm docker.tgz)) && \
     rm -rf /var/lib/apt/lists/*
 
 # 设置时区
@@ -49,7 +53,7 @@ ENV TZ=Asia/Shanghai
 COPY --from=builder /app/app_server ./lazy-auto-ops
 # 复制后端配置
 COPY --from=builder /app/configs ./configs
-# 复制前端构建产物 (dist -> web)
+# 复制前端构建产物 (dist -> web/static)
 COPY --from=frontend-builder /app/dist ./web/static
 
 # 创建数据目录
