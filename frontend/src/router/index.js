@@ -29,6 +29,18 @@ const routes = [
         name: 'Docker',
         component: () => import('@/views/docker/index.vue'),
         meta: { title: 'Docker管理', icon: 'Platform' }
+      },
+      {
+        path: 'application',
+        name: 'Application',
+        component: () => import('@/views/application/index.vue'),
+        meta: { title: '应用中心', icon: 'Box' }
+      },
+      {
+        path: 'system/dept',
+        name: 'Department',
+        component: () => import('@/views/system/dept.vue'),
+        meta: { title: '部门管理', icon: 'OfficeBuilding' }
       }
     ]
   }

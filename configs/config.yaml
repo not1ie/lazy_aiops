@@ -91,3 +91,9 @@ plugins:
   # 故障自愈
   remediation:
     enabled: true
+  # 系统管理
+  system:
+    enabled: true
+  # 应用中心
+  application:
+    enabled: true

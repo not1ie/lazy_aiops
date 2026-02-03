@@ -25,6 +25,17 @@
           <el-icon><Platform /></el-icon>
           <span>Docker管理</span>
         </el-menu-item>
+        <el-menu-item index="/application">
+          <el-icon><Box /></el-icon>
+          <span>应用中心</span>
+        </el-menu-item>
+        <el-sub-menu index="/system">
+          <template #title>
+            <el-icon><Setting /></el-icon>
+            <span>系统管理</span>
+          </template>
+          <el-menu-item index="/system/dept">部门管理</el-menu-item>
+        </el-sub-menu>
       </el-menu>
     </el-aside>
     <el-container>
