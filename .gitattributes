@@ -1,0 +1,20 @@
+# 忽略文档和配置文件的语言统计
+docs/* linguist-documentation
+configs/* linguist-documentation
+deploy/* linguist-documentation
+scripts/* linguist-documentation
+Makefile linguist-documentation
+*.md linguist-documentation
+*.yaml linguist-documentation
+*.yml linguist-documentation
+*.json linguist-documentation
+
+# 忽略构建产物 (虽然 .gitignore 了，但为了保险)
+web/* linguist-vendored
+dist/* linguist-vendored
+
+# 强制识别 Vue 文件
+*.vue linguist-language=Vue
+
+# 忽略前端静态资源目录 (只统计源码 src)
+frontend/public/* linguist-vendored
