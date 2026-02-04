@@ -305,6 +305,35 @@ func (h *HostHandler) CreateGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": group})
 }
 
+// UpdateGroup 更新分组
+func (h *HostHandler) UpdateGroup(c *gin.Context) {
+	id := c.Param("id")
+	var group HostGroup
+	if err := h.db.First(&group, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "分组不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&group); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&group).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": group})
+}
+
+// DeleteGroup 删除分组
+func (h *HostHandler) DeleteGroup(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&HostGroup{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
 // ListCredentials 凭据列表
 func (h *HostHandler) ListCredentials(c *gin.Context) {
 	var creds []Credential
@@ -327,4 +356,249 @@ func (h *HostHandler) CreateCredential(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cred})
+}
+
+// UpdateCredential 更新凭据
+func (h *HostHandler) UpdateCredential(c *gin.Context) {
+	id := c.Param("id")
+	var cred Credential
+	if err := h.db.First(&cred, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "凭据不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&cred); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&cred).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cred})
+}
+
+// DeleteCredential 删除凭据
+func (h *HostHandler) DeleteCredential(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&Credential{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ListDatabases 数据库资产列表
+func (h *HostHandler) ListDatabases(c *gin.Context) {
+	var items []DatabaseAsset
+	query := h.db.Order("updated_at DESC")
+	if keyword := c.Query("keyword"); keyword != "" {
+		query = query.Where("name LIKE ? OR host LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if env := c.Query("environment"); env != "" {
+		query = query.Where("environment = ?", env)
+	}
+	if err := query.Find(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+}
+
+// CreateDatabase 创建数据库资产
+func (h *HostHandler) CreateDatabase(c *gin.Context) {
+	var item DatabaseAsset
+	if err := c.ShouldBindJSON(&item); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if item.Port == 0 {
+		item.Port = 3306
+	}
+	if err := h.db.Create(&item).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
+}
+
+// GetDatabase 获取数据库资产详情
+func (h *HostHandler) GetDatabase(c *gin.Context) {
+	id := c.Param("id")
+	var item DatabaseAsset
+	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
+}
+
+// UpdateDatabase 更新数据库资产
+func (h *HostHandler) UpdateDatabase(c *gin.Context) {
+	id := c.Param("id")
+	var item DatabaseAsset
+	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&item); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if item.Port == 0 {
+		item.Port = 3306
+	}
+	if err := h.db.Save(&item).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
+}
+
+// DeleteDatabase 删除数据库资产
+func (h *HostHandler) DeleteDatabase(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&DatabaseAsset{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ListCloudAccounts 云账号列表
+func (h *HostHandler) ListCloudAccounts(c *gin.Context) {
+	var accounts []CloudAccount
+	query := h.db.Order("updated_at DESC")
+	if provider := c.Query("provider"); provider != "" {
+		query = query.Where("provider = ?", provider)
+	}
+	if err := query.Find(&accounts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": accounts})
+}
+
+// CreateCloudAccount 创建云账号
+func (h *HostHandler) CreateCloudAccount(c *gin.Context) {
+	var account CloudAccount
+	if err := c.ShouldBindJSON(&account); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Create(&account).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
+}
+
+// GetCloudAccount 获取云账号详情
+func (h *HostHandler) GetCloudAccount(c *gin.Context) {
+	id := c.Param("id")
+	var account CloudAccount
+	if err := h.db.First(&account, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云账号不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
+}
+
+// UpdateCloudAccount 更新云账号
+func (h *HostHandler) UpdateCloudAccount(c *gin.Context) {
+	id := c.Param("id")
+	var account CloudAccount
+	if err := h.db.First(&account, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云账号不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&account); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&account).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
+}
+
+// DeleteCloudAccount 删除云账号
+func (h *HostHandler) DeleteCloudAccount(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&CloudAccount{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ListCloudResources 云资源列表
+func (h *HostHandler) ListCloudResources(c *gin.Context) {
+	var resources []CloudResource
+	query := h.db.Preload("Account").Order("updated_at DESC")
+	if accountID := c.Query("account_id"); accountID != "" {
+		query = query.Where("account_id = ?", accountID)
+	}
+	if keyword := c.Query("keyword"); keyword != "" {
+		query = query.Where("name LIKE ? OR resource_id LIKE ? OR ip LIKE ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if err := query.Find(&resources).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resources})
+}
+
+// CreateCloudResource 创建云资源
+func (h *HostHandler) CreateCloudResource(c *gin.Context) {
+	var resource CloudResource
+	if err := c.ShouldBindJSON(&resource); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Create(&resource).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resource})
+}
+
+// GetCloudResource 获取云资源详情
+func (h *HostHandler) GetCloudResource(c *gin.Context) {
+	id := c.Param("id")
+	var resource CloudResource
+	if err := h.db.Preload("Account").First(&resource, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云资源不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resource})
+}
+
+// UpdateCloudResource 更新云资源
+func (h *HostHandler) UpdateCloudResource(c *gin.Context) {
+	id := c.Param("id")
+	var resource CloudResource
+	if err := h.db.First(&resource, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云资源不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&resource); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&resource).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resource})
+}
+
+// DeleteCloudResource 删除云资源
+func (h *HostHandler) DeleteCloudResource(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&CloudResource{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }

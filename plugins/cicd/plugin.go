@@ -32,7 +32,7 @@ func (p *CICDPlugin) Start() error { return nil }
 func (p *CICDPlugin) Stop() error  { return nil }
 
 func (p *CICDPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&CICDPipeline{}, &CICDJob{}, &CICDExecution{}, &CICDSchedule{})
+	return p.core.DB.AutoMigrate(&CICDPipeline{}, &CICDJob{}, &CICDExecution{}, &CICDSchedule{}, &CICDRelease{})
 }
 
 func (p *CICDPlugin) RegisterRoutes(r *gin.RouterGroup) {
@@ -59,6 +59,12 @@ func (p *CICDPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.PUT("/schedules/:id", p.handler.UpdateSchedule)
 	r.DELETE("/schedules/:id", p.handler.DeleteSchedule)
 	r.POST("/schedules/:id/toggle", p.handler.ToggleSchedule)
+
+	// 发布管理
+	r.GET("/releases", p.handler.ListReleases)
+	r.POST("/releases", p.handler.CreateRelease)
+	r.PUT("/releases/:id", p.handler.UpdateRelease)
+	r.DELETE("/releases/:id", p.handler.DeleteRelease)
 
 	// Webhook
 	r.POST("/webhook/:provider", p.handler.HandleWebhook)

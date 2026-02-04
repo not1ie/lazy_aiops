@@ -60,6 +60,7 @@ func (p *NotifyPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		groups.POST("", h.CreateGroup)
 		groups.PUT("/:id", h.UpdateGroup)
 		groups.DELETE("/:id", h.DeleteGroup)
+		groups.POST("/:id/test", h.TestGroup)
 	}
 
 	// 模板

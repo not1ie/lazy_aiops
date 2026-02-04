@@ -76,3 +76,17 @@ type CICDSchedule struct {
 	NextRunAt   *time.Time `json:"next_run_at"`
 	Description string     `json:"description" gorm:"size:500"`
 }
+
+// CICDRelease 发布记录
+type CICDRelease struct {
+	core.BaseModel
+	Name        string     `json:"name" gorm:"size:100"`
+	PipelineID  string     `json:"pipeline_id" gorm:"size:36;index"`
+	PipelineName string    `json:"pipeline_name" gorm:"size:100"`
+	Version     string     `json:"version" gorm:"size:100"`
+	Environment string     `json:"environment" gorm:"size:50"`
+	Status      int        `json:"status" gorm:"default:0"` // 0待发布 1已发布 2回滚 3失败
+	Notes       string     `json:"notes" gorm:"size:1000"`
+	ReleaseAt   *time.Time `json:"release_at"`
+	Operator    string     `json:"operator" gorm:"size:100"`
+}

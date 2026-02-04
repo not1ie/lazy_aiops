@@ -57,4 +57,52 @@ type Credential struct {
 	Password   string `gorm:"size:256" json:"password,omitempty"`
 	PrivateKey string `gorm:"type:text" json:"private_key,omitempty"`
 	Passphrase string `gorm:"size:256" json:"passphrase,omitempty"`
+	AccessKey  string `gorm:"size:256" json:"access_key,omitempty"`
+	SecretKey  string `gorm:"size:256" json:"secret_key,omitempty"`
+	Notes      string `gorm:"size:512" json:"notes,omitempty"`
+}
+
+// DatabaseAsset 数据库资产
+type DatabaseAsset struct {
+	BaseModel
+	Name        string `gorm:"size:128" json:"name"`
+	Type        string `gorm:"size:32" json:"type"` // mysql, postgres, redis, mongodb, oracle
+	Host        string `gorm:"size:128" json:"host"`
+	Port        int    `gorm:"default:3306" json:"port"`
+	Username    string `gorm:"size:64" json:"username"`
+	Password    string `gorm:"size:256" json:"password,omitempty"`
+	Database    string `gorm:"size:128" json:"database"`
+	Environment string `gorm:"size:32" json:"environment"` // dev, test, prod
+	Owner       string `gorm:"size:64" json:"owner"`
+	Tags        string `gorm:"size:256" json:"tags"`
+	Status      int    `gorm:"default:1" json:"status"` // 1:正常 0:禁用
+	Description string `gorm:"size:512" json:"description"`
+}
+
+// CloudAccount 云账号
+type CloudAccount struct {
+	BaseModel
+	Name        string `gorm:"size:128" json:"name"`
+	Provider    string `gorm:"size:32" json:"provider"` // tencent, baidu, aliyun, huawei, aws
+	AccessKey   string `gorm:"size:256" json:"access_key,omitempty"`
+	SecretKey   string `gorm:"size:256" json:"secret_key,omitempty"`
+	Region      string `gorm:"size:64" json:"region"`
+	Status      int    `gorm:"default:1" json:"status"` // 1:启用 0:禁用
+	Description string `gorm:"size:512" json:"description"`
+}
+
+// CloudResource 云资源
+type CloudResource struct {
+	BaseModel
+	AccountID string        `gorm:"size:36;index" json:"account_id"`
+	Account   *CloudAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	ResourceID string       `gorm:"size:128" json:"resource_id"`
+	Name       string       `gorm:"size:128" json:"name"`
+	Type       string       `gorm:"size:32" json:"type"` // ecs, rds, slb, vpc
+	Region     string       `gorm:"size:64" json:"region"`
+	Zone       string       `gorm:"size:64" json:"zone"`
+	IP         string       `gorm:"size:64" json:"ip"`
+	Status     string       `gorm:"size:32" json:"status"`
+	Spec       string       `gorm:"size:128" json:"spec"`
+	Tags       string       `gorm:"size:256" json:"tags"`
 }

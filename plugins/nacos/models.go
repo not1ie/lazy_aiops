@@ -81,3 +81,15 @@ type NacosNamespace struct {
 	Quota       int    `json:"quota"`
 	Type        int    `json:"type"`
 }
+
+// NacosSyncSchedule 配置同步计划
+type NacosSyncSchedule struct {
+	core.BaseModel
+	Name        string     `json:"name" gorm:"size:100"`
+	ServerID    string     `json:"server_id" gorm:"size:36;index"`
+	Cron        string     `json:"cron" gorm:"size:100"`
+	Enabled     bool       `json:"enabled" gorm:"default:true"`
+	LastRunAt   *time.Time `json:"last_run_at"`
+	NextRunAt   *time.Time `json:"next_run_at"`
+	Description string     `json:"description" gorm:"size:500"`
+}

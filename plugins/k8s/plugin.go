@@ -35,7 +35,7 @@ func (p *K8sPlugin) Migrate() error {
 }
 
 func (p *K8sPlugin) RegisterRoutes(g *gin.RouterGroup) {
-	h := NewK8sHandler(p.core.DB)
+	h := NewK8sHandler(p.core.DB, p.core.Auth)
 
 	// 集群管理
 	clusters := g.Group("/clusters")
@@ -56,12 +56,38 @@ func (p *K8sPlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// 工作负载
 	g.GET("/clusters/:id/workloads", h.ListWorkloads)
+	g.GET("/clusters/:id/namespaces/:ns/workloads/:kind/:name", h.GetWorkload)
+	g.GET("/clusters/:id/namespaces/:ns/workloads/:kind/:name/manifest", h.GetWorkloadManifest)
+	g.POST("/clusters/:id/namespaces/:ns/workloads/:kind/:name/manifest/apply", h.ApplyWorkloadManifest)
+	g.PUT("/clusters/:id/namespaces/:ns/workloads/:kind/:name/scale", h.ScaleWorkload)
+	g.POST("/clusters/:id/namespaces/:ns/workloads/:kind/:name/restart", h.RestartWorkloadByRef)
 	g.GET("/clusters/:id/namespaces/:ns/deployments", h.ListDeployments)
 	g.PUT("/clusters/:id/namespaces/:ns/deployments/:name/scale", h.ScaleDeployment)
 	g.POST("/clusters/:id/namespaces/:ns/deployments/:name/restart", h.RestartDeployment)
 
 	// Pod管理
 	g.GET("/clusters/:id/namespaces/:ns/pods", h.ListPods)
+	g.GET("/clusters/:id/namespaces/:ns/pods/:name", h.GetPod)
 	g.GET("/clusters/:id/namespaces/:ns/pods/:name/logs", h.GetPodLogs)
+	g.GET("/clusters/:id/namespaces/:ns/pods/:name/logs/stream", h.StreamPodLogs)
 	g.DELETE("/clusters/:id/namespaces/:ns/pods/:name", h.DeletePod)
+	g.POST("/clusters/:id/namespaces/:ns/pods/:name/restart", h.RestartPod)
+	g.POST("/clusters/:id/namespaces/:ns/pods/:name/restart-workload", h.RestartWorkload)
+	g.GET("/clusters/:id/namespaces/:ns/pods/:pod/exec", h.ExecPod)
+
+	// Service & Ingress
+	g.GET("/clusters/:id/services", h.ListServices)
+	g.GET("/clusters/:id/ingresses", h.ListIngresses)
+
+	// ConfigMap & Secret
+	g.GET("/clusters/:id/configmaps", h.ListConfigMaps)
+	g.GET("/clusters/:id/secrets", h.ListSecrets)
+
+	// Storage
+	g.GET("/clusters/:id/storageclasses", h.ListStorageClasses)
+	g.GET("/clusters/:id/persistentvolumes", h.ListPersistentVolumes)
+	g.GET("/clusters/:id/namespaces/:ns/persistentvolumeclaims", h.ListPersistentVolumeClaims)
+
+	// Events
+	g.GET("/clusters/:id/events", h.ListEvents)
 }

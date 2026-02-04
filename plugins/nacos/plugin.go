@@ -16,6 +16,7 @@ type NacosPlugin struct {
 	core    *core.Core
 	cfg     map[string]interface{}
 	handler *NacosHandler
+	scheduler *Scheduler
 }
 
 func (p *NacosPlugin) Name() string        { return "nacos" }
@@ -25,19 +26,30 @@ func (p *NacosPlugin) Description() string { return "Nacos配置中心 - 配置�
 func (p *NacosPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
 	p.cfg = cfg
+	p.handler = NewNacosHandler(c.DB, nil)
+	p.scheduler = NewScheduler(c.DB, p.handler)
+	p.handler.scheduler = p.scheduler
 	return nil
 }
 
-func (p *NacosPlugin) Start() error { return nil }
-func (p *NacosPlugin) Stop() error  { return nil }
+func (p *NacosPlugin) Start() error {
+	if p.scheduler != nil {
+		return p.scheduler.Start()
+	}
+	return nil
+}
+func (p *NacosPlugin) Stop() error {
+	if p.scheduler != nil {
+		return p.scheduler.Stop()
+	}
+	return nil
+}
 
 func (p *NacosPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&NacosServer{}, &NacosConfig{}, &NacosConfigHistory{}, &NacosService{}, &NacosInstance{}, &NacosNamespace{})
+	return p.core.DB.AutoMigrate(&NacosServer{}, &NacosConfig{}, &NacosConfigHistory{}, &NacosService{}, &NacosInstance{}, &NacosNamespace{}, &NacosSyncSchedule{})
 }
 
 func (p *NacosPlugin) RegisterRoutes(r *gin.RouterGroup) {
-	p.handler = NewNacosHandler(p.core.DB)
-
 	// 服务器管理
 	r.GET("/servers", p.handler.ListServers)
 	r.POST("/servers", p.handler.CreateServer)
@@ -60,4 +72,11 @@ func (p *NacosPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	// 服务发现
 	r.GET("/services", p.handler.ListServices)
 	r.GET("/services/instances", p.handler.GetServiceInstances)
+
+	// 同步计划
+	r.GET("/schedules", p.handler.ListSyncSchedules)
+	r.POST("/schedules", p.handler.CreateSyncSchedule)
+	r.PUT("/schedules/:id", p.handler.UpdateSyncSchedule)
+	r.DELETE("/schedules/:id", p.handler.DeleteSyncSchedule)
+	r.POST("/schedules/:id/toggle", p.handler.ToggleSyncSchedule)
 }

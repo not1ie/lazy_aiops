@@ -138,7 +138,18 @@ func (h *TaskHandler) Run(c *gin.Context) {
 		return
 	}
 
-	// 创建执行记录
+	// 入队执行
+	if h.scheduler != nil {
+		exec, err := h.scheduler.EnqueueTask(task, c.GetString("username"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": exec, "message": "任务已提交执行"})
+		return
+	}
+
+	// 无调度器兜底：直接创建记录
 	exec := TaskExecution{
 		TaskID:   task.ID,
 		TaskName: task.Name,
@@ -147,9 +158,6 @@ func (h *TaskHandler) Run(c *gin.Context) {
 		Executor: c.GetString("username"),
 	}
 	h.db.Create(&exec)
-
-	// TODO: 实际执行任务逻辑
-	// 这里简化处理，直接返回
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": exec, "message": "任务已提交执行"})
 }
 

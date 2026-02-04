@@ -488,6 +488,72 @@ func (h *CICDHandler) ToggleSchedule(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedule})
 }
 
+// ListReleases 发布记录列表
+func (h *CICDHandler) ListReleases(c *gin.Context) {
+	var releases []CICDRelease
+	query := h.db.Order("created_at DESC")
+	if pipelineID := c.Query("pipeline_id"); pipelineID != "" {
+		query = query.Where("pipeline_id = ?", pipelineID)
+	}
+	if err := query.Find(&releases).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": releases})
+}
+
+// CreateRelease 创建发布记录
+func (h *CICDHandler) CreateRelease(c *gin.Context) {
+	var release CICDRelease
+	if err := c.ShouldBindJSON(&release); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	release.Operator = c.GetString("username")
+	if release.Status == 1 {
+		now := time.Now()
+		release.ReleaseAt = &now
+	}
+	if err := h.db.Create(&release).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": release})
+}
+
+// UpdateRelease 更新发布记录
+func (h *CICDHandler) UpdateRelease(c *gin.Context) {
+	id := c.Param("id")
+	var release CICDRelease
+	if err := h.db.First(&release, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "发布记录不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&release); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if release.Status == 1 && release.ReleaseAt == nil {
+		now := time.Now()
+		release.ReleaseAt = &now
+	}
+	if err := h.db.Save(&release).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": release})
+}
+
+// DeleteRelease 删除发布记录
+func (h *CICDHandler) DeleteRelease(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&CICDRelease{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
 // HandleWebhook 处理Webhook
 func (h *CICDHandler) HandleWebhook(c *gin.Context) {
 	provider := c.Param("provider")

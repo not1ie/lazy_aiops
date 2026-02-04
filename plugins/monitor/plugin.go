@@ -53,11 +53,18 @@ func (p *MonitorPlugin) Stop() error {
 }
 
 func (p *MonitorPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&DomainMonitor{}, &AlertRule{}, &AlertRecord{}, &MetricRecord{})
+	return p.core.DB.AutoMigrate(&DomainMonitor{}, &AlertRule{}, &AlertRecord{}, &MetricRecord{}, &AgentHeartbeat{}, &AgentHeartbeatRecord{}, &PromQueryHistory{})
 }
 
 func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
-	h := NewMonitorHandler(p.core.DB, p.collector)
+	promURL, _ := p.cfg["prometheus_url"].(string)
+	pushURL, _ := p.cfg["pushgateway_url"].(string)
+	agentSecret, _ := p.cfg["agent_secret"].(string)
+	agentTimeout := 90 * time.Second
+	if v, ok := p.cfg["agent_timeout"].(int); ok && v > 0 {
+		agentTimeout = time.Duration(v) * time.Second
+	}
+	h := NewMonitorHandler(p.core.DB, p.collector, promURL, pushURL, agentSecret, agentTimeout)
 
 	// 域名监控
 	domains := g.Group("/domains")
@@ -86,4 +93,18 @@ func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/metrics/history", h.GetMetricsHistory)
 	g.GET("/servers", h.GetServerMetrics)
 	g.GET("/chart", h.GetChartData)
+
+	// Prometheus / Pushgateway
+	g.GET("/prometheus/query", h.ProxyPromQuery)
+	g.GET("/prometheus/query_range", h.ProxyPromQueryRange)
+	g.GET("/pushgateway/metrics", h.ProxyPushgatewayMetrics)
+	g.GET("/prometheus/history", h.ListPromHistory)
+	g.POST("/prometheus/history", h.CreatePromHistory)
+	g.PUT("/prometheus/history/:id", h.UpdatePromHistory)
+
+	// Agent heartbeat
+	g.POST("/agents/heartbeat", h.AgentHeartbeat)
+	g.GET("/agents", h.ListAgents)
+	g.GET("/agents/:id", h.GetAgent)
+	g.GET("/agents/:id/history", h.GetAgentHistory)
 }

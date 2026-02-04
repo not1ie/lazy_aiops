@@ -74,6 +74,21 @@ type Workload struct {
 	CreatedAt   time.Time         `json:"created_at"`
 }
 
+// WorkloadDetail 工作负载详情
+type WorkloadDetail struct {
+	ClusterID   string            `json:"cluster_id"`
+	Namespace   string            `json:"namespace"`
+	Name        string            `json:"name"`
+	Kind        string            `json:"kind"`
+	Replicas    int32             `json:"replicas"`
+	Ready       int32             `json:"ready"`
+	Available   int32             `json:"available"`
+	Labels      map[string]string `json:"labels"`
+	Images      []string          `json:"images"`
+	Selector    map[string]string `json:"selector"`
+	CreatedAt   time.Time         `json:"created_at"`
+}
+
 // Pod Pod信息
 type Pod struct {
 	ClusterID   string    `json:"cluster_id"`
@@ -82,6 +97,9 @@ type Pod struct {
 	Status      string    `json:"status"`
 	Node        string    `json:"node"`
 	IP          string    `json:"ip"`
+	Labels      map[string]string `json:"labels"`
+	OwnerKind   string    `json:"owner_kind"`
+	OwnerName   string    `json:"owner_name"`
 	Containers  []Container `json:"containers"`
 	Restarts    int32     `json:"restarts"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -93,4 +111,95 @@ type Container struct {
 	Image   string `json:"image"`
 	Ready   bool   `json:"ready"`
 	State   string `json:"state"`
+}
+
+// ServiceInfo 服务信息
+type ServiceInfo struct {
+	ClusterID string            `json:"cluster_id"`
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Type      string            `json:"type"`
+	ClusterIP string            `json:"cluster_ip"`
+	Ports     []string          `json:"ports"`
+	Selector  map[string]string `json:"selector"`
+	CreatedAt time.Time         `json:"created_at"`
+}
+
+// IngressInfo Ingress信息
+type IngressInfo struct {
+	ClusterID string    `json:"cluster_id"`
+	Namespace string    `json:"namespace"`
+	Name      string    `json:"name"`
+	ClassName string    `json:"class_name"`
+	Hosts     []string  `json:"hosts"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ConfigMapInfo ConfigMap信息
+type ConfigMapInfo struct {
+	ClusterID string    `json:"cluster_id"`
+	Namespace string    `json:"namespace"`
+	Name      string    `json:"name"`
+	DataKeys  []string  `json:"data_keys"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// SecretInfo Secret信息（不返回明文数据）
+type SecretInfo struct {
+	ClusterID string    `json:"cluster_id"`
+	Namespace string    `json:"namespace"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	DataKeys  []string  `json:"data_keys"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// StorageClassInfo 存储类信息
+type StorageClassInfo struct {
+	ClusterID       string    `json:"cluster_id"`
+	Name            string    `json:"name"`
+	Provisioner     string    `json:"provisioner"`
+	ReclaimPolicy   string    `json:"reclaim_policy"`
+	VolumeBinding   string    `json:"volume_binding"`
+	AllowExpansion  bool      `json:"allow_expansion"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// PersistentVolumeInfo PV信息
+type PersistentVolumeInfo struct {
+	ClusterID  string    `json:"cluster_id"`
+	Name       string    `json:"name"`
+	Capacity   string    `json:"capacity"`
+	AccessMode []string  `json:"access_modes"`
+	Status     string    `json:"status"`
+	StorageCls string    `json:"storage_class"`
+	Claim      string    `json:"claim"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// PersistentVolumeClaimInfo PVC信息
+type PersistentVolumeClaimInfo struct {
+	ClusterID  string    `json:"cluster_id"`
+	Namespace  string    `json:"namespace"`
+	Name       string    `json:"name"`
+	Capacity   string    `json:"capacity"`
+	AccessMode []string  `json:"access_modes"`
+	Status     string    `json:"status"`
+	StorageCls string    `json:"storage_class"`
+	VolumeName string    `json:"volume_name"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// EventInfo 事件信息
+type EventInfo struct {
+	ClusterID string    `json:"cluster_id"`
+	Namespace string    `json:"namespace"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"`
+	Reason    string    `json:"reason"`
+	Message   string    `json:"message"`
+	Involved  string    `json:"involved_object"`
+	Count     int32     `json:"count"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
 }

@@ -239,6 +239,141 @@ func (h *AlertHandler) CreateSilence(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": silence})
 }
 
+// UpdateSilence 更新静默
+func (h *AlertHandler) UpdateSilence(c *gin.Context) {
+	id := c.Param("id")
+	var silence AlertSilence
+	if err := h.db.First(&silence, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "静默不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&silence); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&silence).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": silence})
+}
+
+// ListAggregations 聚合配置列表
+func (h *AlertHandler) ListAggregations(c *gin.Context) {
+	var aggs []AlertAggregation
+	if err := h.db.Find(&aggs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": aggs})
+}
+
+// CreateAggregation 创建聚合配置
+func (h *AlertHandler) CreateAggregation(c *gin.Context) {
+	var agg AlertAggregation
+	if err := c.ShouldBindJSON(&agg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Create(&agg).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": agg})
+}
+
+// UpdateAggregation 更新聚合配置
+func (h *AlertHandler) UpdateAggregation(c *gin.Context) {
+	id := c.Param("id")
+	var agg AlertAggregation
+	if err := h.db.First(&agg, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "聚合配置不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&agg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&agg).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": agg})
+}
+
+// DeleteAggregation 删除聚合配置
+func (h *AlertHandler) DeleteAggregation(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&AlertAggregation{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ListHistory 告警复盘历史
+func (h *AlertHandler) ListHistory(c *gin.Context) {
+	var items []AlertHistory
+	query := h.db.Order("fired_at DESC")
+	if sev := c.Query("severity"); sev != "" {
+		query = query.Where("severity = ?", sev)
+	}
+	if target := c.Query("target"); target != "" {
+		query = query.Where("target LIKE ?", "%"+target+"%")
+	}
+	if ruleID := c.Query("rule_id"); ruleID != "" {
+		query = query.Where("rule_id LIKE ?", "%"+ruleID+"%")
+	}
+	if start := c.Query("start"); start != "" {
+		query = query.Where("fired_at >= ?", start)
+	}
+	if end := c.Query("end"); end != "" {
+		query = query.Where("fired_at <= ?", end)
+	}
+	if err := query.Find(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+}
+
+// GetHistory 获取复盘详情
+func (h *AlertHandler) GetHistory(c *gin.Context) {
+	id := c.Param("id")
+	var item AlertHistory
+	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "记录不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
+}
+
+// UpdateHistory 更新复盘信息
+func (h *AlertHandler) UpdateHistory(c *gin.Context) {
+	id := c.Param("id")
+	var item AlertHistory
+	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "记录不存在"})
+		return
+	}
+	var req struct {
+		Resolution string `json:"resolution"`
+		RootCause  string `json:"root_cause"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Model(&item).Updates(map[string]interface{}{
+		"resolution": req.Resolution,
+		"root_cause": req.RootCause,
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
+}
+
 // DeleteSilence 删除静默
 func (h *AlertHandler) DeleteSilence(c *gin.Context) {
 	id := c.Param("id")

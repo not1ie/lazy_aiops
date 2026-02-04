@@ -21,6 +21,13 @@ type Scheduler struct {
 	mu       sync.RWMutex
 	ctx      context.Context
 	cancel   context.CancelFunc
+	queue    chan taskRunRequest
+}
+
+type taskRunRequest struct {
+	task     Task
+	executor string
+	execID   string
 }
 
 // NewScheduler 创建调度器
@@ -32,6 +39,7 @@ func NewScheduler(db *gorm.DB) *Scheduler {
 		tasks:  make(map[string]cron.EntryID),
 		ctx:    ctx,
 		cancel: cancel,
+		queue:  make(chan taskRunRequest, 200),
 	}
 }
 
@@ -46,6 +54,9 @@ func (s *Scheduler) Start() error {
 	
 	// 启动cron
 	s.cron.Start()
+
+	// 启动任务队列worker
+	go s.workerLoop()
 	
 	// 启动定期重载任务的goroutine
 	go s.reloadLoop()
@@ -145,50 +156,8 @@ func (s *Scheduler) RemoveTask(taskID string) {
 
 // executeTask 执行任务
 func (s *Scheduler) executeTask(task Task) {
-	log.Printf("[Task Scheduler] Executing task: %s", task.Name)
-	
-	// 创建执行记录
-	execution := TaskExecution{
-		TaskID:   task.ID,
-		TaskName: task.Name,
-		Status:   0, // 运行中
-		StartAt:  time.Now(),
-		Executor: "scheduler",
-	}
-	s.db.Create(&execution)
-	
-	// 更新任务最后执行时间
-	now := time.Now()
-	s.db.Model(&Task{}).Where("id = ?", task.ID).Update("last_run_at", now)
-	
-	// 执行任务
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(task.Timeout)*time.Second)
-		defer cancel()
-		
-		output, err := s.runTask(ctx, task)
-		
-		endTime := time.Now()
-		duration := int(endTime.Sub(execution.StartAt).Seconds())
-		
-		// 更新执行记录
-		updates := map[string]interface{}{
-			"end_at":   endTime,
-			"duration": duration,
-			"output":   output,
-		}
-		
-		if err != nil {
-			updates["status"] = 2 // 失败
-			updates["error"] = err.Error()
-			log.Printf("[Task Scheduler] Task %s failed: %v", task.Name, err)
-		} else {
-			updates["status"] = 1 // 成功
-			log.Printf("[Task Scheduler] Task %s completed successfully", task.Name)
-		}
-		
-		s.db.Model(&TaskExecution{}).Where("id = ?", execution.ID).Updates(updates)
-	}()
+	log.Printf("[Task Scheduler] Enqueue task: %s", task.Name)
+	s.enqueueTask(task, "scheduler")
 }
 
 // runTask 运行任务
@@ -201,6 +170,81 @@ func (s *Scheduler) runTask(ctx context.Context, task Task) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported task type: %s", task.Type)
 	}
+}
+
+// EnqueueTask 手动入队执行
+func (s *Scheduler) EnqueueTask(task Task, executor string) (*TaskExecution, error) {
+	return s.enqueueTask(task, executor)
+}
+
+func (s *Scheduler) enqueueTask(task Task, executor string) (*TaskExecution, error) {
+	execution := TaskExecution{
+		TaskID:   task.ID,
+		TaskName: task.Name,
+		Status:   0,
+		Executor: executor,
+	}
+	if err := s.db.Create(&execution).Error; err != nil {
+		return nil, err
+	}
+	select {
+	case s.queue <- taskRunRequest{task: task, executor: executor, execID: execution.ID}:
+		return &execution, nil
+	default:
+		return &execution, fmt.Errorf("任务队列已满")
+	}
+}
+
+func (s *Scheduler) workerLoop() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case req := <-s.queue:
+			s.runExecution(req.task, req.executor, req.execID)
+		}
+	}
+}
+
+func (s *Scheduler) runExecution(task Task, executor, execID string) {
+	var execution TaskExecution
+	if err := s.db.First(&execution, "id = ?", execID).Error; err != nil {
+		return
+	}
+
+	startTime := time.Now()
+	s.db.Model(&TaskExecution{}).Where("id = ?", execution.ID).Updates(map[string]interface{}{
+		"start_at": startTime,
+		"executor": executor,
+	})
+
+	now := time.Now()
+	s.db.Model(&Task{}).Where("id = ?", task.ID).Update("last_run_at", now)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(task.Timeout)*time.Second)
+	defer cancel()
+
+	output, err := s.runTask(ctx, task)
+
+	endTime := time.Now()
+	duration := int(endTime.Sub(startTime).Seconds())
+
+	updates := map[string]interface{}{
+		"end_at":   endTime,
+		"duration": duration,
+		"output":   output,
+	}
+
+	if err != nil {
+		updates["status"] = 2
+		updates["error"] = err.Error()
+		log.Printf("[Task Scheduler] Task %s failed: %v", task.Name, err)
+	} else {
+		updates["status"] = 1
+		log.Printf("[Task Scheduler] Task %s completed successfully", task.Name)
+	}
+
+	s.db.Model(&TaskExecution{}).Where("id = ?", execution.ID).Updates(updates)
 }
 
 // runShellTask 执行Shell任务

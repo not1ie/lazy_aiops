@@ -97,6 +97,21 @@ func (p *AlertPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	{
 		silences.GET("", h.ListSilences)
 		silences.POST("", h.CreateSilence)
+		silences.PUT("/:id", h.UpdateSilence)
 		silences.DELETE("/:id", h.DeleteSilence)
 	}
+
+	// 聚合配置
+	aggs := g.Group("/aggregations")
+	{
+		aggs.GET("", h.ListAggregations)
+		aggs.POST("", h.CreateAggregation)
+		aggs.PUT("/:id", h.UpdateAggregation)
+		aggs.DELETE("/:id", h.DeleteAggregation)
+	}
+
+	// 历史复盘
+	g.GET("/history", h.ListHistory)
+	g.GET("/history/:id", h.GetHistory)
+	g.PUT("/history/:id", h.UpdateHistory)
 }

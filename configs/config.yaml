@@ -17,6 +17,11 @@ plugins:
   # 监控
   monitor:
     enabled: true
+    config:
+      prometheus_url: "http://localhost:9090"
+      pushgateway_url: "http://localhost:9091"
+      agent_secret: ""
+      agent_timeout: 90
   # 告警中心 - AI智能降噪
   alert:
     enabled: true

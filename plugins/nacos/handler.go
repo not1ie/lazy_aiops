@@ -12,15 +12,17 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 )
 
 type NacosHandler struct {
-	db *gorm.DB
+	db        *gorm.DB
+	scheduler *Scheduler
 }
 
-func NewNacosHandler(db *gorm.DB) *NacosHandler {
-	return &NacosHandler{db: db}
+func NewNacosHandler(db *gorm.DB, scheduler *Scheduler) *NacosHandler {
+	return &NacosHandler{db: db, scheduler: scheduler}
 }
 
 // ListServers 服务器列表
@@ -131,23 +133,18 @@ func (h *NacosHandler) login(server *NacosServer) (string, error) {
 	return result.AccessToken, nil
 }
 
-
-// SyncConfigs 同步配置
-func (h *NacosHandler) SyncConfigs(c *gin.Context) {
-	id := c.Param("id")
+// syncConfigsForServer 同步指定服务器配置
+func (h *NacosHandler) syncConfigsForServer(serverID string) (int, int, error) {
 	var server NacosServer
-	if err := h.db.First(&server, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "服务器不存在"})
-		return
+	if err := h.db.First(&server, "id = ?", serverID).Error; err != nil {
+		return 0, 0, err
 	}
 
 	token, err := h.login(&server)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "登录失败: " + err.Error()})
-		return
+		return 0, 0, err
 	}
 
-	// 获取配置列表
 	listURL := fmt.Sprintf("%s/nacos/v1/cs/configs?dataId=&group=&pageNo=1&pageSize=1000&accessToken=%s",
 		strings.TrimSuffix(server.Address, "/"), token)
 	if server.Namespace != "" {
@@ -156,8 +153,7 @@ func (h *NacosHandler) SyncConfigs(c *gin.Context) {
 
 	resp, err := http.Get(listURL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
-		return
+		return 0, 0, err
 	}
 	defer resp.Body.Close()
 
@@ -172,7 +168,6 @@ func (h *NacosHandler) SyncConfigs(c *gin.Context) {
 	}
 	json.NewDecoder(resp.Body).Decode(&result)
 
-	// 同步到本地
 	count := 0
 	for _, item := range result.PageItems {
 		hash := md5.Sum([]byte(item.Content))
@@ -201,7 +196,18 @@ func (h *NacosHandler) SyncConfigs(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"synced": count, "total": len(result.PageItems)}})
+	return count, len(result.PageItems), nil
+}
+
+// SyncConfigs 同步配置
+func (h *NacosHandler) SyncConfigs(c *gin.Context) {
+	id := c.Param("id")
+	count, total, err := h.syncConfigsForServer(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "同步失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"synced": count, "total": total}})
 }
 
 // ListConfigs 配置列表
@@ -515,4 +521,109 @@ func (h *NacosHandler) ListNamespaces(c *gin.Context) {
 	json.NewDecoder(resp.Body).Decode(&result)
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result.Data})
+}
+
+// ListSyncSchedules 同步计划列表
+func (h *NacosHandler) ListSyncSchedules(c *gin.Context) {
+	var schedules []NacosSyncSchedule
+	query := h.db.Order("updated_at DESC")
+	if serverID := c.Query("server_id"); serverID != "" {
+		query = query.Where("server_id = ?", serverID)
+	}
+	if err := query.Find(&schedules).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedules})
+}
+
+// CreateSyncSchedule 创建同步计划
+func (h *NacosHandler) CreateSyncSchedule(c *gin.Context) {
+	var schedule NacosSyncSchedule
+	if err := c.ShouldBindJSON(&schedule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if schedule.Cron != "" {
+		if _, err := cron.ParseStandard(schedule.Cron); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Cron表达式无效"})
+			return
+		}
+	}
+	if err := h.db.Create(&schedule).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if h.scheduler != nil {
+		h.scheduler.AddSchedule(schedule)
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedule})
+}
+
+// UpdateSyncSchedule 更新同步计划
+func (h *NacosHandler) UpdateSyncSchedule(c *gin.Context) {
+	id := c.Param("id")
+	var schedule NacosSyncSchedule
+	if err := h.db.First(&schedule, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "同步计划不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&schedule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if schedule.Cron != "" {
+		if _, err := cron.ParseStandard(schedule.Cron); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Cron表达式无效"})
+			return
+		}
+	}
+	if err := h.db.Save(&schedule).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if h.scheduler != nil {
+		if schedule.Enabled {
+			h.scheduler.AddSchedule(schedule)
+		} else {
+			h.scheduler.RemoveSchedule(schedule.ID)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedule})
+}
+
+// DeleteSyncSchedule 删除同步计划
+func (h *NacosHandler) DeleteSyncSchedule(c *gin.Context) {
+	id := c.Param("id")
+	if h.scheduler != nil {
+		h.scheduler.RemoveSchedule(id)
+	}
+	if err := h.db.Delete(&NacosSyncSchedule{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ToggleSyncSchedule 启用/禁用同步计划
+func (h *NacosHandler) ToggleSyncSchedule(c *gin.Context) {
+	id := c.Param("id")
+	var schedule NacosSyncSchedule
+	if err := h.db.First(&schedule, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "同步计划不存在"})
+		return
+	}
+	schedule.Enabled = !schedule.Enabled
+	if err := h.db.Save(&schedule).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if h.scheduler != nil {
+		if schedule.Enabled {
+			h.scheduler.AddSchedule(schedule)
+		} else {
+			h.scheduler.RemoveSchedule(schedule.ID)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedule})
 }

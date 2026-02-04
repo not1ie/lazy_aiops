@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -216,6 +217,53 @@ func (h *NotifyHandler) DeleteGroup(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// TestGroup 测试通知组
+func (h *NotifyHandler) TestGroup(c *gin.Context) {
+	id := c.Param("id")
+	var group NotifyGroup
+	if err := h.db.First(&group, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "通知组不存在"})
+		return
+	}
+
+	var req struct {
+		Title    string `json:"title" binding:"required"`
+		Content  string `json:"content" binding:"required"`
+		Receiver string `json:"receiver"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	var channelIDs []string
+	if group.Channels != "" {
+		_ = json.Unmarshal([]byte(group.Channels), &channelIDs)
+	}
+	if len(channelIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "通知组未配置渠道"})
+		return
+	}
+
+	var failed []string
+	for _, cid := range channelIDs {
+		var channel NotifyChannel
+		if err := h.db.First(&channel, "id = ?", cid).Error; err != nil {
+			failed = append(failed, cid+":not_found")
+			continue
+		}
+		if err := h.sender.Send(&channel, req.Title, req.Content, req.Receiver); err != nil {
+			failed = append(failed, cid+":"+err.Error())
+		}
+	}
+
+	if len(failed) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "部分发送失败", "data": failed})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "发送成功"})
 }
 
 // ListTemplates 模板列表

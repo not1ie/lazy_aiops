@@ -236,6 +236,60 @@ POST /api/v1/nacos/servers/{id}/sync-services
 GET /api/v1/nacos/services/instances?server_id={id}&service_name=demo
 ```
 
+## K8s 插件 API
+
+### 集群管理
+
+```bash
+GET /api/v1/k8s/clusters
+POST /api/v1/k8s/clusters
+GET /api/v1/k8s/clusters/{id}
+PUT /api/v1/k8s/clusters/{id}
+DELETE /api/v1/k8s/clusters/{id}
+POST /api/v1/k8s/clusters/{id}/test
+```
+
+### 资源列表
+
+```bash
+GET /api/v1/k8s/clusters/{id}/nodes
+GET /api/v1/k8s/clusters/{id}/namespaces
+GET /api/v1/k8s/clusters/{id}/workloads?namespace=default
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/workloads/{kind}/{name}
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/workloads/{kind}/{name}/manifest?format=yaml
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/workloads/{kind}/{name}/manifest?format=json
+POST /api/v1/k8s/clusters/{id}/namespaces/{ns}/workloads/{kind}/{name}/manifest/apply
+PUT /api/v1/k8s/clusters/{id}/namespaces/{ns}/workloads/{kind}/{name}/scale
+POST /api/v1/k8s/clusters/{id}/namespaces/{ns}/workloads/{kind}/{name}/restart
+
+GET /api/v1/k8s/clusters/{id}/services?namespace=default
+GET /api/v1/k8s/clusters/{id}/ingresses?namespace=default
+GET /api/v1/k8s/clusters/{id}/configmaps?namespace=default
+GET /api/v1/k8s/clusters/{id}/secrets?namespace=default
+GET /api/v1/k8s/clusters/{id}/storageclasses
+GET /api/v1/k8s/clusters/{id}/persistentvolumes
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/persistentvolumeclaims
+GET /api/v1/k8s/clusters/{id}/events?namespace=default
+```
+
+### Deployment / Pod 操作
+
+```bash
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/deployments
+PUT /api/v1/k8s/clusters/{id}/namespaces/{ns}/deployments/{name}/scale
+POST /api/v1/k8s/clusters/{id}/namespaces/{ns}/deployments/{name}/restart
+
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods?selector=app%3Ddemo
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods/{name}
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods/{name}/logs?container=xxx&tail=100
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods/{name}/logs/stream?container=xxx&tail=100&token=JWT
+DELETE /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods/{name}
+POST /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods/{name}/restart
+POST /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods/{name}/restart-workload
+GET /api/v1/k8s/clusters/{id}/namespaces/{ns}/pods/{pod}/exec?container=xxx&token=JWT
+```
+
 ## 服务拓扑插件 API
 
 ### 节点管理
@@ -516,4 +570,170 @@ GET /api/v1/xxx?status=1&type=shell
 支持排序：
 ```bash
 GET /api/v1/xxx?sort=created_at&order=desc
+```
+
+## 监控插件 API
+
+### Prometheus 查询
+
+```bash
+GET /api/v1/monitor/prometheus/query?query=up
+GET /api/v1/monitor/prometheus/query_range?query=up&start=1700000000&end=1700003600&step=30
+GET /api/v1/monitor/prometheus/history
+POST /api/v1/monitor/prometheus/history
+PUT /api/v1/monitor/prometheus/history/{id}
+```
+
+### Pushgateway 指标
+
+```bash
+GET /api/v1/monitor/pushgateway/metrics
+```
+
+### Agent 心跳
+
+```bash
+POST /api/v1/monitor/agents/heartbeat
+Content-Type: application/json
+X-Agent-Token: <agent_secret>
+
+{
+  "agent_id": "host-001",
+  "hostname": "web-01",
+  "ip": "192.168.1.10",
+  "version": "1.0.0",
+  "os": "linux",
+  "labels": {"env": "prod"},
+  "meta": {"cpu": 12.3, "memory": 65.2, "disk": 40.1, "net_in": 12345, "net_out": 4567}
+}
+
+GET /api/v1/monitor/agents
+```
+
+### Agent 详情
+
+```bash
+GET /api/v1/monitor/agents/{agent_id}
+GET /api/v1/monitor/agents/{agent_id}/history?hours=24
+```
+
+### 告警聚合配置
+
+```bash
+GET /api/v1/alert/aggregations
+POST /api/v1/alert/aggregations
+PUT /api/v1/alert/aggregations/{id}
+DELETE /api/v1/alert/aggregations/{id}
+```
+
+### 告警静默
+
+```bash
+GET /api/v1/alert/silences
+POST /api/v1/alert/silences
+PUT /api/v1/alert/silences/{id}
+DELETE /api/v1/alert/silences/{id}
+```
+
+### 通知组测试
+
+```bash
+POST /api/v1/notify/groups/{id}/test
+{
+  "title": "测试标题",
+  "content": "测试内容",
+  "receiver": "可选"
+}
+```
+
+### 告警复盘历史
+
+```bash
+GET /api/v1/alert/history
+```
+
+### 告警复盘详情
+
+```bash
+GET /api/v1/alert/history/{id}
+PUT /api/v1/alert/history/{id}
+```
+
+### 告警复盘筛选
+
+```bash
+GET /api/v1/alert/history?severity=critical&start=2026-02-01&end=2026-02-04
+```
+
+### 告警复盘筛选（目标/规则）
+
+```bash
+GET /api/v1/alert/history?severity=critical&target=db&rule_id=cpu
+```
+
+### CMDB 分组
+
+```bash
+GET /api/v1/cmdb/groups
+POST /api/v1/cmdb/groups
+PUT /api/v1/cmdb/groups/{id}
+DELETE /api/v1/cmdb/groups/{id}
+```
+
+### CMDB 凭据
+
+```bash
+GET /api/v1/cmdb/credentials
+POST /api/v1/cmdb/credentials
+PUT /api/v1/cmdb/credentials/{id}
+DELETE /api/v1/cmdb/credentials/{id}
+```
+
+### 数据库资产
+
+```bash
+GET /api/v1/cmdb/databases
+POST /api/v1/cmdb/databases
+GET /api/v1/cmdb/databases/{id}
+PUT /api/v1/cmdb/databases/{id}
+DELETE /api/v1/cmdb/databases/{id}
+```
+
+### 云账号
+
+```bash
+GET /api/v1/cmdb/cloud/accounts
+POST /api/v1/cmdb/cloud/accounts
+GET /api/v1/cmdb/cloud/accounts/{id}
+PUT /api/v1/cmdb/cloud/accounts/{id}
+DELETE /api/v1/cmdb/cloud/accounts/{id}
+```
+
+### 云资源
+
+```bash
+GET /api/v1/cmdb/cloud/resources
+POST /api/v1/cmdb/cloud/resources
+GET /api/v1/cmdb/cloud/resources/{id}
+PUT /api/v1/cmdb/cloud/resources/{id}
+DELETE /api/v1/cmdb/cloud/resources/{id}
+```
+
+### CI/CD 发布记录
+
+```bash
+GET /api/v1/cicd/releases
+POST /api/v1/cicd/releases
+PUT /api/v1/cicd/releases/{id}
+DELETE /api/v1/cicd/releases/{id}
+```
+
+### Nacos 同步计划
+
+```bash
+GET /api/v1/nacos/schedules
+POST /api/v1/nacos/schedules
+PUT /api/v1/nacos/schedules/{id}
+DELETE /api/v1/nacos/schedules/{id}
+POST /api/v1/nacos/schedules/{id}/toggle
 ```

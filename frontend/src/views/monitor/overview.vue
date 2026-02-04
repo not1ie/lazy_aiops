@@ -1,0 +1,149 @@
+<template>
+  <el-card class="page-card">
+    <div class="page-header">
+      <div>
+        <h2>监控概览</h2>
+        <p class="page-desc">资源趋势、告警汇总与在线状态。</p>
+      </div>
+      <div class="page-actions">
+        <el-button icon="Refresh" @click="refreshAll">刷新</el-button>
+      </div>
+    </div>
+
+    <el-row :gutter="16" class="metric-cards">
+      <el-col :span="6"><el-card><div class="card-title">CPU</div><div class="card-value">{{ realtime.cpu }}%</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="card-title">内存</div><div class="card-value">{{ realtime.memory }}%</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="card-title">磁盘</div><div class="card-value">{{ realtime.disk }}%</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="card-title">网络(MB/s)</div><div class="card-value">{{ realtime.network }}</div></el-card></el-col>
+    </el-row>
+
+    <el-divider />
+
+    <el-row :gutter="16">
+      <el-col :span="16">
+        <el-card>
+          <div class="section-title">资源趋势 (最近1小时)</div>
+          <div ref="trendRef" class="chart-box"></div>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card>
+          <div class="section-title">告警汇总</div>
+          <el-statistic title="未处理" :value="alertStats.open" />
+          <el-statistic title="已处理" :value="alertStats.closed" />
+          <el-statistic title="已忽略" :value="alertStats.ignored" />
+        </el-card>
+        <el-card class="mt-12">
+          <div class="section-title">Agent 在线</div>
+          <el-statistic title="在线" :value="agentStats.online" />
+          <el-statistic title="离线" :value="agentStats.offline" />
+        </el-card>
+        <el-card class="mt-12">
+          <div class="section-title">最近告警</div>
+          <el-table :data="recentAlerts" size="small" style="width: 100%">
+            <el-table-column prop="rule_name" label="规则" min-width="120" />
+            <el-table-column prop="severity" label="级别" width="90" />
+            <el-table-column prop="status" label="状态" width="90">
+              <template #default="scope">
+                <el-tag :type="scope.row.status === 0 ? 'danger' : scope.row.status === 1 ? 'success' : 'info'">
+                  {{ scope.row.status === 0 ? '未处理' : scope.row.status === 1 ? '已处理' : '已忽略' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+  </el-card>
+</template>
+
+<script setup>
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import axios from 'axios'
+import * as echarts from 'echarts'
+
+const realtime = ref({ cpu: 0, memory: 0, disk: 0, network: 0 })
+const alertStats = ref({ open: 0, closed: 0, ignored: 0 })
+const agentStats = ref({ online: 0, offline: 0 })
+const recentAlerts = ref([])
+
+const trendRef = ref(null)
+let trendChart = null
+
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const fetchRealtime = async () => {
+  const res = await axios.get('/api/v1/monitor/metrics', { headers: authHeaders() })
+  realtime.value = res.data.data || realtime.value
+}
+
+const fetchAlerts = async () => {
+  const res = await axios.get('/api/v1/monitor/alerts', { headers: authHeaders() })
+  const data = res.data.data || []
+  alertStats.value.open = data.filter(a => a.status === 0).length
+  alertStats.value.closed = data.filter(a => a.status === 1).length
+  alertStats.value.ignored = data.filter(a => a.status === 2).length
+  recentAlerts.value = data.slice(0, 5)
+}
+
+const fetchAgents = async () => {
+  const res = await axios.get('/api/v1/monitor/agents', { headers: authHeaders() })
+  const data = res.data.data || []
+  agentStats.value.online = data.filter(a => a.status === 'online').length
+  agentStats.value.offline = data.filter(a => a.status !== 'online').length
+}
+
+const fetchHistory = async () => {
+  const res = await axios.get('/api/v1/monitor/metrics/history', {
+    headers: authHeaders(),
+    params: { hours: 1 }
+  })
+  const data = res.data.data || []
+  renderTrend(data)
+}
+
+const renderTrend = (records) => {
+  if (!trendRef.value) return
+  if (!trendChart) trendChart = echarts.init(trendRef.value)
+  const labels = records.map(r => new Date(r.timestamp).toLocaleTimeString())
+  trendChart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0 },
+    xAxis: { type: 'category', data: labels },
+    yAxis: { type: 'value' },
+    series: [
+      { name: 'CPU', type: 'line', showSymbol: false, data: records.map(r => r.cpu_usage) },
+      { name: '内存', type: 'line', showSymbol: false, data: records.map(r => r.memory_usage) },
+      { name: '磁盘', type: 'line', showSymbol: false, data: records.map(r => r.disk_usage) }
+    ]
+  })
+}
+
+const refreshAll = async () => {
+  await Promise.all([fetchRealtime(), fetchHistory(), fetchAlerts(), fetchAgents()])
+}
+
+onMounted(() => {
+  refreshAll()
+})
+
+onBeforeUnmount(() => {
+  if (trendChart) {
+    trendChart.dispose()
+    trendChart = null
+  }
+})
+</script>
+
+<style scoped>
+.page-card { max-width: 1180px; margin: 0 auto; }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.page-desc { color: #606266; margin: 4px 0 0; }
+.page-actions { display: flex; gap: 8px; }
+.metric-cards { margin-bottom: 8px; }
+.card-title { color: #909399; font-size: 12px; }
+.card-value { font-size: 22px; font-weight: 600; margin-top: 6px; }
+.section-title { margin-bottom: 8px; font-weight: 600; }
+.chart-box { width: 100%; height: 320px; }
+.mt-12 { margin-top: 12px; }
+</style>
