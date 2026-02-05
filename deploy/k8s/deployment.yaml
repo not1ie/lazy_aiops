@@ -16,19 +16,12 @@ spec:
     spec:
       containers:
       - name: lazy-auto-ops
-        image: lazy-auto-ops:latest
+        image: lazy-aiops:latest
         ports:
         - containerPort: 8080
         env:
         - name: TZ
           value: "Asia/Shanghai"
-        - name: LAO_SERVER_MODE
-          value: "release"
-        - name: LAO_JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: lazy-auto-ops-secret
-              key: jwt-secret
         volumeMounts:
         - name: config
           mountPath: /app/configs/config.yaml
@@ -37,11 +30,11 @@ spec:
           mountPath: /app/data
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "256Mi"
+            cpu: "200m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "1Gi"
+            cpu: "1000m"
         livenessProbe:
           httpGet:
             path: /health
@@ -83,26 +76,81 @@ data:
     server:
       port: "8080"
       mode: "release"
+
     database:
       driver: "sqlite"
       dsn: "data/lazy-auto-ops.db"
+
     jwt:
+      secret: "lazy-auto-ops-secret-change-me-in-production"
       expire: 24
+
     plugins:
       cmdb:
         enabled: true
       monitor:
         enabled: true
+        config:
+          prometheus_url: "http://prometheus:9090"
+          pushgateway_url: "http://pushgateway:9091"
+          agent_secret: ""
+          agent_timeout: 90
+      alert:
+        enabled: true
+        config:
+          aggregate_interval: 60
+      notify:
+        enabled: true
       task:
         enabled: true
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: lazy-auto-ops-secret
-type: Opaque
-stringData:
-  jwt-secret: "your-production-secret-key-change-me"
+      k8s:
+        enabled: true
+      ai:
+        enabled: true
+        config:
+          provider: "openai"
+          api_key: ""
+          model: "gpt-3.5-turbo"
+      gitops:
+        enabled: true
+      terminal:
+        enabled: true
+      firewall:
+        enabled: true
+      domain:
+        enabled: true
+      sqlaudit:
+        enabled: true
+      workorder:
+        enabled: true
+      oncall:
+        enabled: true
+      workflow:
+        enabled: true
+      executor:
+        enabled: true
+      cicd:
+        enabled: true
+      ansible:
+        enabled: true
+      docker:
+        enabled: true
+      nacos:
+        enabled: true
+      topology:
+        enabled: true
+      cost:
+        enabled: true
+      knowledge:
+        enabled: true
+        config:
+          api_key: ""
+      remediation:
+        enabled: true
+      system:
+        enabled: true
+      application:
+        enabled: true
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -113,4 +161,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: 5Gi
