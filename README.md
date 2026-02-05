@@ -302,3 +302,17 @@ lazy-auto-ops/
 - [功能特性](./FEATURES.md)
 - [部署指南](./DEPLOYMENT.md)
 - [Web 访问指南](./WEB访问指南.md) ✨ NEW
+
+## 部署（统一入口）
+
+支持 **K8s** 与 **Docker Swarm** 二选一部署，推荐使用统一脚本：
+
+```bash
+# K8s
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:latest deploy/scripts/deploy.sh k8s
+
+# Docker Swarm
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:latest deploy/scripts/deploy.sh swarm
+```
+
+详见：`deploy/README.md`
