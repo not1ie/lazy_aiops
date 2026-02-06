@@ -159,7 +159,7 @@ const highlightedLog = computed(() => {
       colors.set(reMatch[1], highlightPalette[colorIndex % highlightPalette.length])
       colorIndex += 1
     } else {
-      const escapedLiteral = p.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')
+      const escapedLiteral = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       regexParts.push(`(${escapedLiteral})`)
       colors.set(escapedLiteral, highlightPalette[colorIndex % highlightPalette.length])
       colorIndex += 1
@@ -167,7 +167,7 @@ const highlightedLog = computed(() => {
   })
   const regex = new RegExp(regexParts.join('|'), 'gi')
   const html = escaped.replace(regex, (m) => {
-    const key = m.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')
+    const key = m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const color = colors.get(key) || highlightPalette[0]
     return `<mark style=\"background:${color}\">${m}</mark>`
   })
