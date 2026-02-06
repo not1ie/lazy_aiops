@@ -1596,6 +1596,10 @@ func (h *K8sHandler) ListPersistentVolumeClaims(c *gin.Context) {
 		if qty, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
 			capacity = qty.String()
 		}
+		storageClass := ""
+		if pvc.Spec.StorageClassName != nil {
+			storageClass = *pvc.Spec.StorageClassName
+		}
 		modes := make([]string, 0)
 		for _, m := range pvc.Spec.AccessModes {
 			modes = append(modes, string(m))
@@ -1607,7 +1611,7 @@ func (h *K8sHandler) ListPersistentVolumeClaims(c *gin.Context) {
 			Capacity:   capacity,
 			AccessMode: modes,
 			Status:     string(pvc.Status.Phase),
-			StorageCls: pvc.Spec.StorageClassName,
+			StorageCls: storageClass,
 			VolumeName: pvc.Spec.VolumeName,
 			CreatedAt:  pvc.CreationTimestamp.Time,
 		})
