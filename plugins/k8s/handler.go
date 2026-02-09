@@ -1197,7 +1197,10 @@ func (h *K8sHandler) DeletePod(c *gin.Context) {
 func (h *K8sHandler) ExecPod(c *gin.Context) {
 	id := c.Param("id")
 	ns := c.Param("ns")
-	pod := c.Param("pod")
+	pod := c.Param("name")
+	if pod == "" {
+		pod = c.Param("pod")
+	}
 	container := c.Query("container")
 
 	token := c.Query("token")

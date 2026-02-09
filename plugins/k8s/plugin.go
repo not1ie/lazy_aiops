@@ -73,7 +73,7 @@ func (p *K8sPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.DELETE("/clusters/:id/namespaces/:ns/pods/:name", h.DeletePod)
 	g.POST("/clusters/:id/namespaces/:ns/pods/:name/restart", h.RestartPod)
 	g.POST("/clusters/:id/namespaces/:ns/pods/:name/restart-workload", h.RestartWorkload)
-	g.GET("/clusters/:id/namespaces/:ns/pods/:pod/exec", h.ExecPod)
+	g.GET("/clusters/:id/namespaces/:ns/pods/:name/exec", h.ExecPod)
 
 	// Service & Ingress
 	g.GET("/clusters/:id/services", h.ListServices)
