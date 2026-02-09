@@ -153,7 +153,7 @@ const highlightedLog = computed(() => {
   const colors = new Map()
   let colorIndex = 0
   patterns.forEach((p) => {
-    const reMatch = p.match(/^\\/(.*)\\/(i|g|ig|gi)?$/)
+    const reMatch = p.match(new RegExp("^/(.*)/(i|g|ig|gi)?$"))
     if (reMatch) {
       regexParts.push(`(${reMatch[1]})`)
       colors.set(reMatch[1], highlightPalette[colorIndex % highlightPalette.length])
@@ -187,7 +187,7 @@ const jumpToMatch = async () => {
   const hay = logText.value
   let idx = -1
   patterns.some((p) => {
-    const reMatch = p.match(/^\\/(.*)\\/(i|g|ig|gi)?$/)
+    const reMatch = p.match(new RegExp("^/(.*)/(i|g|ig|gi)?$"))
     if (reMatch) {
       try {
         const re = new RegExp(reMatch[1], reMatch[2] || 'i')
@@ -216,7 +216,7 @@ const jumpToMatch = async () => {
       return idx <= pos + arr[i].length
     }) || ''
     const blocked = excludes.some((p) => {
-      const reMatch = p.match(/^\/(.*)\/(i|g|ig|gi)?$/)
+      const reMatch = p.match(new RegExp("^/(.*)/(i|g|ig|gi)?$"))
       if (reMatch) {
         try {
           const re = new RegExp(reMatch[1], reMatch[2] || 'i')
