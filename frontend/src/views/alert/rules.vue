@@ -101,7 +101,7 @@
           <el-switch v-model="markdownEnabled" active-text="Markdown预览" />
           <el-button size="small" @click="testNotify" :disabled="!form.notify_group_id">测试通知</el-button>
         </div>
-        <div class="preview-hint">
+        <div class="preview-hint" v-pre>
           可用变量：{{.name}} {{.type}} {{.target}} {{.metric}} {{.operator}} {{.threshold}} {{.duration}} {{.severity}} {{.description}}
         </div>
         <el-input v-model="previewTitle" readonly />
