@@ -78,9 +78,10 @@ const fetchNamespaces = async () => {
 
 const fetchData = async () => {
   if (!clusterId.value) return
+  const params = { namespace: namespace.value || '' }
   const [cmRes, secRes] = await Promise.all([
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/configmaps`, { headers: authHeaders(), params: { namespace } }),
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/secrets`, { headers: authHeaders(), params: { namespace } })
+    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/configmaps`, { headers: authHeaders(), params }),
+    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/secrets`, { headers: authHeaders(), params })
   ])
   configmaps.value = cmRes.data.data || []
   secrets.value = secRes.data.data || []

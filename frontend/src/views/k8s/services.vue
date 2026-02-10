@@ -85,9 +85,10 @@ const fetchNamespaces = async () => {
 
 const fetchData = async () => {
   if (!clusterId.value) return
+  const params = { namespace: namespace.value || '' }
   const [svcRes, ingRes] = await Promise.all([
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/services`, { headers: authHeaders(), params: { namespace } }),
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/ingresses`, { headers: authHeaders(), params: { namespace } })
+    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/services`, { headers: authHeaders(), params }),
+    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/ingresses`, { headers: authHeaders(), params })
   ])
   services.value = svcRes.data.data || []
   ingresses.value = ingRes.data.data || []

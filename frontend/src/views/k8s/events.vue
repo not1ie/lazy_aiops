@@ -58,7 +58,7 @@ const fetchEvents = async () => {
   if (!clusterId.value) return
   const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/events`, {
     headers: authHeaders(),
-    params: { namespace }
+    params: { namespace: namespace.value || '' }
   })
   events.value = res.data.data || []
 }

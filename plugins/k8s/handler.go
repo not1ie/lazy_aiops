@@ -1202,6 +1202,7 @@ func (h *K8sHandler) ExecPod(c *gin.Context) {
 		pod = c.Param("pod")
 	}
 	container := c.Query("container")
+	command := strings.TrimSpace(c.Query("command"))
 
 	token := c.Query("token")
 	if token == "" {
@@ -1239,27 +1240,19 @@ func (h *K8sHandler) ExecPod(c *gin.Context) {
 		return
 	}
 
-	req := client.CoreV1().RESTClient().
-		Post().
-		Resource("pods").
-		Name(pod).
-		Namespace(ns).
-		SubResource("exec")
-
-	req.VersionedParams(&corev1.PodExecOptions{
-		Container: container,
-		Command:   []string{"/bin/sh"},
-		Stdin:     true,
-		Stdout:    true,
-		Stderr:    true,
-		TTY:       true,
-	}, scheme.ParameterCodec)
-
-	exec, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
-	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("创建执行器失败: "+err.Error()))
-		conn.Close()
-		return
+	if container == "" {
+		podObj, err := client.CoreV1().Pods(ns).Get(context.Background(), pod, metav1.GetOptions{})
+		if err != nil {
+			conn.WriteMessage(websocket.TextMessage, []byte("获取Pod信息失败: "+err.Error()))
+			conn.Close()
+			return
+		}
+		if len(podObj.Spec.Containers) == 0 {
+			conn.WriteMessage(websocket.TextMessage, []byte("Pod没有可用容器"))
+			conn.Close()
+			return
+		}
+		container = podObj.Spec.Containers[0].Name
 	}
 
 	stdinReader, stdinWriter := io.Pipe()
@@ -1289,15 +1282,60 @@ func (h *K8sHandler) ExecPod(c *gin.Context) {
 		}
 	}()
 
-	streamErr := exec.Stream(remotecommand.StreamOptions{
-		Stdin:             stdinReader,
-		Stdout:            &wsWriter{conn: conn},
-		Stderr:            &wsWriter{conn: conn},
-		Tty:               true,
-		TerminalSizeQueue: resizeQueue,
-	})
-	if streamErr != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte("执行结束: "+streamErr.Error()))
+	commands := make([][]string, 0, 4)
+	if command != "" {
+		commands = append(commands, []string{command})
+	}
+	commands = append(commands,
+		[]string{"/bin/sh"},
+		[]string{"/bin/bash"},
+		[]string{"/bin/ash"},
+	)
+
+	var lastErr error
+	for _, cmd := range commands {
+		req := client.CoreV1().RESTClient().
+			Post().
+			Resource("pods").
+			Name(pod).
+			Namespace(ns).
+			SubResource("exec")
+
+		req.VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   cmd,
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       true,
+		}, scheme.ParameterCodec)
+
+		exec, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		streamErr := exec.Stream(remotecommand.StreamOptions{
+			Stdin:             stdinReader,
+			Stdout:            &wsWriter{conn: conn},
+			Stderr:            &wsWriter{conn: conn},
+			Tty:               true,
+			TerminalSizeQueue: resizeQueue,
+		})
+
+		if streamErr == nil {
+			conn.Close()
+			return
+		}
+		lastErr = streamErr
+		if !isCommandNotFound(streamErr) {
+			break
+		}
+	}
+
+	if lastErr != nil {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("执行结束: "+lastErr.Error()))
 	}
 	conn.Close()
 }
@@ -1341,6 +1379,16 @@ func (q *terminalSizeQueue) Push(cols, rows int) {
 	case q.ch <- remotecommand.TerminalSize{Width: uint16(cols), Height: uint16(rows)}:
 	default:
 	}
+}
+
+func isCommandNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "no such file") ||
+		strings.Contains(msg, "executable file not found")
 }
 
 // ListServices Service列表
