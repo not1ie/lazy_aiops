@@ -8,6 +8,8 @@
         </div>
         <div class="actions">
           <el-button type="primary" icon="Plus" @click="openCreate">新增资产</el-button>
+          <el-button icon="Upload" @click="openImport">批量导入</el-button>
+          <el-button icon="Download" @click="exportCSV">导出</el-button>
           <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
             批量删除 ({{ selectedRows.length }})
           </el-button>
@@ -46,10 +48,13 @@
           <el-tag :type="row.status === 1 ? 'success' : 'danger'">{{ row.status === 1 ? '正常' : '禁用' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
+          <el-space size="8">
+            <el-button size="small" type="warning" plain icon="FirstAidKit" @click="openTest(row)">测试</el-button>
+            <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
+          </el-space>
         </template>
       </el-table-column>
     </el-table>
@@ -109,6 +114,26 @@
       <el-button type="primary" :loading="saving" @click="saveItem">保存</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog v-model="importVisible" title="批量导入数据库资产" width="720px">
+    <el-alert type="info" :closable="false" show-icon>
+      格式：name,type,host,port,username,password,database,environment,owner,tags,status,description（第一行可写表头）
+    </el-alert>
+    <el-input v-model="importText" type="textarea" :rows="10" />
+    <div class="import-actions">
+      <el-button @click="importVisible = false">取消</el-button>
+      <el-button type="primary" :loading="importLoading" @click="submitImport">开始导入</el-button>
+    </div>
+  </el-dialog>
+
+  <el-dialog v-model="testVisible" title="数据库连通性测试" width="560px">
+    <el-alert v-if="testError" type="error" :closable="false" show-icon>{{ testError }}</el-alert>
+    <el-alert v-if="testSuccess" type="success" :closable="false" show-icon>{{ testSuccess }}</el-alert>
+    <template #footer>
+      <el-button @click="testVisible = false">关闭</el-button>
+      <el-button type="primary" :loading="testLoading" @click="submitTest">测试</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -119,10 +144,20 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const loading = ref(false)
 const saving = ref(false)
 const items = ref([])
-const selectedRows = ref([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
+const selectedRows = ref([])
+
+const importVisible = ref(false)
+const importLoading = ref(false)
+const importText = ref('')
+
+const testVisible = ref(false)
+const testLoading = ref(false)
+const testRow = ref(null)
+const testError = ref('')
+const testSuccess = ref('')
 
 const filters = reactive({
   keyword: '',
@@ -144,12 +179,14 @@ const form = reactive({
   description: ''
 })
 
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
 const fetchData = async () => {
   loading.value = true
   try {
     const res = await axios.get('/api/v1/cmdb/databases', {
       params: { keyword: filters.keyword, environment: filters.environment },
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       items.value = res.data.data
@@ -201,7 +238,7 @@ const saveItem = async () => {
       url,
       method,
       data: form,
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
@@ -220,7 +257,7 @@ const handleDelete = (row) => {
     type: 'warning'
   }).then(async () => {
     await axios.delete(`/api/v1/cmdb/databases/${row.id}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
     ElMessage.success('删除成功')
     fetchData()
@@ -233,14 +270,105 @@ const handleBatchDelete = () => {
     type: 'warning'
   }).then(async () => {
     for (const row of selectedRows.value) {
-      await axios.delete(`/api/v1/cmdb/databases/${row.id}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      })
+      await axios.delete(`/api/v1/cmdb/databases/${row.id}`, { headers: authHeaders() })
     }
     ElMessage.success('批量删除成功')
     selectedRows.value = []
     fetchData()
   })
+}
+
+const openImport = () => {
+  importText.value = ''
+  importVisible.value = true
+}
+
+const parseCSV = (text) => {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  if (lines.length === 0) return []
+  const delim = lines[0].includes('\t') ? '\t' : ','
+  const headers = lines[0].toLowerCase().split(delim).map(s => s.trim())
+  const hasHeader = headers.includes('name') || headers.includes('host')
+  const start = hasHeader ? 1 : 0
+  const cols = hasHeader ? headers : ['name','type','host','port','username','password','database','environment','owner','tags','status','description']
+  return lines.slice(start).map(line => {
+    const parts = line.split(delim).map(s => s.trim())
+    const obj = {}
+    cols.forEach((k, idx) => { obj[k] = parts[idx] || '' })
+    return obj
+  })
+}
+
+const submitImport = async () => {
+  const rows = parseCSV(importText.value)
+  if (rows.length === 0) {
+    ElMessage.warning('请填写导入内容')
+    return
+  }
+  importLoading.value = true
+  try {
+    for (const row of rows) {
+      if (!row.name || !row.host) continue
+      await axios.post('/api/v1/cmdb/databases', {
+        name: row.name,
+        type: row.type || 'mysql',
+        host: row.host,
+        port: row.port ? Number(row.port) : 3306,
+        username: row.username || '',
+        password: row.password || '',
+        database: row.database || '',
+        environment: row.environment || 'dev',
+        owner: row.owner || '',
+        tags: row.tags || '',
+        status: row.status ? Number(row.status) : 1,
+        description: row.description || ''
+      }, { headers: authHeaders() })
+    }
+    ElMessage.success('导入完成')
+    importVisible.value = false
+    fetchData()
+  } catch (e) {
+    ElMessage.error('导入失败')
+  } finally {
+    importLoading.value = false
+  }
+}
+
+const exportCSV = () => {
+  const headers = ['name','type','host','port','database','environment','owner','status']
+  const rows = items.value.map(d => [d.name, d.type, d.host, d.port, d.database, d.environment, d.owner, d.status])
+  const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'cmdb_databases.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const openTest = (row) => {
+  testRow.value = row
+  testError.value = ''
+  testSuccess.value = ''
+  testVisible.value = true
+}
+
+const submitTest = async () => {
+  if (!testRow.value) return
+  testLoading.value = true
+  try {
+    const res = await axios.post(`/api/v1/cmdb/databases/${testRow.value.id}/test`, {}, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      testSuccess.value = res.data.message || '连接成功'
+    } else {
+      testError.value = res.data.message || '连接失败'
+    }
+  } catch (e) {
+    testError.value = '连接失败'
+  } finally {
+    testLoading.value = false
+  }
 }
 
 onMounted(fetchData)
@@ -251,8 +379,9 @@ onMounted(fetchData)
 .header { display: flex; justify-content: space-between; align-items: center; }
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; margin-top: 4px; }
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; gap: 8px; align-items: center; }
 .filters { display: flex; gap: 12px; margin-bottom: 16px; }
 .filters .el-input { width: 240px; }
 .filters .el-select { width: 160px; }
+.import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 </style>

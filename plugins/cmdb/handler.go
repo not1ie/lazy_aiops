@@ -1,6 +1,8 @@
 package cmdb
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -475,6 +477,61 @@ func (h *HostHandler) DeleteCredential(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
+// TestCredential 测试凭据连通性
+func (h *HostHandler) TestCredential(c *gin.Context) {
+	id := c.Param("id")
+	var cred Credential
+	if err := h.db.First(&cred, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "凭据不存在"})
+		return
+	}
+
+	// API 类型只校验基本字段
+	if cred.Type == "api" {
+		if cred.AccessKey == "" || cred.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "AccessKey/SecretKey 不能为空"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "API 凭据格式正常"})
+		return
+	}
+
+	var req struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if req.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请填写主机地址"})
+		return
+	}
+	if req.Port == 0 {
+		req.Port = 22
+	}
+
+	password := cred.Password
+	if password == "" && cred.Passphrase != "" {
+		password = cred.Passphrase
+	}
+	client := &core.SSHClient{
+		Host:     req.Host,
+		Port:     req.Port,
+		Username: cred.Username,
+		Password: password,
+		Key:      cred.PrivateKey,
+		Timeout:  8 * time.Second,
+	}
+	_, stderr, err := client.Execute("echo ok")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "连接失败: " + stderr})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "连接成功"})
+}
+
 // ListDatabases 数据库资产列表
 func (h *HostHandler) ListDatabases(c *gin.Context) {
 	var items []DatabaseAsset
@@ -552,6 +609,30 @@ func (h *HostHandler) DeleteDatabase(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
+// TestDatabase 测试数据库端口连通性
+func (h *HostHandler) TestDatabase(c *gin.Context) {
+	id := c.Param("id")
+	var item DatabaseAsset
+	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
+		return
+	}
+	addr := net.JoinHostPort(item.Host, func() string {
+		if item.Port == 0 {
+			return "3306"
+		}
+		return fmt.Sprintf("%d", item.Port)
+	}())
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "连接失败: " + err.Error()})
+		return
+	}
+	_ = conn.Close()
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "连接成功", "latency_ms": time.Since(start).Milliseconds()})
+}
+
 // ListCloudAccounts 云账号列表
 func (h *HostHandler) ListCloudAccounts(c *gin.Context) {
 	var accounts []CloudAccount
@@ -618,6 +699,21 @@ func (h *HostHandler) DeleteCloudAccount(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// TestCloudAccount 测试云账号（仅校验字段）
+func (h *HostHandler) TestCloudAccount(c *gin.Context) {
+	id := c.Param("id")
+	var account CloudAccount
+	if err := h.db.First(&account, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云账号不存在"})
+		return
+	}
+	if account.AccessKey == "" || account.SecretKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "AccessKey/SecretKey 不能为空"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "账号格式正常（未实际调用云 API）"})
 }
 
 // ListCloudResources 云资源列表

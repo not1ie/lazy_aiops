@@ -69,6 +69,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	{
 		creds.GET("", h.ListCredentials)
 		creds.POST("", h.CreateCredential)
+		creds.POST("/:id/test", h.TestCredential)
 		creds.PUT("/:id", h.UpdateCredential)
 		creds.DELETE("/:id", h.DeleteCredential)
 	}
@@ -79,6 +80,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		databases.GET("", h.ListDatabases)
 		databases.POST("", h.CreateDatabase)
 		databases.GET("/:id", h.GetDatabase)
+		databases.POST("/:id/test", h.TestDatabase)
 		databases.PUT("/:id", h.UpdateDatabase)
 		databases.DELETE("/:id", h.DeleteDatabase)
 	}
@@ -89,6 +91,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		cloudAccounts.GET("", h.ListCloudAccounts)
 		cloudAccounts.POST("", h.CreateCloudAccount)
 		cloudAccounts.GET("/:id", h.GetCloudAccount)
+		cloudAccounts.POST("/:id/test", h.TestCloudAccount)
 		cloudAccounts.PUT("/:id", h.UpdateCloudAccount)
 		cloudAccounts.DELETE("/:id", h.DeleteCloudAccount)
 	}

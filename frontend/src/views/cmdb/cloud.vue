@@ -8,6 +8,8 @@
         </div>
         <div class="actions">
           <el-button type="primary" icon="Plus" @click="openCreate(activeTab)">新增</el-button>
+          <el-button icon="Upload" @click="openImport">批量导入</el-button>
+          <el-button icon="Download" @click="exportCSV">导出</el-button>
           <el-button type="danger" plain icon="Delete" :disabled="activeSelectedCount === 0" @click="handleBatchDelete">
             批量删除 ({{ activeSelectedCount }})
           </el-button>
@@ -29,10 +31,13 @@
             </template>
           </el-table-column>
           <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-          <el-table-column label="操作" width="200" fixed="right">
+          <el-table-column label="操作" width="240" fixed="right">
             <template #default="{ row }">
-              <el-button size="small" type="primary" plain @click="openEdit('accounts', row)">编辑</el-button>
-              <el-button size="small" type="danger" plain @click="handleDelete('accounts', row)">删除</el-button>
+              <el-space size="8">
+                <el-button size="small" type="warning" plain icon="FirstAidKit" @click="openTest(row)">测试</el-button>
+                <el-button size="small" type="primary" plain @click="openEdit('accounts', row)">编辑</el-button>
+                <el-button size="small" type="danger" plain @click="handleDelete('accounts', row)">删除</el-button>
+              </el-space>
             </template>
           </el-table-column>
         </el-table>
@@ -145,6 +150,28 @@
       <el-button type="primary" :loading="saving" @click="saveDialog">保存</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog v-model="importVisible" title="批量导入" width="720px">
+    <el-alert type="info" :closable="false" show-icon>
+      账号格式：name,provider,access_key,secret_key,region,status,description
+      资源格式：account_id,resource_id,name,type,region,zone,ip,status,spec,tags
+    </el-alert>
+    <el-input v-model="importText" type="textarea" :rows="10" />
+    <div class="import-actions">
+      <el-button @click="importVisible = false">取消</el-button>
+      <el-button type="primary" :loading="importLoading" @click="submitImport">开始导入</el-button>
+    </div>
+  </el-dialog>
+
+  <el-dialog v-model="testVisible" title="云账号测试" width="560px">
+    <el-alert v-if="testError" type="error" :closable="false" show-icon>{{ testError }}</el-alert>
+    <el-alert v-if="testSuccess" type="success" :closable="false" show-icon>{{ testSuccess }}</el-alert>
+    <div class="test-tip">仅校验 AccessKey/SecretKey 是否填写，不调用真实云 API。</div>
+    <template #footer>
+      <el-button @click="testVisible = false">关闭</el-button>
+      <el-button type="primary" :loading="testLoading" @click="submitTest">测试</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -166,6 +193,16 @@ const loadingAccounts = ref(false)
 const loadingResources = ref(false)
 const selectedAccounts = ref([])
 const selectedResources = ref([])
+
+const importVisible = ref(false)
+const importLoading = ref(false)
+const importText = ref('')
+
+const testVisible = ref(false)
+const testLoading = ref(false)
+const testRow = ref(null)
+const testError = ref('')
+const testSuccess = ref('')
 
 const activeSelectedCount = computed(() => (
   activeTab.value === 'accounts' ? selectedAccounts.value.length : selectedResources.value.length
@@ -342,6 +379,91 @@ const handleBatchDelete = () => {
   })
 }
 
+const openImport = () => {
+  importText.value = ''
+  importVisible.value = true
+}
+
+const parseCSV = (text) => {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  if (lines.length === 0) return []
+  const delim = lines[0].includes('\t') ? '\t' : ','
+  const headers = lines[0].toLowerCase().split(delim).map(s => s.trim())
+  const hasHeader = headers.includes('name') || headers.includes('resource_id')
+  const start = hasHeader ? 1 : 0
+  const cols = hasHeader ? headers : (activeTab.value === 'accounts'
+    ? ['name','provider','access_key','secret_key','region','status','description']
+    : ['account_id','resource_id','name','type','region','zone','ip','status','spec','tags'])
+  return lines.slice(start).map(line => {
+    const parts = line.split(delim).map(s => s.trim())
+    const obj = {}
+    cols.forEach((k, idx) => { obj[k] = parts[idx] || '' })
+    return obj
+  })
+}
+
+const submitImport = async () => {
+  const rows = parseCSV(importText.value)
+  if (rows.length === 0) {
+    ElMessage.warning('请填写导入内容')
+    return
+  }
+  importLoading.value = true
+  try {
+    for (const row of rows) {
+      const url = activeTab.value === 'accounts' ? '/api/v1/cmdb/cloud/accounts' : '/api/v1/cmdb/cloud/resources'
+      await axios.post(url, row, { headers: headers() })
+    }
+    ElMessage.success('导入完成')
+    importVisible.value = false
+    refreshActive()
+  } catch (e) {
+    ElMessage.error('导入失败')
+  } finally {
+    importLoading.value = false
+  }
+}
+
+const exportCSV = () => {
+  const headersArr = activeTab.value === 'accounts'
+    ? ['name','provider','region','status','description']
+    : ['account_id','resource_id','name','type','region','zone','ip','status']
+  const rows = (activeTab.value === 'accounts' ? accounts.value : resources.value)
+    .map(r => headersArr.map(k => r[k] || ''))
+  const csv = [headersArr.join(','), ...rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = activeTab.value === 'accounts' ? 'cmdb_cloud_accounts.csv' : 'cmdb_cloud_resources.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const openTest = (row) => {
+  testRow.value = row
+  testError.value = ''
+  testSuccess.value = ''
+  testVisible.value = true
+}
+
+const submitTest = async () => {
+  if (!testRow.value) return
+  testLoading.value = true
+  try {
+    const res = await axios.post(`/api/v1/cmdb/cloud/accounts/${testRow.value.id}/test`, {}, { headers: headers() })
+    if (res.data.code === 0) {
+      testSuccess.value = res.data.message || '测试成功'
+    } else {
+      testError.value = res.data.message || '测试失败'
+    }
+  } catch (e) {
+    testError.value = '测试失败'
+  } finally {
+    testLoading.value = false
+  }
+}
+
 watch(activeTab, (val) => {
   if (val === 'accounts') {
     fetchAccounts()
@@ -361,9 +483,11 @@ onMounted(async () => {
 .header { display: flex; justify-content: space-between; align-items: center; }
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; margin-top: 4px; }
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; gap: 8px; align-items: center; }
 .cloud-tabs { margin-top: 8px; }
 .filters { display: flex; gap: 12px; margin-bottom: 16px; }
 .filters .el-select { width: 200px; }
 .filters .el-input { width: 260px; }
+.import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.test-tip { color: #909399; margin-top: 8px; }
 </style>
