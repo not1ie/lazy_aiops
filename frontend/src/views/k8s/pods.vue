@@ -12,11 +12,23 @@
         <el-select v-model="namespace" placeholder="命名空间" class="w-52" @change="fetchPods">
           <el-option v-for="ns in namespaces" :key="ns.name" :label="ns.name" :value="ns.name" />
         </el-select>
+        <el-input v-model="keyword" placeholder="搜索名称/节点/IP" class="w-52" clearable />
+        <el-select v-model="statusFilter" placeholder="状态" class="w-40" clearable>
+          <el-option label="Running" value="Running" />
+          <el-option label="Pending" value="Pending" />
+          <el-option label="Succeeded" value="Succeeded" />
+          <el-option label="Failed" value="Failed" />
+          <el-option label="Unknown" value="Unknown" />
+        </el-select>
+        <el-button icon="Download" @click="exportCSV">导出</el-button>
         <el-button icon="Refresh" @click="fetchPods">刷新</el-button>
+        <el-button type="warning" plain :disabled="selectedRows.length === 0" @click="batchRestart">批量重启</el-button>
+        <el-button type="danger" plain :disabled="selectedRows.length === 0" @click="batchDelete">批量删除</el-button>
       </div>
     </div>
 
-    <el-table :data="pods" stripe style="width: 100%">
+    <el-table :data="filteredPods" stripe style="width: 100%" @selection-change="selectedRows = $event">
+      <el-table-column type="selection" width="48" />
       <el-table-column prop="namespace" label="命名空间" min-width="140" />
       <el-table-column prop="name" label="名称" min-width="220" />
       <el-table-column prop="status" label="状态" width="120" />
@@ -31,10 +43,11 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" min-width="180" />
-      <el-table-column label="操作" width="220">
+      <el-table-column label="操作" width="280">
         <template #default="scope">
           <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
           <el-button size="small" @click="openLogs(scope.row)">日志</el-button>
+          <el-button size="small" type="warning" @click="restartPod(scope.row)">重启</el-button>
           <el-button size="small" type="danger" @click="deletePod(scope.row)">删除</el-button>
         </template>
       </el-table-column>
@@ -57,7 +70,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -67,6 +80,9 @@ const namespaces = ref([])
 const clusterId = ref('')
 const namespace = ref('')
 const pods = ref([])
+const keyword = ref('')
+const statusFilter = ref('')
+const selectedRows = ref([])
 
 const logVisible = ref(false)
 const logText = ref('')
@@ -102,6 +118,19 @@ const fetchPods = async () => {
   })
   pods.value = res.data.data || []
 }
+
+const filteredPods = computed(() => {
+  const key = keyword.value.trim().toLowerCase()
+  return pods.value.filter(p => {
+    if (statusFilter.value && p.status !== statusFilter.value) return false
+    if (!key) return true
+    return (
+      (p.name || '').toLowerCase().includes(key) ||
+      (p.node || '').toLowerCase().includes(key) ||
+      (p.ip || '').toLowerCase().includes(key)
+    )
+  })
+})
 
 const handleClusterChange = async () => {
   await fetchNamespaces()
@@ -145,6 +174,54 @@ const deletePod = async (row) => {
   fetchPods()
 }
 
+const restartPod = async (row) => {
+  await ElMessageBox.confirm(`确认重启 Pod ${row.name} 吗？`, '提示', { type: 'warning' })
+  await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}/restart`, {}, {
+    headers: authHeaders()
+  })
+  ElMessage.success('已触发重启')
+  fetchPods()
+}
+
+const batchDelete = async () => {
+  if (selectedRows.value.length === 0) return
+  await ElMessageBox.confirm(`确认删除选中的 ${selectedRows.value.length} 个 Pod 吗？`, '提示', { type: 'warning' })
+  for (const row of selectedRows.value) {
+    await axios.delete(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}`, {
+      headers: authHeaders()
+    })
+  }
+  ElMessage.success('批量删除成功')
+  selectedRows.value = []
+  fetchPods()
+}
+
+const batchRestart = async () => {
+  if (selectedRows.value.length === 0) return
+  await ElMessageBox.confirm(`确认重启选中的 ${selectedRows.value.length} 个 Pod 吗？`, '提示', { type: 'warning' })
+  for (const row of selectedRows.value) {
+    await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}/restart`, {}, {
+      headers: authHeaders()
+    })
+  }
+  ElMessage.success('批量重启已触发')
+  selectedRows.value = []
+  fetchPods()
+}
+
+const exportCSV = () => {
+  const headers = ['namespace','name','status','node','ip','restarts','created_at']
+  const rows = filteredPods.value.map(p => [p.namespace, p.name, p.status, p.node, p.ip, p.restarts, p.created_at])
+  const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'k8s_pods.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 onMounted(async () => {
   await fetchClusters()
   await fetchNamespaces()
@@ -156,8 +233,9 @@ onMounted(async () => {
 .page-card { max-width: 1180px; margin: 0 auto; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
-.page-actions { display: flex; gap: 8px; }
+.page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .w-52 { width: 220px; }
+.w-40 { width: 160px; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
 .log-controls { display: flex; gap: 12px; margin-bottom: 12px; align-items: center; }
 </style>
