@@ -247,6 +247,29 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 	uname, unameErr, _ := client.Execute("uname -a")
 	osrel, osErr, _ := client.Execute("cat /etc/os-release")
 
+	// 若成功拿到系统信息，则回写 OS
+	if strings.TrimSpace(osrel) != "" {
+		pretty := ""
+		idv := ""
+		for _, line := range strings.Split(osrel, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "PRETTY_NAME=") {
+				pretty = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+			}
+			if strings.HasPrefix(line, "ID=") {
+				idv = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+			}
+		}
+		if pretty != "" {
+			h.db.Model(&host).Update("os", pretty)
+		} else if idv != "" {
+			idv = strings.ToUpper(idv[:1]) + idv[1:]
+			h.db.Model(&host).Update("os", idv)
+		}
+	} else if strings.TrimSpace(uname) != "" {
+		h.db.Model(&host).Update("os", strings.TrimSpace(uname))
+	}
+
 	result := gin.H{
 		"uname": gin.H{"out": uname, "err": unameErr},
 		"os_release": gin.H{"out": osrel, "err": osErr},
@@ -328,6 +351,10 @@ func (h *HostHandler) Update(c *gin.Context) {
 	if err := h.db.Save(&host).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	// 如果凭据更新过，尝试重新识别 OS
+	if req.Username != "" {
+		go h.detectOSAsync(host.ID, req.Username, req.Password)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": host})
 }
