@@ -35,31 +35,33 @@ func NewMonitorHandler(db *gorm.DB, collector *Collector, promURL, pushURL, agen
 	}
 }
 
-// GetSettings 获取监控配置
-func (h *MonitorHandler) GetSettings(c *gin.Context) {
-	setting, _ := h.loadSetting()
-	if setting == nil {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
-			"prometheus_url":  h.promURL,
-			"pushgateway_url": h.pushURL,
-			"auth_type":       "none",
-		}})
-		return
+// ListSettings 获取监控配置列表
+func (h *MonitorHandler) ListSettings(c *gin.Context) {
+	var list []MonitorSetting
+	h.db.Order("updated_at desc").Find(&list)
+	if len(list) == 0 && h.promURL != "" {
+		list = append(list, MonitorSetting{
+			Name:           "default",
+			PrometheusURL:  h.promURL,
+			PushgatewayURL: h.pushURL,
+			AuthType:       "none",
+			Active:         true,
+		})
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": setting})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": list})
 }
 
-// UpdateSettings 更新监控配置
-func (h *MonitorHandler) UpdateSettings(c *gin.Context) {
+// CreateSetting 新增监控配置
+func (h *MonitorHandler) CreateSetting(c *gin.Context) {
 	var req MonitorSetting
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
 	req.PrometheusURL = strings.TrimSpace(req.PrometheusURL)
 	req.PushgatewayURL = strings.TrimSpace(req.PushgatewayURL)
 	req.AuthType = strings.TrimSpace(req.AuthType)
-
 	if req.AuthType == "" {
 		req.AuthType = "none"
 	}
@@ -67,31 +69,95 @@ func (h *MonitorHandler) UpdateSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "auth_type 仅支持 none/basic/bearer"})
 		return
 	}
-
-	setting, _ := h.loadSetting()
-	if setting == nil {
-		setting = &MonitorSetting{}
+	if req.Name == "" {
+		req.Name = "prometheus"
 	}
-	setting.PrometheusURL = req.PrometheusURL
-	setting.PushgatewayURL = req.PushgatewayURL
-	setting.AuthType = req.AuthType
-	setting.Username = req.Username
-	setting.Password = req.Password
-	setting.Token = req.Token
-
-	if setting.ID == "" {
-		if err := h.db.Create(setting).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
-			return
-		}
-	} else {
-		if err := h.db.Save(setting).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
-			return
-		}
+	// 如果没有任何 active，则默认激活该条
+	var activeCount int64
+	h.db.Model(&MonitorSetting{}).Where("active = ?", true).Count(&activeCount)
+	if activeCount == 0 {
+		req.Active = true
 	}
+	if err := h.db.Create(&req).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": req})
+}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "保存成功"})
+// UpdateSetting 更新监控配置
+func (h *MonitorHandler) UpdateSetting(c *gin.Context) {
+	id := c.Param("id")
+	var req MonitorSetting
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.PrometheusURL = strings.TrimSpace(req.PrometheusURL)
+	req.PushgatewayURL = strings.TrimSpace(req.PushgatewayURL)
+	req.AuthType = strings.TrimSpace(req.AuthType)
+	if req.AuthType == "" {
+		req.AuthType = "none"
+	}
+	if req.AuthType != "none" && req.AuthType != "basic" && req.AuthType != "bearer" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "auth_type 仅支持 none/basic/bearer"})
+		return
+	}
+	updates := map[string]interface{}{
+		"name":            req.Name,
+		"prometheus_url":  req.PrometheusURL,
+		"pushgateway_url": req.PushgatewayURL,
+		"auth_type":       req.AuthType,
+		"username":        req.Username,
+		"password":        req.Password,
+		"token":           req.Token,
+	}
+	if err := h.db.Model(&MonitorSetting{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
+}
+
+// DeleteSetting 删除监控配置
+func (h *MonitorHandler) DeleteSetting(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&MonitorSetting{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ActivateSetting 激活某个配置
+func (h *MonitorHandler) ActivateSetting(c *gin.Context) {
+	id := c.Param("id")
+	h.db.Model(&MonitorSetting{}).Where("active = ?", true).Update("active", false)
+	if err := h.db.Model(&MonitorSetting{}).Where("id = ?", id).Update("active", true).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已激活"})
+}
+
+// TestSetting 测试某个配置
+func (h *MonitorHandler) TestSetting(c *gin.Context) {
+	id := c.Param("id")
+	var setting MonitorSetting
+	if err := h.db.First(&setting, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "配置不存在"})
+		return
+	}
+	if setting.PrometheusURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Prometheus 地址为空"})
+		return
+	}
+	reqURL, _ := url.Parse(setting.PrometheusURL + "/api/v1/query")
+	params := reqURL.Query()
+	params.Set("query", "up")
+	reqURL.RawQuery = params.Encode()
+	h.proxyPromGet(c, reqURL.String(), setting.AuthType, setting.Username, setting.Password, setting.Token)
 }
 
 // ListDomains 域名监控列表
@@ -460,17 +526,9 @@ func (h *MonitorHandler) proxyGetRaw(c *gin.Context, url string) {
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
 }
 
-func (h *MonitorHandler) loadSetting() (*MonitorSetting, error) {
-	var setting MonitorSetting
-	if err := h.db.Order("updated_at desc").First(&setting).Error; err != nil {
-		return nil, err
-	}
-	return &setting, nil
-}
-
 func (h *MonitorHandler) getPromConfig() (string, string, string, string, string) {
-	setting, err := h.loadSetting()
-	if err != nil || setting == nil || setting.PrometheusURL == "" {
+	var setting MonitorSetting
+	if err := h.db.Where("active = ?", true).Order("updated_at desc").First(&setting).Error; err != nil || setting.PrometheusURL == "" {
 		return h.promURL, "none", "", "", ""
 	}
 	return setting.PrometheusURL, setting.AuthType, setting.Username, setting.Password, setting.Token

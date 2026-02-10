@@ -21,18 +21,40 @@
 
     <h3 class="section-title">Prometheus 接入</h3>
     <div class="query-bar">
-      <el-input v-model="settings.prometheus_url" placeholder="Prometheus 地址，例如 http://10.0.0.1:9090" class="w-52" />
-      <el-select v-model="settings.auth_type" class="w-40">
+      <el-input v-model="form.name" placeholder="名称" class="w-40" />
+      <el-input v-model="form.prometheus_url" placeholder="Prometheus 地址，例如 http://10.0.0.1:9090" class="w-52" />
+      <el-select v-model="form.auth_type" class="w-40">
         <el-option label="无认证" value="none" />
         <el-option label="Basic" value="basic" />
         <el-option label="Bearer" value="bearer" />
       </el-select>
-      <el-input v-if="settings.auth_type === 'basic'" v-model="settings.username" placeholder="用户名" class="w-40" />
-      <el-input v-if="settings.auth_type === 'basic'" v-model="settings.password" placeholder="密码" class="w-40" show-password />
-      <el-input v-if="settings.auth_type === 'bearer'" v-model="settings.token" placeholder="Token" class="w-52" />
-      <el-button type="primary" @click="saveSettings">保存</el-button>
-      <el-button @click="testProm">测试连接</el-button>
+      <el-input v-if="form.auth_type === 'basic'" v-model="form.username" placeholder="用户名" class="w-40" />
+      <el-input v-if="form.auth_type === 'basic'" v-model="form.password" placeholder="密码" class="w-40" show-password />
+      <el-input v-if="form.auth_type === 'bearer'" v-model="form.token" placeholder="Token" class="w-52" />
+      <el-button type="primary" @click="saveSetting">{{ form.id ? '更新' : '新增' }}</el-button>
+      <el-button @click="resetForm">清空</el-button>
     </div>
+
+    <el-table :data="settings" size="small" style="width: 100%; margin-top: 12px">
+      <el-table-column prop="name" label="名称" width="160" />
+      <el-table-column prop="prometheus_url" label="地址" min-width="240" />
+      <el-table-column prop="auth_type" label="认证" width="120" />
+      <el-table-column prop="active" label="当前" width="90">
+        <template #default="scope">
+          <el-tag v-if="scope.row.active" type="success">当前</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="260">
+        <template #default="scope">
+          <el-space size="8">
+            <el-button size="small" @click="editSetting(scope.row)">编辑</el-button>
+            <el-button size="small" type="success" plain @click="activateSetting(scope.row)">设为当前</el-button>
+            <el-button size="small" type="info" plain @click="testSetting(scope.row)">测试</el-button>
+            <el-button size="small" type="danger" plain @click="deleteSetting(scope.row)">删除</el-button>
+          </el-space>
+        </template>
+      </el-table-column>
+    </el-table>
 
     <el-divider />
 
@@ -109,7 +131,10 @@ const rangeStart = ref('')
 const rangeEnd = ref('')
 const rangeStep = ref('30')
 const result = ref('')
-const settings = ref({
+const settings = ref([])
+const form = ref({
+  id: '',
+  name: '',
   prometheus_url: '',
   auth_type: 'none',
   username: '',
@@ -141,27 +166,65 @@ const fetchRealtime = async () => {
 const fetchSettings = async () => {
   const res = await axios.get('/api/v1/monitor/settings', { headers: authHeaders() })
   if (res.data.code === 0) {
-    settings.value = {
-      prometheus_url: res.data.data.prometheus_url || '',
-      auth_type: res.data.data.auth_type || 'none',
-      username: res.data.data.username || '',
-      password: res.data.data.password || '',
-      token: res.data.data.token || ''
-    }
+    settings.value = res.data.data || []
   }
 }
 
-const saveSettings = async () => {
-  await axios.put('/api/v1/monitor/settings', settings.value, { headers: authHeaders() })
-  ElMessage.success('保存成功')
+const resetForm = () => {
+  form.value = {
+    id: '',
+    name: '',
+    prometheus_url: '',
+    auth_type: 'none',
+    username: '',
+    password: '',
+    token: ''
+  }
 }
 
-const testProm = async () => {
+const editSetting = (row) => {
+  form.value = {
+    id: row.id,
+    name: row.name || '',
+    prometheus_url: row.prometheus_url || '',
+    auth_type: row.auth_type || 'none',
+    username: row.username || '',
+    password: row.password || '',
+    token: row.token || ''
+  }
+}
+
+const saveSetting = async () => {
+  if (!form.value.prometheus_url) {
+    ElMessage.warning('请填写地址')
+    return
+  }
+  if (form.value.id) {
+    await axios.put(`/api/v1/monitor/settings/${form.value.id}`, form.value, { headers: authHeaders() })
+    ElMessage.success('更新成功')
+  } else {
+    await axios.post('/api/v1/monitor/settings', form.value, { headers: authHeaders() })
+    ElMessage.success('新增成功')
+  }
+  await fetchSettings()
+  resetForm()
+}
+
+const deleteSetting = async (row) => {
+  await axios.delete(`/api/v1/monitor/settings/${row.id}`, { headers: authHeaders() })
+  ElMessage.success('删除成功')
+  fetchSettings()
+}
+
+const activateSetting = async (row) => {
+  await axios.post(`/api/v1/monitor/settings/${row.id}/activate`, {}, { headers: authHeaders() })
+  ElMessage.success('已设为当前')
+  fetchSettings()
+}
+
+const testSetting = async (row) => {
   try {
-    const res = await axios.get('/api/v1/monitor/prometheus/query', {
-      headers: authHeaders(),
-      params: { query: 'up' }
-    })
+    const res = await axios.post(`/api/v1/monitor/settings/${row.id}/test`, {}, { headers: authHeaders() })
     if (res.data?.status === 'success') {
       ElMessage.success('连接成功')
     } else {
