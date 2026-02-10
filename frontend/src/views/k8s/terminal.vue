@@ -34,6 +34,13 @@
           <el-option v-for="c in containers" :key="c" :label="c" :value="c" />
         </el-select>
       </el-form-item>
+      <el-form-item label="Shell">
+        <el-select v-model="shell" placeholder="Shell" class="w-52">
+          <el-option label="/bin/sh" value="sh" />
+          <el-option label="/bin/bash" value="bash" />
+          <el-option label="/bin/ash" value="ash" />
+        </el-select>
+      </el-form-item>
     </el-form>
 
     <el-divider />
@@ -62,6 +69,7 @@ const clusterId = ref('')
 const namespace = ref('')
 const podName = ref('')
 const container = ref('')
+const shell = ref('sh')
 
 const connected = ref(false)
 const terminalRef = ref(null)
@@ -74,7 +82,7 @@ const route = useRoute()
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const canConnect = computed(() => {
-  return clusterId.value && namespace.value && podName.value && container.value
+  return clusterId.value && namespace.value && podName.value && container.value && shell.value
 })
 
 const fetchClusters = async () => {
@@ -127,7 +135,8 @@ const connect = () => {
   if (!canConnect.value) return
   const token = localStorage.getItem('token')
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const wsUrl = `${wsProto}://${window.location.host}/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/exec?container=${encodeURIComponent(container.value)}&token=${encodeURIComponent(token)}`
+  const cmd = shell.value ? `/bin/${shell.value}` : ''
+  const wsUrl = `${wsProto}://${window.location.host}/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/exec?container=${encodeURIComponent(container.value)}&token=${encodeURIComponent(token)}&command=${encodeURIComponent(cmd)}`
 
   ws = new WebSocket(wsUrl)
   ws.binaryType = 'arraybuffer'
@@ -181,6 +190,7 @@ onMounted(async () => {
   namespace.value = route.query.namespace || ''
   podName.value = route.query.pod || ''
   container.value = route.query.container || ''
+  shell.value = route.query.shell || 'sh'
 
   term = new Terminal({
     cursorBlink: true,
