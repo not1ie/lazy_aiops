@@ -14,7 +14,7 @@ services:
         mode: host
     volumes:
       - data:/app/data
-      - ./configs/config.yaml:/app/configs/config.yaml:ro
+      - /root/lazy_aiops/configs/config.yaml:/app/configs/config.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       TZ: Asia/Shanghai
