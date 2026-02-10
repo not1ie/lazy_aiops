@@ -276,6 +276,7 @@ func (h *HostHandler) Update(c *gin.Context) {
 
 	var req struct {
 		Host
+		GroupName string `json:"group_name"`
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
@@ -290,6 +291,16 @@ func (h *HostHandler) Update(c *gin.Context) {
 	host.IP = req.IP
 	host.Port = req.Port
 	host.OS = req.OS
+	host.Status = req.Status
+	if req.GroupID != "" {
+		host.GroupID = req.GroupID
+	}
+	if req.GroupName != "" {
+		var group HostGroup
+		if err := h.db.FirstOrCreate(&group, HostGroup{Name: req.GroupName}).Error; err == nil {
+			host.GroupID = group.ID
+		}
+	}
 	// host.Description = req.Description // 如果需要支持更多字段
 
 	// 更新或创建凭据

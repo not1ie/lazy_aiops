@@ -5,6 +5,11 @@
         <span class="font-bold">CMDB 主机管理</span>
         <div>
           <el-button type="primary" icon="Plus" @click="handleAdd">添加主机</el-button>
+          <el-button icon="Upload" @click="openImport">批量导入</el-button>
+          <el-button icon="Download" @click="exportCSV">导出</el-button>
+          <el-button type="warning" plain icon="Edit" :disabled="selectedRows.length === 0" @click="openBatchStatus">
+            批量状态
+          </el-button>
           <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
             批量删除 ({{ selectedRows.length }})
           </el-button>
@@ -40,8 +45,8 @@
       <el-table-column prop="os" label="操作系统" width="150" />
       <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'danger'">
-            {{ row.status === 1 ? '在线' : '离线' }}
+          <el-tag :type="row.status === 1 ? 'success' : row.status === 2 ? 'warning' : 'danger'">
+            {{ row.status === 1 ? '在线' : row.status === 2 ? '维护' : '离线' }}
           </el-tag>
         </template>
       </el-table-column>
@@ -66,6 +71,13 @@
         </el-form-item>
         <el-form-item label="端口">
           <el-input-number v-model="form.port" :min="1" :max="65535" />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="form.status" style="width: 100%">
+            <el-option label="在线" :value="1" />
+            <el-option label="离线" :value="0" />
+            <el-option label="维护" :value="2" />
+          </el-select>
         </el-form-item>
         <el-form-item label="用户名">
           <el-input v-model="form.username" placeholder="root" />
@@ -96,6 +108,35 @@
         <el-button @click="testVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量导入 -->
+    <el-dialog v-model="importVisible" title="批量导入主机" width="720px">
+      <el-alert type="info" :closable="false" show-icon>
+        格式：name,ip,port,username,password,group_name,status,os（第一行可写表头）
+      </el-alert>
+      <el-input v-model="importText" type="textarea" :rows="10" placeholder="例如：&#10;web-1,192.168.1.10,22,root,pass,prod,1,Ubuntu" />
+      <div class="import-actions">
+        <el-button @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importLoading" @click="submitImport">开始导入</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- 批量状态 -->
+    <el-dialog v-model="batchStatusVisible" title="批量修改状态" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="状态">
+          <el-select v-model="batchStatus" placeholder="选择状态" style="width: 100%">
+            <el-option label="在线" :value="1" />
+            <el-option label="离线" :value="0" />
+            <el-option label="维护" :value="2" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchStatusVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchStatusLoading" @click="submitBatchStatus">保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -118,11 +159,18 @@ const testVisible = ref(false)
 const testLoading = ref(false)
 const testResult = ref(null)
 const testError = ref('')
+const importVisible = ref(false)
+const importLoading = ref(false)
+const importText = ref('')
+const batchStatusVisible = ref(false)
+const batchStatusLoading = ref(false)
+const batchStatus = ref(null)
 
 const form = reactive({
   name: '',
   ip: '',
   port: 22,
+  status: 1,
   username: '',
   password: '',
   group_name: ''
@@ -161,6 +209,7 @@ const handleAdd = () => {
   form.name = ''
   form.ip = ''
   form.port = 22
+  form.status = 1
   form.username = 'root'
   form.password = ''
   form.group_name = ''
@@ -180,6 +229,7 @@ const handleEdit = async (row) => {
       form.name = data.name
       form.ip = data.ip
       form.port = data.port
+      form.status = data.status ?? 1
       form.username = data.credential ? data.credential.username : ''
       form.password = data.credential ? data.credential.password : ''
       form.group_name = data.group ? data.group.name : ''
@@ -247,6 +297,103 @@ const handleBatchDelete = () => {
   })
 }
 
+const openImport = () => {
+  importText.value = ''
+  importVisible.value = true
+}
+
+const parseCSV = (text) => {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  if (lines.length === 0) return []
+  const delim = lines[0].includes('\t') ? '\t' : ','
+  const headers = lines[0].toLowerCase().split(delim).map(s => s.trim())
+  const hasHeader = headers.includes('name') || headers.includes('ip')
+  const start = hasHeader ? 1 : 0
+  const cols = hasHeader ? headers : ['name','ip','port','username','password','group_name','status','os']
+  return lines.slice(start).map(line => {
+    const parts = line.split(delim).map(s => s.trim())
+    const obj = {}
+    cols.forEach((k, idx) => { obj[k] = parts[idx] || '' })
+    return obj
+  })
+}
+
+const submitImport = async () => {
+  const rows = parseCSV(importText.value)
+  if (rows.length === 0) {
+    ElMessage.warning('请填写导入内容')
+    return
+  }
+  importLoading.value = true
+  try {
+    for (const row of rows) {
+      if (!row.name || !row.ip) continue
+      await axios.post('/api/v1/cmdb/hosts', {
+        name: row.name,
+        ip: row.ip,
+        port: row.port ? Number(row.port) : 22,
+        username: row.username || '',
+        password: row.password || '',
+        group_name: row.group_name || '',
+        status: row.status ? Number(row.status) : 1,
+        os: row.os || ''
+      }, {
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      })
+    }
+    ElMessage.success('导入完成')
+    importVisible.value = false
+    fetchData()
+  } catch (e) {
+    ElMessage.error('导入失败')
+  } finally {
+    importLoading.value = false
+  }
+}
+
+const exportCSV = () => {
+  const headers = ['name','ip','port','os','status','group','username']
+  const rows = tableData.value.map(h => [
+    h.name, h.ip, h.port, h.os, h.status,
+    h.group?.name || '', h.credential?.username || ''
+  ])
+  const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))].join('\\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'cmdb_hosts.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const openBatchStatus = () => {
+  batchStatus.value = 1
+  batchStatusVisible.value = true
+}
+
+const submitBatchStatus = async () => {
+  if (batchStatus.value === null) return
+  batchStatusLoading.value = true
+  try {
+    for (const row of selectedRows.value) {
+      await axios.put(`/api/v1/cmdb/hosts/${row.id}`, {
+        ...row,
+        status: batchStatus.value
+      }, {
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      })
+    }
+    ElMessage.success('状态更新成功')
+    batchStatusVisible.value = false
+    fetchData()
+  } catch (e) {
+    ElMessage.error('状态更新失败')
+  } finally {
+    batchStatusLoading.value = false
+  }
+}
+
 const handleTest = async (row) => {
   testVisible.value = true
   testLoading.value = true
@@ -283,6 +430,7 @@ onMounted(() => {
 .mb-4 { margin-bottom: 16px; }
 .w-64 { width: 256px; }
 .w-100 { width: 100%; }
+.import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .test-block { display: flex; flex-direction: column; gap: 10px; }
 .test-title { font-weight: 600; }
 .test-pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 200px; }
