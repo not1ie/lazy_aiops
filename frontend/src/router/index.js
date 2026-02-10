@@ -157,6 +157,18 @@ const routes = [
         meta: { title: '指标采集', icon: 'DataBoard' }
       },
       {
+        path: 'monitor/containers',
+        name: 'MonitorContainers',
+        component: () => import('@/views/monitor/containers.vue'),
+        meta: { title: '容器监控', icon: 'Box' }
+      },
+      {
+        path: 'monitor/pods',
+        name: 'MonitorPods',
+        component: () => import('@/views/monitor/pods.vue'),
+        meta: { title: 'Pod监控', icon: 'Histogram' }
+      },
+      {
         path: 'monitor/agents',
         name: 'MonitorAgents',
         component: () => import('@/views/monitor/agents.vue'),

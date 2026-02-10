@@ -74,6 +74,17 @@ type MetricRecord struct {
 	NetworkOut  uint64    `json:"network_out"`
 }
 
+// MonitorSetting 监控配置
+type MonitorSetting struct {
+	BaseModel
+	PrometheusURL  string `gorm:"size:256" json:"prometheus_url"`
+	PushgatewayURL string `gorm:"size:256" json:"pushgateway_url"`
+	AuthType       string `gorm:"size:16" json:"auth_type"` // none/basic/bearer
+	Username       string `gorm:"size:128" json:"username"`
+	Password       string `gorm:"size:256" json:"password"`
+	Token          string `gorm:"size:512" json:"token"`
+}
+
 // PromQueryHistory Prometheus查询历史
 type PromQueryHistory struct {
 	BaseModel

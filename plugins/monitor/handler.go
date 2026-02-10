@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,65 @@ func NewMonitorHandler(db *gorm.DB, collector *Collector, promURL, pushURL, agen
 		agentTimeout: agentTimeout,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// GetSettings 获取监控配置
+func (h *MonitorHandler) GetSettings(c *gin.Context) {
+	setting, _ := h.loadSetting()
+	if setting == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+			"prometheus_url":  h.promURL,
+			"pushgateway_url": h.pushURL,
+			"auth_type":       "none",
+		}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": setting})
+}
+
+// UpdateSettings 更新监控配置
+func (h *MonitorHandler) UpdateSettings(c *gin.Context) {
+	var req MonitorSetting
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	req.PrometheusURL = strings.TrimSpace(req.PrometheusURL)
+	req.PushgatewayURL = strings.TrimSpace(req.PushgatewayURL)
+	req.AuthType = strings.TrimSpace(req.AuthType)
+
+	if req.AuthType == "" {
+		req.AuthType = "none"
+	}
+	if req.AuthType != "none" && req.AuthType != "basic" && req.AuthType != "bearer" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "auth_type 仅支持 none/basic/bearer"})
+		return
+	}
+
+	setting, _ := h.loadSetting()
+	if setting == nil {
+		setting = &MonitorSetting{}
+	}
+	setting.PrometheusURL = req.PrometheusURL
+	setting.PushgatewayURL = req.PushgatewayURL
+	setting.AuthType = req.AuthType
+	setting.Username = req.Username
+	setting.Password = req.Password
+	setting.Token = req.Token
+
+	if setting.ID == "" {
+		if err := h.db.Create(setting).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	} else {
+		if err := h.db.Save(setting).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "保存成功"})
 }
 
 // ListDomains 域名监控列表
@@ -221,7 +281,8 @@ func (h *MonitorHandler) GetChartData(c *gin.Context) {
 
 // ProxyPromQuery Prometheus 即时查询
 func (h *MonitorHandler) ProxyPromQuery(c *gin.Context) {
-	if h.promURL == "" {
+	promURL, authType, username, password, token := h.getPromConfig()
+	if promURL == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Prometheus 未配置"})
 		return
 	}
@@ -230,19 +291,20 @@ func (h *MonitorHandler) ProxyPromQuery(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "query不能为空"})
 		return
 	}
-	reqURL, _ := url.Parse(h.promURL + "/api/v1/query")
+	reqURL, _ := url.Parse(promURL + "/api/v1/query")
 	params := reqURL.Query()
 	params.Set("query", q)
 	if t := c.Query("time"); t != "" {
 		params.Set("time", t)
 	}
 	reqURL.RawQuery = params.Encode()
-	h.proxyGet(c, reqURL.String())
+	h.proxyPromGet(c, reqURL.String(), authType, username, password, token)
 }
 
 // ProxyPromQueryRange Prometheus 范围查询
 func (h *MonitorHandler) ProxyPromQueryRange(c *gin.Context) {
-	if h.promURL == "" {
+	promURL, authType, username, password, token := h.getPromConfig()
+	if promURL == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Prometheus 未配置"})
 		return
 	}
@@ -254,14 +316,14 @@ func (h *MonitorHandler) ProxyPromQueryRange(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "query/start/end/step不能为空"})
 		return
 	}
-	reqURL, _ := url.Parse(h.promURL + "/api/v1/query_range")
+	reqURL, _ := url.Parse(promURL + "/api/v1/query_range")
 	params := reqURL.Query()
 	params.Set("query", q)
 	params.Set("start", start)
 	params.Set("end", end)
 	params.Set("step", step)
 	reqURL.RawQuery = params.Encode()
-	h.proxyGet(c, reqURL.String())
+	h.proxyPromGet(c, reqURL.String(), authType, username, password, token)
 }
 
 // ProxyPushgatewayMetrics 获取 Pushgateway 指标
@@ -363,6 +425,30 @@ func (h *MonitorHandler) proxyGet(c *gin.Context, url string) {
 	c.Data(resp.StatusCode, "application/json", body)
 }
 
+func (h *MonitorHandler) proxyPromGet(c *gin.Context, url, authType, username, password, token string) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	switch authType {
+	case "basic":
+		req.SetBasicAuth(username, password)
+	case "bearer":
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
 func (h *MonitorHandler) proxyGetRaw(c *gin.Context, url string) {
 	resp, err := h.httpClient.Get(url)
 	if err != nil {
@@ -372,6 +458,22 @@ func (h *MonitorHandler) proxyGetRaw(c *gin.Context, url string) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+}
+
+func (h *MonitorHandler) loadSetting() (*MonitorSetting, error) {
+	var setting MonitorSetting
+	if err := h.db.Order("updated_at desc").First(&setting).Error; err != nil {
+		return nil, err
+	}
+	return &setting, nil
+}
+
+func (h *MonitorHandler) getPromConfig() (string, string, string, string, string) {
+	setting, err := h.loadSetting()
+	if err != nil || setting == nil || setting.PrometheusURL == "" {
+		return h.promURL, "none", "", "", ""
+	}
+	return setting.PrometheusURL, setting.AuthType, setting.Username, setting.Password, setting.Token
 }
 
 // AgentHeartbeat 采集器心跳

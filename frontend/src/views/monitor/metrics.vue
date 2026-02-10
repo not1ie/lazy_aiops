@@ -19,6 +19,23 @@
 
     <el-divider />
 
+    <h3 class="section-title">Prometheus 接入</h3>
+    <div class="query-bar">
+      <el-input v-model="settings.prometheus_url" placeholder="Prometheus 地址，例如 http://10.0.0.1:9090" class="w-52" />
+      <el-select v-model="settings.auth_type" class="w-40">
+        <el-option label="无认证" value="none" />
+        <el-option label="Basic" value="basic" />
+        <el-option label="Bearer" value="bearer" />
+      </el-select>
+      <el-input v-if="settings.auth_type === 'basic'" v-model="settings.username" placeholder="用户名" class="w-40" />
+      <el-input v-if="settings.auth_type === 'basic'" v-model="settings.password" placeholder="密码" class="w-40" show-password />
+      <el-input v-if="settings.auth_type === 'bearer'" v-model="settings.token" placeholder="Token" class="w-52" />
+      <el-button type="primary" @click="saveSettings">保存</el-button>
+      <el-button @click="testProm">测试连接</el-button>
+    </div>
+
+    <el-divider />
+
     <h3 class="section-title">Prometheus 查询</h3>
     <div class="query-bar">
       <el-input v-model="query" placeholder="例如: up" class="w-52" />
@@ -92,6 +109,13 @@ const rangeStart = ref('')
 const rangeEnd = ref('')
 const rangeStep = ref('30')
 const result = ref('')
+const settings = ref({
+  prometheus_url: '',
+  auth_type: 'none',
+  username: '',
+  password: '',
+  token: ''
+})
 const activeTab = ref('chart')
 const chartRef = ref(null)
 let chartInstance = null
@@ -112,6 +136,40 @@ const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('toke
 const fetchRealtime = async () => {
   const res = await axios.get('/api/v1/monitor/metrics', { headers: authHeaders() })
   realtime.value = res.data.data || realtime.value
+}
+
+const fetchSettings = async () => {
+  const res = await axios.get('/api/v1/monitor/settings', { headers: authHeaders() })
+  if (res.data.code === 0) {
+    settings.value = {
+      prometheus_url: res.data.data.prometheus_url || '',
+      auth_type: res.data.data.auth_type || 'none',
+      username: res.data.data.username || '',
+      password: res.data.data.password || '',
+      token: res.data.data.token || ''
+    }
+  }
+}
+
+const saveSettings = async () => {
+  await axios.put('/api/v1/monitor/settings', settings.value, { headers: authHeaders() })
+  ElMessage.success('保存成功')
+}
+
+const testProm = async () => {
+  try {
+    const res = await axios.get('/api/v1/monitor/prometheus/query', {
+      headers: authHeaders(),
+      params: { query: 'up' }
+    })
+    if (res.data?.status === 'success') {
+      ElMessage.success('连接成功')
+    } else {
+      ElMessage.warning('Prometheus 返回异常')
+    }
+  } catch (err) {
+    ElMessage.error('连接失败')
+  }
 }
 
 const runQuery = async () => {
@@ -269,6 +327,7 @@ const initRange = () => {
 
 onMounted(() => {
   initRange()
+  fetchSettings()
   fetchRealtime()
   ensureChart()
   fetchHistory()

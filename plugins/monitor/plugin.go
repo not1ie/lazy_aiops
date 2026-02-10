@@ -53,7 +53,7 @@ func (p *MonitorPlugin) Stop() error {
 }
 
 func (p *MonitorPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&DomainMonitor{}, &AlertRule{}, &AlertRecord{}, &MetricRecord{}, &AgentHeartbeat{}, &AgentHeartbeatRecord{}, &PromQueryHistory{})
+	return p.core.DB.AutoMigrate(&DomainMonitor{}, &AlertRule{}, &AlertRecord{}, &MetricRecord{}, &MonitorSetting{}, &AgentHeartbeat{}, &AgentHeartbeatRecord{}, &PromQueryHistory{})
 }
 
 func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
@@ -101,6 +101,8 @@ func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/prometheus/history", h.ListPromHistory)
 	g.POST("/prometheus/history", h.CreatePromHistory)
 	g.PUT("/prometheus/history/:id", h.UpdatePromHistory)
+	g.GET("/settings", h.GetSettings)
+	g.PUT("/settings", h.UpdateSettings)
 
 	// Agent heartbeat
 	g.POST("/agents/heartbeat", h.AgentHeartbeat)
