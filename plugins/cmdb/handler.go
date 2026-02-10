@@ -192,16 +192,66 @@ func (h *HostHandler) detectOSAsync(hostID, username, password string) {
 		Timeout:  10 * time.Second,
 	}
 	
-	stdout, _, err := client.Execute("grep '^ID=' /etc/os-release")
-	if err == nil {
-		osID := strings.TrimPrefix(strings.TrimSpace(stdout), "ID=")
-		osID = strings.Trim(osID, "\"")
-		// 首字母大写
-		if len(osID) > 0 {
-			osID = strings.ToUpper(osID[:1]) + osID[1:]
+	// Prefer PRETTY_NAME, fallback to ID, then uname
+	stdout, _, err := client.Execute("cat /etc/os-release 2>/dev/null")
+	if err == nil && strings.TrimSpace(stdout) != "" {
+		pretty := ""
+		id := ""
+		for _, line := range strings.Split(stdout, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "PRETTY_NAME=") {
+				pretty = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+			}
+			if strings.HasPrefix(line, "ID=") {
+				id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+			}
 		}
-		h.db.Model(&host).Update("os", osID)
+		if pretty != "" {
+			h.db.Model(&host).Update("os", pretty)
+			return
+		}
+		if id != "" {
+			id = strings.ToUpper(id[:1]) + id[1:]
+			h.db.Model(&host).Update("os", id)
+			return
+		}
 	}
+
+	if uname, _, err := client.Execute("uname -srm 2>/dev/null"); err == nil {
+		h.db.Model(&host).Update("os", strings.TrimSpace(uname))
+	}
+}
+
+// TestHost 测试主机连通性并返回诊断信息
+func (h *HostHandler) TestHost(c *gin.Context) {
+	id := c.Param("id")
+	var host Host
+	if err := h.db.Preload("Credential").First(&host, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "主机不存在"})
+		return
+	}
+	if host.Credential == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机未配置凭据"})
+		return
+	}
+
+	client := &core.SSHClient{
+		Host:     host.IP,
+		Port:     host.Port,
+		Username: host.Credential.Username,
+		Password: host.Credential.Password,
+		Key:      host.Credential.PrivateKey,
+		Timeout:  8 * time.Second,
+	}
+
+	uname, unameErr, _ := client.Execute("uname -a")
+	osrel, osErr, _ := client.Execute("cat /etc/os-release")
+
+	result := gin.H{
+		"uname": gin.H{"out": uname, "err": unameErr},
+		"os_release": gin.H{"out": osrel, "err": osErr},
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
 }
 
 // Get 获取主机详情

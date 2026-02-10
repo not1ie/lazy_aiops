@@ -46,8 +46,9 @@
         </template>
       </el-table-column>
       <el-table-column prop="group.name" label="分组" width="150" />
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
+          <el-button size="small" type="warning" plain icon="FirstAidKit" @click="handleTest(row)">测试</el-button>
           <el-button size="small" type="primary" plain icon="Edit" @click="handleEdit(row)">编辑</el-button>
           <el-button size="small" type="danger" plain icon="Delete" @click="handleDelete(row)">删除</el-button>
         </template>
@@ -81,6 +82,20 @@
         <el-button type="primary" @click="submitForm" :loading="submitting">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="testVisible" title="主机测试" width="640px">
+      <el-alert v-if="testError" type="error" :closable="false" show-icon>{{ testError }}</el-alert>
+      <el-skeleton v-if="testLoading" :rows="4" animated />
+      <div v-else class="test-block">
+        <div class="test-title">uname -a</div>
+        <pre class="test-pre">{{ testResult?.uname?.out || '-' }}</pre>
+        <div class="test-title">/etc/os-release</div>
+        <pre class="test-pre">{{ testResult?.os_release?.out || '-' }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="testVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -99,6 +114,10 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
+const testVisible = ref(false)
+const testLoading = ref(false)
+const testResult = ref(null)
+const testError = ref('')
 
 const form = reactive({
   name: '',
@@ -228,6 +247,27 @@ const handleBatchDelete = () => {
   })
 }
 
+const handleTest = async (row) => {
+  testVisible.value = true
+  testLoading.value = true
+  testResult.value = null
+  testError.value = ''
+  try {
+    const res = await axios.post(`/api/v1/cmdb/hosts/${row.id}/test`, {}, {
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    })
+    if (res.data.code === 0) {
+      testResult.value = res.data.data
+    } else {
+      testError.value = res.data.message || '测试失败'
+    }
+  } catch (e) {
+    testError.value = '测试失败'
+  } finally {
+    testLoading.value = false
+  }
+}
+
 onMounted(() => {
   fetchGroups()
   fetchData()
@@ -243,4 +283,7 @@ onMounted(() => {
 .mb-4 { margin-bottom: 16px; }
 .w-64 { width: 256px; }
 .w-100 { width: 100%; }
+.test-block { display: flex; flex-direction: column; gap: 10px; }
+.test-title { font-weight: 600; }
+.test-pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 200px; }
 </style>

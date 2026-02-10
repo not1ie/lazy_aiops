@@ -50,6 +50,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		hosts.GET("", h.List)
 		hosts.POST("", h.Create)
 		hosts.GET("/:id", h.Get)
+		hosts.POST("/:id/test", h.TestHost)
 		hosts.PUT("/:id", h.Update)
 		hosts.DELETE("/:id", h.Delete)
 	}
