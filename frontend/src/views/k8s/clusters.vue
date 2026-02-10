@@ -24,10 +24,10 @@
         </template>
       </el-table-column>
       <el-table-column prop="description" label="描述" min-width="180" />
-      <el-table-column label="操作" width="220">
+      <el-table-column label="操作" width="240">
         <template #default="scope">
           <el-button size="small" @click="openEdit(scope.row)">编辑</el-button>
-          <el-button size="small" type="primary" @click="testConnection(scope.row)">测试</el-button>
+          <el-button size="small" type="primary" :loading="testingId === scope.row.id" @click="testConnection(scope.row)">测试</el-button>
           <el-button size="small" type="danger" @click="removeCluster(scope.row)">删除</el-button>
         </template>
       </el-table-column>
@@ -76,6 +76,7 @@ const form = ref({
   kubeconfig: '',
   description: ''
 })
+const testingId = ref('')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -127,9 +128,17 @@ const submitForm = async () => {
 }
 
 const testConnection = async (row) => {
-  const res = await axios.post(`/api/v1/k8s/clusters/${row.id}/test`, {}, { headers: authHeaders() })
-  ElMessage.success(`连接成功: ${res.data.data.version}`)
-  fetchClusters()
+  testingId.value = row.id
+  try {
+    const res = await axios.post(`/api/v1/k8s/clusters/${row.id}/test`, {}, { headers: authHeaders() })
+    ElMessage.success(`连接成功: ${res.data.data.version}`)
+  } catch (e) {
+    const msg = e?.response?.data?.message || '测试失败，请检查 kubeconfig / API Server'
+    ElMessage.error(msg)
+  } finally {
+    testingId.value = ''
+    fetchClusters()
+  }
 }
 
 const removeCluster = async (row) => {
