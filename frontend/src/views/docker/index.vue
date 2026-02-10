@@ -89,12 +89,12 @@
         </el-tab-pane>
 
         <el-tab-pane label="容器" name="containers">
+          <div class="tab-toolbar">
+            <el-button type="primary" icon="Plus" @click="openCreateContainer">创建容器</el-button>
+            <el-button icon="Refresh" @click="loadContainers">刷新</el-button>
+          </div>
           <el-table :data="containers" v-loading="containersLoading" style="width: 100%">
-            <el-table-column prop="names" label="名称" min-width="200">
-              <template #default="{ row }">
-                <div>{{ row.names }}</div>
-              </template>
-            </el-table-column>
+            <el-table-column prop="names" label="名称" min-width="200" />
             <el-table-column prop="image" label="镜像" min-width="180" />
             <el-table-column prop="state" label="状态" width="120" />
             <el-table-column prop="status" label="详情" min-width="180" />
@@ -114,6 +114,10 @@
         </el-tab-pane>
 
         <el-tab-pane label="镜像" name="images">
+          <div class="tab-toolbar">
+            <el-button type="primary" icon="Download" @click="openPullImage">拉取镜像</el-button>
+            <el-button icon="Refresh" @click="loadImages">刷新</el-button>
+          </div>
           <el-table :data="images" v-loading="imagesLoading" style="width: 100%">
             <el-table-column prop="repository" label="仓库" min-width="200" />
             <el-table-column prop="tag" label="Tag" width="120" />
@@ -128,6 +132,9 @@
         </el-tab-pane>
 
         <el-tab-pane label="网络" name="networks">
+          <div class="tab-toolbar">
+            <el-button icon="Refresh" @click="loadNetworks">刷新</el-button>
+          </div>
           <el-table :data="networks" v-loading="networksLoading" style="width: 100%">
             <el-table-column prop="name" label="名称" min-width="180" />
             <el-table-column prop="id" label="ID" min-width="200" />
@@ -137,6 +144,53 @@
         </el-tab-pane>
       </el-tabs>
     </el-drawer>
+
+    <!-- 创建容器弹窗 -->
+    <el-dialog v-model="createVisible" title="创建容器" width="640px">
+      <el-form :model="createForm" label-width="100px">
+        <el-form-item label="镜像" required>
+          <el-input v-model="createForm.image" placeholder="例如 nginx:latest" />
+        </el-form-item>
+        <el-form-item label="容器名">
+          <el-input v-model="createForm.name" placeholder="可选" />
+        </el-form-item>
+        <el-form-item label="端口映射">
+          <el-input v-model="createForm.ports" placeholder="如 8080:80, 8443:443" />
+        </el-form-item>
+        <el-form-item label="环境变量">
+          <el-input v-model="createForm.env" type="textarea" :rows="4" placeholder="KEY=VALUE，每行一个" />
+        </el-form-item>
+        <el-form-item label="重启策略">
+          <el-select v-model="createForm.restart_policy" placeholder="不设置">
+            <el-option label="不设置" value="" />
+            <el-option label="always" value="always" />
+            <el-option label="unless-stopped" value="unless-stopped" />
+            <el-option label="on-failure" value="on-failure" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="自动删除">
+          <el-switch v-model="createForm.auto_remove" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="createLoading" @click="submitCreate">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 拉取镜像弹窗 -->
+    <el-dialog v-model="pullVisible" title="拉取镜像" width="640px">
+      <el-form label-width="100px">
+        <el-form-item label="镜像" required>
+          <el-input v-model="pullImage" placeholder="例如 redis:7" />
+        </el-form-item>
+      </el-form>
+      <el-input v-model="pullOutput" type="textarea" :rows="8" readonly placeholder="输出" />
+      <template #footer>
+        <el-button @click="pullVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="pullLoading" @click="submitPull">拉取</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 诊断弹窗 -->
     <el-dialog v-model="diagnoseVisible" title="Docker 诊断" width="720px">
@@ -198,6 +252,22 @@ const logLoading = ref(false)
 const logText = ref('')
 const logTail = ref('100')
 const logContainerId = ref('')
+
+const createVisible = ref(false)
+const createLoading = ref(false)
+const createForm = reactive({
+  image: '',
+  name: '',
+  ports: '',
+  env: '',
+  restart_policy: '',
+  auto_remove: false
+})
+
+const pullVisible = ref(false)
+const pullLoading = ref(false)
+const pullImage = ref('')
+const pullOutput = ref('')
 
 const form = reactive({
   name: '',
@@ -370,6 +440,60 @@ const loadNetworks = async () => {
   }
 }
 
+const openCreateContainer = () => {
+  createForm.image = ''
+  createForm.name = ''
+  createForm.ports = ''
+  createForm.env = ''
+  createForm.restart_policy = ''
+  createForm.auto_remove = false
+  createVisible.value = true
+}
+
+const submitCreate = async () => {
+  if (!activeHost.value || !createForm.image) {
+    ElMessage.warning('请填写镜像')
+    return
+  }
+  createLoading.value = true
+  try {
+    const ports = createForm.ports
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean)
+    const env = {}
+    createForm.env.split('\n').map(v => v.trim()).filter(Boolean).forEach((line) => {
+      const idx = line.indexOf('=')
+      if (idx > 0) {
+        const k = line.slice(0, idx).trim()
+        const v = line.slice(idx + 1).trim()
+        env[k] = v
+      }
+    })
+    const payload = {
+      name: createForm.name,
+      image: createForm.image,
+      ports,
+      env,
+      restart_policy: createForm.restart_policy,
+      auto_remove: createForm.auto_remove
+    }
+    const res = await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/containers`, payload, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      ElMessage.success('容器创建成功')
+      createVisible.value = false
+      loadContainers()
+      refreshManage()
+    } else {
+      ElMessage.error(res.data.message || '创建失败')
+    }
+  } catch (e) {
+    ElMessage.error('创建失败')
+  } finally {
+    createLoading.value = false
+  }
+}
+
 const containerAction = async (row, action) => {
   if (!activeHost.value) return
   const id = row.id
@@ -405,6 +529,34 @@ const loadLogs = async () => {
     }
   } finally {
     logLoading.value = false
+  }
+}
+
+const openPullImage = () => {
+  pullImage.value = ''
+  pullOutput.value = ''
+  pullVisible.value = true
+}
+
+const submitPull = async () => {
+  if (!activeHost.value || !pullImage.value) {
+    ElMessage.warning('请填写镜像')
+    return
+  }
+  pullLoading.value = true
+  try {
+    const res = await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/images/pull`, { image: pullImage.value }, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      pullOutput.value = res.data.output || res.data.message || '拉取完成'
+      loadImages()
+      refreshManage()
+    } else {
+      ElMessage.error(res.data.message || '拉取失败')
+    }
+  } catch (e) {
+    ElMessage.error('拉取失败')
+  } finally {
+    pullLoading.value = false
   }
 }
 
@@ -467,6 +619,7 @@ onMounted(() => {
 .drawer-sub { color: #606266; margin-top: 6px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .drawer-meta { color: #909399; }
 .manage-tabs { margin-top: 8px; }
+.tab-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
 .diagnose-block { display: flex; flex-direction: column; gap: 12px; }
 .diagnose-title { font-weight: 600; }
 .diagnose-pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 200px; }
