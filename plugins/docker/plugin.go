@@ -46,6 +46,7 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/hosts/:id/containers", h.CreateContainer) // 创建容器
 	g.GET("/hosts/:id/containers/:container_id", h.InspectContainer)
 	g.GET("/hosts/:id/containers/:container_id/logs", h.ContainerLogs) // 日志
+	g.POST("/hosts/:id/containers/:container_id/exec", h.ExecContainer) // 执行命令
 	g.POST("/hosts/:id/containers/:container_id/:action", h.ContainerAction) // action: start, stop, restart, remove
 	
 	// Images
@@ -55,4 +56,11 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	
 	// Networks
 	g.GET("/hosts/:id/networks", h.ListNetworks)
+
+	// Swarm
+	g.GET("/hosts/:id/services", h.ListServices)
+	g.GET("/hosts/:id/services/:service_id", h.InspectService)
+	g.GET("/hosts/:id/services/:service_id/tasks", h.ListServiceTasks)
+	g.GET("/hosts/:id/stacks", h.ListStacks)
+	g.GET("/hosts/:id/stacks/:stack/services", h.ListStackServices)
 }

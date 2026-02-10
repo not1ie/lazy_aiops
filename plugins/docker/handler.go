@@ -217,6 +217,34 @@ func (h *DockerHandler) ContainerLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stdout})
 }
 
+// ExecContainer 执行容器命令（非交互）
+func (h *DockerHandler) ExecContainer(c *gin.Context) {
+	id := c.Param("id")
+	containerID := c.Param("container_id")
+	var req struct {
+		Command string `json:"command"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Command) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请输入要执行的命令"})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	cmd := fmt.Sprintf("docker exec %s sh -c %q 2>&1", containerID, req.Command)
+	stdout, _, err := client.Execute(cmd)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error(), "data": stdout})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stdout})
+}
+
 // ================= Container Management =================
 
 // ListContainers 容器列表
@@ -482,6 +510,100 @@ func (h *DockerHandler) ListNetworks(c *gin.Context) {
 
 	networks := parseJSONList(stdout)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": networks})
+}
+
+// ================= Swarm Management =================
+
+// ListServices Swarm 服务列表
+func (h *DockerHandler) ListServices(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute("docker service ls --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	services := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": services})
+}
+
+// InspectService 服务详情
+func (h *DockerHandler) InspectService(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker service inspect %s --format '{{json .}}'", serviceID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &data); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": data})
+}
+
+// ListServiceTasks 服务任务列表
+func (h *DockerHandler) ListServiceTasks(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker service ps %s --no-trunc --format '{{json .}}'", serviceID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	tasks := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": tasks})
+}
+
+// ListStacks Stack 列表
+func (h *DockerHandler) ListStacks(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute("docker stack ls --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	stacks := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stacks})
+}
+
+// ListStackServices Stack 服务列表
+func (h *DockerHandler) ListStackServices(c *gin.Context) {
+	id := c.Param("id")
+	stack := c.Param("stack")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker stack services %s --format '{{json .}}'", stack))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	services := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": services})
 }
 
 // CommandExecutor 命令执行接口

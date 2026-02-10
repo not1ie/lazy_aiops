@@ -99,10 +99,12 @@
             <el-table-column prop="state" label="状态" width="120" />
             <el-table-column prop="status" label="详情" min-width="180" />
             <el-table-column prop="created" label="创建时间" width="160" />
-            <el-table-column label="操作" width="340" fixed="right">
+            <el-table-column label="操作" width="470" fixed="right">
               <template #default="{ row }">
                 <el-space size="8">
                   <el-button size="small" @click="openLogs(row)">日志</el-button>
+                  <el-button size="small" type="primary" plain @click="openInspect(row)">详情</el-button>
+                  <el-button size="small" type="info" plain @click="openExec(row)">执行命令</el-button>
                   <el-button size="small" type="success" plain @click="containerAction(row, 'start')">启动</el-button>
                   <el-button size="small" type="warning" plain @click="containerAction(row, 'stop')">停止</el-button>
                   <el-button size="small" type="primary" plain @click="containerAction(row, 'restart')">重启</el-button>
@@ -140,6 +142,43 @@
             <el-table-column prop="id" label="ID" min-width="200" />
             <el-table-column prop="driver" label="驱动" width="120" />
             <el-table-column prop="scope" label="范围" width="120" />
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="Services" name="services">
+          <div class="tab-toolbar">
+            <el-button icon="Refresh" @click="loadServices">刷新</el-button>
+          </div>
+          <el-table :data="services" v-loading="servicesLoading" style="width: 100%">
+            <el-table-column prop="Name" label="名称" min-width="200" />
+            <el-table-column prop="Mode" label="模式" width="120" />
+            <el-table-column prop="Replicas" label="副本" width="120" />
+            <el-table-column prop="Image" label="镜像" min-width="180" />
+            <el-table-column prop="Ports" label="端口" min-width="160" />
+            <el-table-column label="操作" width="180" fixed="right">
+              <template #default="{ row }">
+                <el-space size="8">
+                  <el-button size="small" @click="openServiceDetail(row)">详情</el-button>
+                  <el-button size="small" type="info" plain @click="openServiceTasks(row)">任务</el-button>
+                </el-space>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="Stacks" name="stacks">
+          <div class="tab-toolbar">
+            <el-button icon="Refresh" @click="loadStacks">刷新</el-button>
+          </div>
+          <el-table :data="stacks" v-loading="stacksLoading" style="width: 100%">
+            <el-table-column prop="Name" label="名称" min-width="200" />
+            <el-table-column prop="Services" label="服务数" width="120" />
+            <el-table-column prop="Orchestrator" label="编排" width="160" />
+            <el-table-column label="操作" width="140" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="openStackServices(row)">查看服务</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
@@ -217,6 +256,84 @@
       </div>
       <el-input v-model="logText" type="textarea" :rows="16" readonly />
     </el-dialog>
+
+    <!-- 容器详情弹窗 -->
+    <el-dialog v-model="inspectVisible" title="容器详情" width="880px">
+      <el-skeleton v-if="inspectLoading" :rows="6" animated />
+      <div v-else>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="ID">{{ inspectData?.Id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Name">{{ inspectData?.Name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Image">{{ inspectData?.Config?.Image || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ inspectData?.State?.Status || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">Ports</el-divider>
+        <el-table :data="inspectPorts" style="width: 100%">
+          <el-table-column prop="container" label="容器端口" width="160" />
+          <el-table-column prop="host" label="主机端口" width="160" />
+          <el-table-column prop="ip" label="Host IP" width="160" />
+        </el-table>
+
+        <el-divider content-position="left">Networks</el-divider>
+        <el-table :data="inspectNetworks" style="width: 100%">
+          <el-table-column prop="name" label="名称" width="200" />
+          <el-table-column prop="ip" label="IP" width="180" />
+          <el-table-column prop="gateway" label="网关" width="180" />
+        </el-table>
+
+        <el-divider content-position="left">Mounts</el-divider>
+        <el-table :data="inspectMounts" style="width: 100%">
+          <el-table-column prop="type" label="类型" width="120" />
+          <el-table-column prop="source" label="Source" min-width="220" />
+          <el-table-column prop="destination" label="Destination" min-width="220" />
+          <el-table-column prop="mode" label="Mode" width="120" />
+          <el-table-column prop="rw" label="RW" width="80" />
+        </el-table>
+
+        <el-divider content-position="left">Env</el-divider>
+        <el-input v-model="inspectEnvText" type="textarea" :rows="8" readonly />
+      </div>
+    </el-dialog>
+
+    <!-- 容器执行命令弹窗 -->
+    <el-dialog v-model="execVisible" title="执行容器命令" width="720px">
+      <el-alert type="info" :closable="false" show-icon>该功能为非交互命令执行（需要容器内存在 /bin/sh）。</el-alert>
+      <div class="log-controls">
+        <el-input v-model="execCommand" placeholder="例如: ls / 或 ps aux" />
+        <el-button type="primary" @click="runExec" :loading="execLoading">执行</el-button>
+      </div>
+      <el-input v-model="execOutput" type="textarea" :rows="16" readonly placeholder="输出" />
+    </el-dialog>
+
+    <!-- Service 详情弹窗 -->
+    <el-dialog v-model="serviceVisible" title="Service 详情" width="880px">
+      <el-skeleton v-if="serviceLoading" :rows="6" animated />
+      <el-input v-else v-model="serviceJson" type="textarea" :rows="16" readonly />
+    </el-dialog>
+
+    <!-- Service 任务弹窗 -->
+    <el-dialog v-model="tasksVisible" title="Service 任务" width="880px">
+      <el-table :data="serviceTasks" v-loading="tasksLoading" style="width: 100%">
+        <el-table-column prop="ID" label="ID" min-width="180" />
+        <el-table-column prop="Name" label="名称" min-width="200" />
+        <el-table-column prop="Node" label="节点" width="160" />
+        <el-table-column prop="DesiredState" label="期望状态" width="120" />
+        <el-table-column prop="CurrentState" label="当前状态" min-width="200" />
+        <el-table-column prop="Error" label="错误" min-width="200" />
+      </el-table>
+    </el-dialog>
+
+    <!-- Stack 服务弹窗 -->
+    <el-dialog v-model="stackVisible" title="Stack 服务" width="880px">
+      <el-table :data="stackServices" v-loading="stackLoading" style="width: 100%">
+        <el-table-column prop="Name" label="名称" min-width="220" />
+        <el-table-column prop="Mode" label="模式" width="120" />
+        <el-table-column prop="Replicas" label="副本" width="120" />
+        <el-table-column prop="Image" label="镜像" min-width="180" />
+        <el-table-column prop="Ports" label="端口" min-width="180" />
+      </el-table>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -242,6 +359,11 @@ const imagesLoading = ref(false)
 const networks = ref([])
 const networksLoading = ref(false)
 
+const services = ref([])
+const servicesLoading = ref(false)
+const stacks = ref([])
+const stacksLoading = ref(false)
+
 const diagnoseVisible = ref(false)
 const diagnoseLoading = ref(false)
 const diagnoseResult = ref(null)
@@ -252,6 +374,31 @@ const logLoading = ref(false)
 const logText = ref('')
 const logTail = ref('100')
 const logContainerId = ref('')
+
+const inspectVisible = ref(false)
+const inspectLoading = ref(false)
+const inspectData = ref(null)
+const inspectPorts = ref([])
+const inspectNetworks = ref([])
+const inspectMounts = ref([])
+const inspectEnvText = ref('')
+
+const execVisible = ref(false)
+const execLoading = ref(false)
+const execCommand = ref('ls /')
+const execOutput = ref('')
+const execContainerId = ref('')
+
+const serviceVisible = ref(false)
+const serviceLoading = ref(false)
+const serviceJson = ref('')
+const tasksVisible = ref(false)
+const tasksLoading = ref(false)
+const serviceTasks = ref([])
+
+const stackVisible = ref(false)
+const stackLoading = ref(false)
+const stackServices = ref([])
 
 const createVisible = ref(false)
 const createLoading = ref(false)
@@ -440,6 +587,32 @@ const loadNetworks = async () => {
   }
 }
 
+const loadServices = async () => {
+  if (!activeHost.value) return
+  servicesLoading.value = true
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      services.value = res.data.data || []
+    }
+  } finally {
+    servicesLoading.value = false
+  }
+}
+
+const loadStacks = async () => {
+  if (!activeHost.value) return
+  stacksLoading.value = true
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/stacks`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      stacks.value = res.data.data || []
+    }
+  } finally {
+    stacksLoading.value = false
+  }
+}
+
 const openCreateContainer = () => {
   createForm.image = ''
   createForm.name = ''
@@ -516,6 +689,90 @@ const openLogs = (row) => {
   loadLogs()
 }
 
+const openInspect = async (row) => {
+  const id = row.id
+  if (!activeHost.value || !id) return
+  inspectVisible.value = true
+  inspectLoading.value = true
+  inspectData.value = null
+  inspectPorts.value = []
+  inspectNetworks.value = []
+  inspectMounts.value = []
+  inspectEnvText.value = ''
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(id)}`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      inspectData.value = res.data.data || null
+      const ports = []
+      const portMap = inspectData.value?.NetworkSettings?.Ports || {}
+      Object.entries(portMap).forEach(([containerPort, hostBindings]) => {
+        if (!hostBindings || hostBindings.length === 0) {
+          ports.push({ container: containerPort, host: '-', ip: '-' })
+          return
+        }
+        hostBindings.forEach((b) => {
+          ports.push({ container: containerPort, host: b.HostPort || '-', ip: b.HostIp || '-' })
+        })
+      })
+      inspectPorts.value = ports
+
+      const networks = []
+      const nets = inspectData.value?.NetworkSettings?.Networks || {}
+      Object.entries(nets).forEach(([name, info]) => {
+        networks.push({ name, ip: info.IPAddress || '-', gateway: info.Gateway || '-' })
+      })
+      inspectNetworks.value = networks
+
+      const mounts = (inspectData.value?.Mounts || []).map(m => ({
+        type: m.Type,
+        source: m.Source,
+        destination: m.Destination,
+        mode: m.Mode,
+        rw: m.RW ? 'true' : 'false'
+      }))
+      inspectMounts.value = mounts
+
+      const env = inspectData.value?.Config?.Env || []
+      inspectEnvText.value = env.join('\n')
+    }
+  } finally {
+    inspectLoading.value = false
+  }
+}
+
+const openExec = (row) => {
+  const id = row.id
+  if (!id) return
+  execContainerId.value = id
+  execCommand.value = 'ls /'
+  execOutput.value = ''
+  execVisible.value = true
+}
+
+const runExec = async () => {
+  if (!activeHost.value || !execContainerId.value || !execCommand.value) {
+    ElMessage.warning('请输入命令')
+    return
+  }
+  execLoading.value = true
+  try {
+    const res = await axios.post(
+      `/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(execContainerId.value)}/exec`,
+      { command: execCommand.value },
+      { headers: authHeaders() }
+    )
+    if (res.data.code === 0) {
+      execOutput.value = res.data.data || ''
+    } else {
+      execOutput.value = res.data.message || '执行失败'
+    }
+  } catch (e) {
+    execOutput.value = '执行失败'
+  } finally {
+    execLoading.value = false
+  }
+}
+
 const loadLogs = async () => {
   if (!activeHost.value || !logContainerId.value) return
   logLoading.value = true
@@ -529,6 +786,51 @@ const loadLogs = async () => {
     }
   } finally {
     logLoading.value = false
+  }
+}
+
+const openServiceDetail = async (row) => {
+  if (!activeHost.value || !row?.ID) return
+  serviceVisible.value = true
+  serviceLoading.value = true
+  serviceJson.value = ''
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      serviceJson.value = JSON.stringify(res.data.data, null, 2)
+    }
+  } finally {
+    serviceLoading.value = false
+  }
+}
+
+const openServiceTasks = async (row) => {
+  if (!activeHost.value || !row?.ID) return
+  tasksVisible.value = true
+  tasksLoading.value = true
+  serviceTasks.value = []
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/tasks`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      serviceTasks.value = res.data.data || []
+    }
+  } finally {
+    tasksLoading.value = false
+  }
+}
+
+const openStackServices = async (row) => {
+  if (!activeHost.value || !row?.Name) return
+  stackVisible.value = true
+  stackLoading.value = true
+  stackServices.value = []
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/${encodeURIComponent(row.Name)}/services`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      stackServices.value = res.data.data || []
+    }
+  } finally {
+    stackLoading.value = false
   }
 }
 
@@ -598,6 +900,8 @@ watch(manageTab, (tab) => {
   if (tab === 'containers') loadContainers()
   if (tab === 'images') loadImages()
   if (tab === 'networks') loadNetworks()
+  if (tab === 'services') loadServices()
+  if (tab === 'stacks') loadStacks()
 })
 
 onMounted(() => {
