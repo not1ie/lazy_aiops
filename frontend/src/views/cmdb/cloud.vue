@@ -8,6 +8,9 @@
         </div>
         <div class="actions">
           <el-button type="primary" icon="Plus" @click="openCreate(activeTab)">新增</el-button>
+          <el-button type="danger" plain icon="Delete" :disabled="activeSelectedCount === 0" @click="handleBatchDelete">
+            批量删除 ({{ activeSelectedCount }})
+          </el-button>
           <el-button icon="Refresh" @click="refreshActive">刷新</el-button>
         </div>
       </div>
@@ -15,7 +18,8 @@
 
     <el-tabs v-model="activeTab" class="cloud-tabs">
       <el-tab-pane label="云账号" name="accounts">
-        <el-table :data="accounts" v-loading="loadingAccounts" stripe>
+        <el-table :data="accounts" v-loading="loadingAccounts" stripe @selection-change="selectedAccounts = $event">
+          <el-table-column type="selection" width="48" />
           <el-table-column prop="name" label="账号名称" min-width="180" />
           <el-table-column prop="provider" label="云厂商" width="120" />
           <el-table-column prop="region" label="区域" width="140" />
@@ -45,7 +49,8 @@
             </template>
           </el-input>
         </div>
-        <el-table :data="resources" v-loading="loadingResources" stripe>
+        <el-table :data="resources" v-loading="loadingResources" stripe @selection-change="selectedResources = $event">
+          <el-table-column type="selection" width="48" />
           <el-table-column prop="name" label="资源名称" min-width="180" />
           <el-table-column prop="resource_id" label="资源ID" min-width="180" />
           <el-table-column prop="type" label="类型" width="120" />
@@ -159,6 +164,12 @@ const accounts = ref([])
 const resources = ref([])
 const loadingAccounts = ref(false)
 const loadingResources = ref(false)
+const selectedAccounts = ref([])
+const selectedResources = ref([])
+
+const activeSelectedCount = computed(() => (
+  activeTab.value === 'accounts' ? selectedAccounts.value.length : selectedResources.value.length
+))
 
 const resourceFilters = reactive({
   account_id: '',
@@ -307,6 +318,26 @@ const handleDelete = (tab, row) => {
     const url = tab === 'accounts' ? `/api/v1/cmdb/cloud/accounts/${row.id}` : `/api/v1/cmdb/cloud/resources/${row.id}`
     await axios.delete(url, { headers: headers() })
     ElMessage.success('删除成功')
+    refreshActive()
+  })
+}
+
+const handleBatchDelete = () => {
+  const rows = activeTab.value === 'accounts' ? selectedAccounts.value : selectedResources.value
+  if (rows.length === 0) return
+  const title = activeTab.value === 'accounts'
+    ? `确定删除选中的 ${rows.length} 个云账号吗？`
+    : `确定删除选中的 ${rows.length} 个云资源吗？`
+  ElMessageBox.confirm(title, '提示', { type: 'warning' }).then(async () => {
+    for (const row of rows) {
+      const url = activeTab.value === 'accounts'
+        ? `/api/v1/cmdb/cloud/accounts/${row.id}`
+        : `/api/v1/cmdb/cloud/resources/${row.id}`
+      await axios.delete(url, { headers: headers() })
+    }
+    ElMessage.success('批量删除成功')
+    if (activeTab.value === 'accounts') selectedAccounts.value = []
+    else selectedResources.value = []
     refreshActive()
   })
 }

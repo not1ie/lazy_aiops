@@ -8,12 +8,16 @@
         </div>
         <div class="actions">
           <el-button type="primary" icon="Plus" @click="openCreate">新增凭据</el-button>
+          <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
+            批量删除 ({{ selectedRows.length }})
+          </el-button>
           <el-button icon="Refresh" @click="fetchData">刷新</el-button>
         </div>
       </div>
     </template>
 
-    <el-table :data="credentials" v-loading="loading" stripe>
+    <el-table :data="credentials" v-loading="loading" stripe @selection-change="selectedRows = $event">
+      <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="type" label="类型" width="120">
         <template #default="{ row }">
@@ -81,6 +85,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const loading = ref(false)
 const saving = ref(false)
 const credentials = ref([])
+const selectedRows = ref([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
@@ -189,6 +194,22 @@ const handleDelete = (row) => {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
     })
     ElMessage.success('删除成功')
+    fetchData()
+  })
+}
+
+const handleBatchDelete = () => {
+  if (selectedRows.value.length === 0) return
+  ElMessageBox.confirm(`确定删除选中的 ${selectedRows.value.length} 个凭据吗？`, '提示', {
+    type: 'warning'
+  }).then(async () => {
+    for (const row of selectedRows.value) {
+      await axios.delete(`/api/v1/cmdb/credentials/${row.id}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      })
+    }
+    ElMessage.success('批量删除成功')
+    selectedRows.value = []
     fetchData()
   })
 }

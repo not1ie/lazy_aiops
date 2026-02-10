@@ -5,20 +5,29 @@
         <span class="font-bold">CMDB 主机管理</span>
         <div>
           <el-button type="primary" icon="Plus" @click="handleAdd">添加主机</el-button>
+          <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
+            批量删除 ({{ selectedRows.length }})
+          </el-button>
           <el-button icon="Refresh" @click="fetchData">刷新</el-button>
         </div>
       </div>
     </template>
 
     <div class="mb-4">
-      <el-input v-model="searchKeyword" placeholder="搜索主机名或IP" class="w-64" clearable @clear="fetchData" @keyup.enter="fetchData">
-        <template #append>
-          <el-button icon="Search" @click="fetchData" />
-        </template>
-      </el-input>
+      <div class="flex gap-2 items-center">
+        <el-input v-model="searchKeyword" placeholder="搜索主机名或IP" class="w-64" clearable @clear="fetchData" @keyup.enter="fetchData">
+          <template #append>
+            <el-button icon="Search" @click="fetchData" />
+          </template>
+        </el-input>
+        <el-select v-model="filterGroupId" placeholder="分组" clearable class="w-64" @change="fetchData">
+          <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
+        </el-select>
+      </div>
     </div>
 
-    <el-table :data="tableData" v-loading="loading" style="width: 100%">
+    <el-table :data="tableData" v-loading="loading" style="width: 100%" @selection-change="selectedRows = $event">
+      <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="主机名" width="180">
         <template #default="{ row }">
           <div class="flex items-center gap-2">
@@ -82,6 +91,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
 const tableData = ref([])
+const groups = ref([])
+const filterGroupId = ref('')
+const selectedRows = ref([])
 const searchKeyword = ref('')
 const dialogVisible = ref(false)
 const submitting = ref(false)
@@ -102,7 +114,7 @@ const fetchData = async () => {
   try {
     const res = await axios.get('/api/v1/cmdb/hosts', {
       headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
-      params: { keyword: searchKeyword.value }
+      params: { keyword: searchKeyword.value, group_id: filterGroupId.value }
     })
     if (res.data.code === 0) {
       tableData.value = res.data.data
@@ -112,6 +124,17 @@ const fetchData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const fetchGroups = async () => {
+  try {
+    const res = await axios.get('/api/v1/cmdb/groups', {
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    })
+    if (res.data.code === 0) {
+      groups.value = res.data.data
+    }
+  } catch (e) {}
 }
 
 const handleAdd = () => {
@@ -187,7 +210,26 @@ const handleDelete = (row) => {
   })
 }
 
+const handleBatchDelete = () => {
+  if (selectedRows.value.length === 0) return
+  ElMessageBox.confirm(`确定删除选中的 ${selectedRows.value.length} 台主机吗?`, '警告', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    for (const row of selectedRows.value) {
+      await axios.delete(`/api/v1/cmdb/hosts/${row.id}`, {
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      })
+    }
+    ElMessage.success('批量删除成功')
+    selectedRows.value = []
+    fetchData()
+  })
+}
+
 onMounted(() => {
+  fetchGroups()
   fetchData()
 })
 </script>
