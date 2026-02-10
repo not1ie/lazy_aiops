@@ -29,11 +29,13 @@
       <el-table-column prop="container_count" label="容器数" width="120" align="center" />
       <el-table-column prop="image_count" label="镜像数" width="120" align="center" />
       <el-table-column prop="version" label="版本" />
-      <el-table-column label="操作" width="250" fixed="right">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" type="primary" plain icon="Monitor" @click="handleManage(row)">管理</el-button>
-          <el-button size="small" type="warning" plain icon="FirstAidKit" @click="handleDiagnose(row)">诊断</el-button>
-          <el-button size="small" type="danger" plain icon="Delete" @click="handleDelete(row)">删除</el-button>
+          <el-space size="8">
+            <el-button size="small" type="primary" plain icon="Monitor" @click="handleManage(row)">管理</el-button>
+            <el-button size="small" type="warning" plain icon="FirstAidKit" @click="handleDiagnose(row)">诊断</el-button>
+            <el-button size="small" type="danger" plain icon="Delete" @click="handleDelete(row)">删除</el-button>
+          </el-space>
         </template>
       </el-table-column>
     </el-table>
@@ -88,22 +90,24 @@
 
         <el-tab-pane label="容器" name="containers">
           <el-table :data="containers" v-loading="containersLoading" style="width: 100%">
-            <el-table-column prop="Names" label="名称" min-width="200">
+            <el-table-column prop="names" label="名称" min-width="200">
               <template #default="{ row }">
-                <div>{{ Array.isArray(row.Names) ? row.Names.join(',') : row.Names }}</div>
+                <div>{{ row.names }}</div>
               </template>
             </el-table-column>
-            <el-table-column prop="Image" label="镜像" min-width="180" />
-            <el-table-column prop="State" label="状态" width="120" />
-            <el-table-column prop="Status" label="详情" min-width="180" />
-            <el-table-column prop="Created" label="创建时间" width="160" />
-            <el-table-column label="操作" width="280" fixed="right">
+            <el-table-column prop="image" label="镜像" min-width="180" />
+            <el-table-column prop="state" label="状态" width="120" />
+            <el-table-column prop="status" label="详情" min-width="180" />
+            <el-table-column prop="created" label="创建时间" width="160" />
+            <el-table-column label="操作" width="340" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" @click="openLogs(row)">日志</el-button>
-                <el-button size="small" type="success" plain @click="containerAction(row, 'start')">启动</el-button>
-                <el-button size="small" type="warning" plain @click="containerAction(row, 'stop')">停止</el-button>
-                <el-button size="small" type="primary" plain @click="containerAction(row, 'restart')">重启</el-button>
-                <el-button size="small" type="danger" plain @click="containerAction(row, 'remove')">删除</el-button>
+                <el-space size="8">
+                  <el-button size="small" @click="openLogs(row)">日志</el-button>
+                  <el-button size="small" type="success" plain @click="containerAction(row, 'start')">启动</el-button>
+                  <el-button size="small" type="warning" plain @click="containerAction(row, 'stop')">停止</el-button>
+                  <el-button size="small" type="primary" plain @click="containerAction(row, 'restart')">重启</el-button>
+                  <el-button size="small" type="danger" plain @click="containerAction(row, 'remove')">删除</el-button>
+                </el-space>
               </template>
             </el-table-column>
           </el-table>
@@ -111,10 +115,10 @@
 
         <el-tab-pane label="镜像" name="images">
           <el-table :data="images" v-loading="imagesLoading" style="width: 100%">
-            <el-table-column prop="Repository" label="仓库" min-width="200" />
-            <el-table-column prop="Tag" label="Tag" width="120" />
-            <el-table-column prop="ID" label="ID" min-width="180" />
-            <el-table-column prop="Size" label="大小" width="120" />
+            <el-table-column prop="repository" label="仓库" min-width="200" />
+            <el-table-column prop="tag" label="Tag" width="120" />
+            <el-table-column prop="id" label="ID" min-width="180" />
+            <el-table-column prop="size" label="大小" width="120" />
             <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" type="danger" plain @click="removeImage(row)">删除</el-button>
@@ -125,10 +129,10 @@
 
         <el-tab-pane label="网络" name="networks">
           <el-table :data="networks" v-loading="networksLoading" style="width: 100%">
-            <el-table-column prop="Name" label="名称" min-width="180" />
-            <el-table-column prop="ID" label="ID" min-width="200" />
-            <el-table-column prop="Driver" label="驱动" width="120" />
-            <el-table-column prop="Scope" label="范围" width="120" />
+            <el-table-column prop="name" label="名称" min-width="180" />
+            <el-table-column prop="id" label="ID" min-width="200" />
+            <el-table-column prop="driver" label="驱动" width="120" />
+            <el-table-column prop="scope" label="范围" width="120" />
           </el-table>
         </el-tab-pane>
       </el-tabs>
@@ -201,6 +205,34 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: 'Bearer ' + localStorage.getItem('token') })
+
+const normalizeContainers = (items) => items.map((row) => {
+  const id = row.ID || row.Id || row.id
+  const namesRaw = row.Names || row.names || row.Name || row.name
+  const names = Array.isArray(namesRaw) ? namesRaw.join(',') : (namesRaw || '-')
+  return {
+    id,
+    names,
+    image: row.Image || row.image || '-',
+    state: row.State || row.state || '-',
+    status: row.Status || row.status || '-',
+    created: row.Created || row.created || row.CreatedAt || row.created_at || '-'
+  }
+})
+
+const normalizeImages = (items) => items.map((row) => ({
+  id: row.ID || row.Id || row.id || '-',
+  repository: row.Repository || row.repository || '-',
+  tag: row.Tag || row.tag || '-',
+  size: row.Size || row.size || '-'
+}))
+
+const normalizeNetworks = (items) => items.map((row) => ({
+  id: row.ID || row.Id || row.id || '-',
+  name: row.Name || row.name || '-',
+  driver: row.Driver || row.driver || '-',
+  scope: row.Scope || row.scope || '-'
+}))
 
 const fetchData = async () => {
   loading.value = true
@@ -305,7 +337,7 @@ const loadContainers = async () => {
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers`, { headers: authHeaders() })
     if (res.data.code === 0) {
-      containers.value = res.data.data || []
+      containers.value = normalizeContainers(res.data.data || [])
     }
   } finally {
     containersLoading.value = false
@@ -318,7 +350,7 @@ const loadImages = async () => {
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/images`, { headers: authHeaders() })
     if (res.data.code === 0) {
-      images.value = res.data.data || []
+      images.value = normalizeImages(res.data.data || [])
     }
   } finally {
     imagesLoading.value = false
@@ -331,7 +363,7 @@ const loadNetworks = async () => {
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/networks`, { headers: authHeaders() })
     if (res.data.code === 0) {
-      networks.value = res.data.data || []
+      networks.value = normalizeNetworks(res.data.data || [])
     }
   } finally {
     networksLoading.value = false
@@ -340,7 +372,7 @@ const loadNetworks = async () => {
 
 const containerAction = async (row, action) => {
   if (!activeHost.value) return
-  const id = row.ID || row.Id || row.id
+  const id = row.id
   if (!id) return
   try {
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(id)}/${action}`, {}, { headers: authHeaders() })
@@ -352,7 +384,7 @@ const containerAction = async (row, action) => {
 }
 
 const openLogs = (row) => {
-  const id = row.ID || row.Id || row.id
+  const id = row.id
   if (!id) return
   logContainerId.value = id
   logText.value = ''
@@ -378,7 +410,7 @@ const loadLogs = async () => {
 
 const removeImage = (row) => {
   if (!activeHost.value) return
-  const id = row.ID || row.Id || row.id
+  const id = row.id
   if (!id) return
   ElMessageBox.confirm('确定删除镜像吗?', '警告', {
     confirmButtonText: '删除',
@@ -439,4 +471,5 @@ onMounted(() => {
 .diagnose-title { font-weight: 600; }
 .diagnose-pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 200px; }
 .log-controls { display: flex; gap: 8px; margin-bottom: 10px; }
+:deep(.el-drawer__body) { padding: 16px; }
 </style>
