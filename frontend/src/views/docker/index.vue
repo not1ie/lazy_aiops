@@ -5,7 +5,7 @@
         <span class="font-bold">Docker 环境列表</span>
         <div>
           <el-button type="primary" icon="Plus" @click="handleAdd">添加环境</el-button>
-          <el-button icon="Refresh" @click="fetchData">刷新</el-button>
+          <el-button icon="Refresh" @click="syncAll">刷新</el-button>
         </div>
       </div>
     </template>
@@ -91,6 +91,19 @@ const fetchData = async () => {
   }
 }
 
+const syncAll = async () => {
+  loading.value = true
+  try {
+    await axios.post('/api/v1/docker/hosts/sync', {}, {
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    })
+  } catch (e) {
+    ElMessage.error('同步失败')
+  } finally {
+    await fetchData()
+  }
+}
+
 const fetchCMDBHosts = async () => {
   try {
     const res = await axios.get('/api/v1/cmdb/hosts', {
@@ -118,6 +131,15 @@ const submitForm = async () => {
     if (res.data.code === 0) {
       ElMessage.success('添加成功')
       dialogVisible.value = false
+      // 添加后立即同步一次该主机信息
+      try {
+        const id = res.data.data?.id
+        if (id) {
+          await axios.get(`/api/v1/docker/hosts/${id}/info`, {
+            headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+          })
+        }
+      } catch (e) {}
       fetchData()
     } else {
       ElMessage.error(res.data.message)
@@ -148,7 +170,10 @@ const handleManage = (row) => {
 
 const handleDiagnose = (row) => {
   ElMessage.info('开始诊断: ' + row.name)
-  // TODO: 调用诊断API并展示弹窗
+  // 诊断时顺便拉取最新 info，更新状态/容器数/镜像数/版本
+  axios.get(`/api/v1/docker/hosts/${row.id}/info`, {
+    headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+  }).then(() => fetchData())
 }
 
 onMounted(() => {
