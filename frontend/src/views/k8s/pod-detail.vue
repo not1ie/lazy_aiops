@@ -345,7 +345,7 @@ const startStream = () => {
       if (patterns.length > 0 || excludes.length > 0) {
         const text = String(evt.data || '')
         const hit = patterns.length === 0 ? true : patterns.some((p) => {
-          const reMatch = p.match(/^\\/(.*)\\/(i|g|ig|gi)?$/)
+          const reMatch = p.match(new RegExp('^/(.*)/(i|g|ig|gi)?$'))
           if (reMatch) {
             try {
               const re = new RegExp(reMatch[1], reMatch[2] || 'i')
@@ -357,7 +357,7 @@ const startStream = () => {
           return text.toLowerCase().includes(p.toLowerCase())
         })
         const blocked = excludes.some((p) => {
-          const reMatch = p.match(/^\\/(.*)\\/(i|g|ig|gi)?$/)
+          const reMatch = p.match(new RegExp('^/(.*)/(i|g|ig|gi)?$'))
           if (reMatch) {
             try {
               const re = new RegExp(reMatch[1], reMatch[2] || 'i')
