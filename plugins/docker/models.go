@@ -32,6 +32,26 @@ type DockerHost struct {
 	ImageCount     int    `json:"image_count"`
 }
 
+// DockerRegistry 镜像仓库
+type DockerRegistry struct {
+	BaseModel
+	Name     string `gorm:"size:128" json:"name"`
+	URL      string `gorm:"size:256" json:"url"`
+	Username string `gorm:"size:128" json:"username"`
+	Password string `gorm:"size:256" json:"password"`
+	Insecure bool   `json:"insecure"`
+}
+
+// DockerRegistryLogin 仓库登录记录（按主机）
+type DockerRegistryLogin struct {
+	BaseModel
+	RegistryID  string    `gorm:"size:36;index" json:"registry_id"`
+	DockerHostID string   `gorm:"size:36;index" json:"docker_host_id"`
+	Status      string    `gorm:"size:32" json:"status"` // success, failed
+	Message     string    `gorm:"size:512" json:"message"`
+	LastLoginAt time.Time `json:"last_login_at"`
+}
+
 // DockerContainer 容器信息
 type DockerContainer struct {
 	ID      string   `json:"id"`
