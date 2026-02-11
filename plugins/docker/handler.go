@@ -543,6 +543,30 @@ func (h *DockerHandler) ListNetworks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": networks})
 }
 
+// RemoveNetwork 删除网络
+func (h *DockerHandler) RemoveNetwork(c *gin.Context) {
+	id := c.Param("id")
+	networkID := c.Param("network_id")
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	_, stderr, err := client.Execute(fmt.Sprintf("docker network rm %s", networkID))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
 // ================= Swarm Management =================
 
 // ListServices Swarm 服务列表
@@ -635,6 +659,29 @@ func (h *DockerHandler) ListStackServices(c *gin.Context) {
 	}
 	services := parseJSONList(stdout)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": services})
+}
+
+// RemoveStack 删除Stack
+func (h *DockerHandler) RemoveStack(c *gin.Context) {
+	id := c.Param("id")
+	stack := c.Param("stack")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	_, stderr, err := client.Execute(fmt.Sprintf("docker stack rm %s", stack))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
 // ScaleService 调整服务副本数

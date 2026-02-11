@@ -57,6 +57,7 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// Networks
 	g.GET("/hosts/:id/networks", h.ListNetworks)
+	g.DELETE("/hosts/:id/networks/:network_id", h.RemoveNetwork)
 
 	// Swarm
 	g.GET("/hosts/:id/services", h.ListServices)
@@ -67,4 +68,5 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/hosts/:id/services/:service_id/restart", h.RestartService)
 	g.GET("/hosts/:id/stacks", h.ListStacks)
 	g.GET("/hosts/:id/stacks/:stack/services", h.ListStackServices)
+	g.DELETE("/hosts/:id/stacks/:stack", h.RemoveStack)
 }

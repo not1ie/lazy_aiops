@@ -90,10 +90,24 @@
 
         <el-tab-pane label="容器" name="containers">
           <div class="tab-toolbar">
-            <el-button type="primary" icon="Plus" @click="openCreateContainer">创建容器</el-button>
-            <el-button icon="Refresh" @click="loadContainers">刷新</el-button>
+            <div class="toolbar-left">
+              <el-button type="success" plain :disabled="selectedContainers.length === 0" @click="restartSelectedContainers">批量重启</el-button>
+              <el-button type="danger" plain :disabled="selectedContainers.length === 0" @click="removeSelectedContainers">批量删除</el-button>
+            </div>
+            <div class="toolbar-right">
+              <el-button type="primary" icon="Plus" @click="openCreateContainer">创建容器</el-button>
+              <el-button icon="Refresh" @click="loadContainers">刷新</el-button>
+            </div>
           </div>
-          <el-table :data="containers" v-loading="containersLoading" style="width: 100%">
+          <el-table
+            ref="containerTableRef"
+            :data="containers"
+            v-loading="containersLoading"
+            style="width: 100%"
+            :row-key="row => row.id"
+            @selection-change="onContainerSelectionChange"
+          >
+            <el-table-column type="selection" width="48" />
             <el-table-column prop="names" label="名称" min-width="200" />
             <el-table-column prop="image" label="镜像" min-width="180" />
             <el-table-column prop="state" label="状态" width="120" />
@@ -157,9 +171,22 @@
 
         <el-tab-pane label="网络" name="networks">
           <div class="tab-toolbar">
-            <el-button icon="Refresh" @click="loadNetworks">刷新</el-button>
+            <div class="toolbar-left">
+              <el-button type="danger" plain :disabled="selectedNetworks.length === 0" @click="removeSelectedNetworks">批量删除</el-button>
+            </div>
+            <div class="toolbar-right">
+              <el-button icon="Refresh" @click="loadNetworks">刷新</el-button>
+            </div>
           </div>
-          <el-table :data="networks" v-loading="networksLoading" style="width: 100%">
+          <el-table
+            ref="networkTableRef"
+            :data="networks"
+            v-loading="networksLoading"
+            style="width: 100%"
+            :row-key="row => row.id"
+            @selection-change="onNetworkSelectionChange"
+          >
+            <el-table-column type="selection" width="48" />
             <el-table-column prop="name" label="名称" min-width="180" />
             <el-table-column prop="id" label="ID" min-width="200" />
             <el-table-column prop="driver" label="驱动" width="120" />
@@ -196,9 +223,22 @@
 
         <el-tab-pane label="Stacks" name="stacks">
           <div class="tab-toolbar">
-            <el-button icon="Refresh" @click="loadStacks">刷新</el-button>
+            <div class="toolbar-left">
+              <el-button type="danger" plain :disabled="selectedStacks.length === 0" @click="removeSelectedStacks">批量删除</el-button>
+            </div>
+            <div class="toolbar-right">
+              <el-button icon="Refresh" @click="loadStacks">刷新</el-button>
+            </div>
           </div>
-          <el-table :data="stacks" v-loading="stacksLoading" style="width: 100%">
+          <el-table
+            ref="stackTableRef"
+            :data="stacks"
+            v-loading="stacksLoading"
+            style="width: 100%"
+            :row-key="row => row.Name || row.name"
+            @selection-change="onStackSelectionChange"
+          >
+            <el-table-column type="selection" width="48" />
             <el-table-column prop="Name" label="名称" min-width="200" />
             <el-table-column prop="Services" label="服务数" width="120" />
             <el-table-column prop="Orchestrator" label="编排" width="160" />
@@ -411,6 +451,8 @@ const activeHost = ref(null)
 
 const containers = ref([])
 const containersLoading = ref(false)
+const containerTableRef = ref(null)
+const selectedContainers = ref([])
 const images = ref([])
 const imagesLoading = ref(false)
 const imageTableRef = ref(null)
@@ -423,12 +465,16 @@ const imageFilters = reactive({
 })
 const networks = ref([])
 const networksLoading = ref(false)
+const networkTableRef = ref(null)
+const selectedNetworks = ref([])
 
 const services = ref([])
 const servicesLoading = ref(false)
 const serviceStackFilter = ref('')
 const stacks = ref([])
 const stacksLoading = ref(false)
+const stackTableRef = ref(null)
+const selectedStacks = ref([])
 
 const diagnoseVisible = ref(false)
 const diagnoseLoading = ref(false)
@@ -691,6 +737,8 @@ const loadContainers = async () => {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers`, { headers: authHeaders() })
     if (res.data.code === 0) {
       containers.value = normalizeContainers(res.data.data || [])
+      selectedContainers.value = []
+      containerTableRef.value?.clearSelection?.()
     }
   } finally {
     containersLoading.value = false
@@ -719,6 +767,8 @@ const loadNetworks = async () => {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/networks`, { headers: authHeaders() })
     if (res.data.code === 0) {
       networks.value = normalizeNetworks(res.data.data || [])
+      selectedNetworks.value = []
+      networkTableRef.value?.clearSelection?.()
     }
   } finally {
     networksLoading.value = false
@@ -745,6 +795,8 @@ const loadStacks = async () => {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/stacks`, { headers: authHeaders() })
     if (res.data.code === 0) {
       stacks.value = res.data.data || []
+      selectedStacks.value = []
+      stackTableRef.value?.clearSelection?.()
     }
   } finally {
     stacksLoading.value = false
@@ -770,6 +822,177 @@ const formatImageLabel = (row) => {
 const extractErrorMessage = (e) => {
   const msg = e?.response?.data?.message || e?.message || '操作失败'
   return String(msg)
+}
+
+const onContainerSelectionChange = (rows) => {
+  selectedContainers.value = rows || []
+}
+
+const onNetworkSelectionChange = (rows) => {
+  selectedNetworks.value = rows || []
+}
+
+const onStackSelectionChange = (rows) => {
+  selectedStacks.value = rows || []
+}
+
+const restartSelectedContainers = async () => {
+  if (!activeHost.value) return
+  const rows = selectedContainers.value.filter(r => r.id)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择容器')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定重启选中的 ${rows.length} 个容器吗?`, '提示', {
+      confirmButtonText: '重启',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  const results = []
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    try {
+      await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(row.id)}/restart`, {}, { headers: authHeaders() })
+      ok += 1
+      results.push({ label: row.names || row.id, status: '成功', message: '已重启' })
+    } catch (e) {
+      fail += 1
+      results.push({ label: row.names || row.id, status: '失败', message: extractErrorMessage(e) })
+    }
+  }
+  batchResultRows.value = results
+  batchResultVisible.value = true
+  if (fail === 0) {
+    ElMessage.success(`已重启 ${ok} 个容器`)
+  } else {
+    ElMessage.warning(`已重启 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadContainers()
+}
+
+const removeSelectedContainers = async () => {
+  if (!activeHost.value) return
+  const rows = selectedContainers.value.filter(r => r.id)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择容器')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${rows.length} 个容器吗?`, '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  const results = []
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    try {
+      await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(row.id)}/remove`, {}, { headers: authHeaders() })
+      ok += 1
+      results.push({ label: row.names || row.id, status: '成功', message: '已删除' })
+    } catch (e) {
+      fail += 1
+      results.push({ label: row.names || row.id, status: '失败', message: extractErrorMessage(e) })
+    }
+  }
+  batchResultRows.value = results
+  batchResultVisible.value = true
+  if (fail === 0) {
+    ElMessage.success(`已删除 ${ok} 个容器`)
+  } else {
+    ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadContainers()
+  refreshManage()
+}
+
+const removeSelectedNetworks = async () => {
+  if (!activeHost.value) return
+  const rows = selectedNetworks.value.filter(r => r.id)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择网络')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${rows.length} 个网络吗?`, '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  const results = []
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    try {
+      await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/networks/${encodeURIComponent(row.id)}`, { headers: authHeaders() })
+      ok += 1
+      results.push({ label: row.name || row.id, status: '成功', message: '已删除' })
+    } catch (e) {
+      fail += 1
+      results.push({ label: row.name || row.id, status: '失败', message: extractErrorMessage(e) })
+    }
+  }
+  batchResultRows.value = results
+  batchResultVisible.value = true
+  if (fail === 0) {
+    ElMessage.success(`已删除 ${ok} 个网络`)
+  } else {
+    ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadNetworks()
+}
+
+const removeSelectedStacks = async () => {
+  if (!activeHost.value) return
+  const rows = selectedStacks.value.filter(r => r.Name || r.name)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择Stack')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${rows.length} 个Stack吗?`, '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  const results = []
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    const stackName = row.Name || row.name
+    try {
+      await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/${encodeURIComponent(stackName)}`, { headers: authHeaders() })
+      ok += 1
+      results.push({ label: stackName, status: '成功', message: '已删除' })
+    } catch (e) {
+      fail += 1
+      results.push({ label: stackName, status: '失败', message: extractErrorMessage(e) })
+    }
+  }
+  batchResultRows.value = results
+  batchResultVisible.value = true
+  if (fail === 0) {
+    ElMessage.success(`已删除 ${ok} 个Stack`)
+  } else {
+    ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadStacks()
+  loadServices()
 }
 
 const fetchContainersForUsage = async () => {
