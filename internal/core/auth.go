@@ -78,7 +78,7 @@ func (s *AuthService) InitDefaultAdmin() error {
 // Login 用户登录
 func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	var user User
-	if err := s.db.Preload("Role").Where("username = ?", req.Username).First(&user).Error; err != nil {
+	if err := s.db.Preload("Role").Preload("Role.Permissions").Where("username = ?", req.Username).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("用户不存在")
 		}
@@ -141,7 +141,7 @@ func (s *AuthService) ValidateToken(tokenStr string) (*Claims, error) {
 // GetUserByID 根据ID获取用户
 func (s *AuthService) GetUserByID(id string) (*User, error) {
 	var user User
-	if err := s.db.Preload("Role").First(&user, "id = ?", id).Error; err != nil {
+	if err := s.db.Preload("Role").Preload("Role.Permissions").First(&user, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil

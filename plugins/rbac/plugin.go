@@ -1,9 +1,12 @@
 package rbac
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -29,7 +32,10 @@ func (p *RBACPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 
 func (p *RBACPlugin) Start() error {
 	// 初始化默认权限
-	return p.initDefaultPermissions()
+	if err := p.initDefaultPermissions(); err != nil {
+		return err
+	}
+	return p.ensureAdminPermissions()
 }
 
 func (p *RBACPlugin) Stop() error { return nil }
@@ -84,58 +90,115 @@ func (p *RBACPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	}
 }
 
+type permSeed struct {
+	Name   string
+	Code   string
+	Type   string
+	Parent string
+}
+
 // initDefaultPermissions 初始化默认权限
 func (p *RBACPlugin) initDefaultPermissions() error {
-	permissions := []core.Permission{
-		// 仪表板
-		{Name: "仪表板", Code: "dashboard", Type: "menu"},
-		{Name: "查看仪表板", Code: "dashboard:view", Type: "api"},
-		
-		// CMDB
+	seeds := []permSeed{
+		{Name: "仪表盘", Code: "dashboard", Type: "menu"},
+		{Name: "AI运维助手", Code: "ai", Type: "menu"},
+
 		{Name: "资产管理", Code: "cmdb", Type: "menu"},
-		{Name: "查看主机", Code: "cmdb:host:read", Type: "api"},
-		{Name: "创建主机", Code: "cmdb:host:create", Type: "api"},
-		{Name: "更新主机", Code: "cmdb:host:update", Type: "api"},
-		{Name: "删除主机", Code: "cmdb:host:delete", Type: "api"},
-		
-		// 监控
+		{Name: "防火墙管理", Code: "firewall", Type: "menu", Parent: "cmdb"},
+
+		{Name: "Docker管理", Code: "docker", Type: "menu"},
+		{Name: "K8s管理", Code: "k8s", Type: "menu"},
+
 		{Name: "监控中心", Code: "monitor", Type: "menu"},
-		{Name: "查看监控", Code: "monitor:view", Type: "api"},
-		{Name: "配置监控", Code: "monitor:config", Type: "api"},
-		
-		// 告警
 		{Name: "告警管理", Code: "alert", Type: "menu"},
-		{Name: "查看告警", Code: "alert:read", Type: "api"},
-		{Name: "处理告警", Code: "alert:handle", Type: "api"},
-		{Name: "配置规则", Code: "alert:rule:config", Type: "api"},
-		
-		// 任务
+		{Name: "通知管理", Code: "notify", Type: "menu"},
+		{Name: "域名与证书", Code: "domain", Type: "menu"},
+
+		{Name: "工作流编排", Code: "workflow", Type: "menu"},
+		{Name: "批量执行", Code: "executor", Type: "menu"},
 		{Name: "任务调度", Code: "task", Type: "menu"},
-		{Name: "查看任务", Code: "task:read", Type: "api"},
-		{Name: "创建任务", Code: "task:create", Type: "api"},
-		{Name: "执行任务", Code: "task:execute", Type: "api"},
-		{Name: "删除任务", Code: "task:delete", Type: "api"},
-		
-		// AI
-		{Name: "AI分析", Code: "ai", Type: "menu"},
-		{Name: "日志分析", Code: "ai:log:analyze", Type: "api"},
-		{Name: "查看历史", Code: "ai:history:read", Type: "api"},
-		
-		// 系统管理
+		{Name: "Ansible", Code: "ansible", Type: "menu"},
+
+		{Name: "CI/CD", Code: "cicd", Type: "menu"},
+		{Name: "应用中心", Code: "application", Type: "menu", Parent: "cicd"},
+
+		{Name: "配置中心", Code: "nacos", Type: "menu"},
+
+		{Name: "工单管理", Code: "workorder", Type: "menu"},
+		{Name: "SQL审核", Code: "sqlaudit", Type: "menu"},
+		{Name: "GitOps", Code: "gitops", Type: "menu"},
+
+		{Name: "值班管理", Code: "oncall", Type: "menu"},
+		{Name: "Web终端", Code: "terminal", Type: "menu"},
+
+		{Name: "服务拓扑", Code: "topology", Type: "menu"},
+		{Name: "成本管理", Code: "cost", Type: "menu"},
+
 		{Name: "系统管理", Code: "system", Type: "menu"},
-		{Name: "用户管理", Code: "system:user", Type: "menu"},
-		{Name: "角色管理", Code: "system:role", Type: "menu"},
-		{Name: "权限管理", Code: "system:permission", Type: "menu"},
-		{Name: "操作日志", Code: "system:log", Type: "menu"},
+		{Name: "用户管理", Code: "system:user", Type: "menu", Parent: "system"},
+		{Name: "角色管理", Code: "system:role", Type: "menu", Parent: "system"},
+		{Name: "权限管理", Code: "system:permission", Type: "menu", Parent: "system"},
+		{Name: "操作日志", Code: "system:log", Type: "menu", Parent: "system"},
+
+		{Name: "知识库", Code: "knowledge", Type: "menu"},
+		{Name: "自动修复", Code: "remediation", Type: "menu"},
 	}
-	
-	for _, perm := range permissions {
-		var existing core.Permission
-		if err := p.core.DB.Where("code = ?", perm.Code).First(&existing).Error; err != nil {
-			// 不存在则创建
-			p.core.DB.Create(&perm)
+
+	byCode := make(map[string]core.Permission, len(seeds))
+	for _, seed := range seeds {
+		var perm core.Permission
+		err := p.core.DB.Where("code = ?", seed.Code).First(&perm).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				perm = core.Permission{
+					Name: seed.Name,
+					Code: seed.Code,
+					Type: seed.Type,
+				}
+				if err := p.core.DB.Create(&perm).Error; err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
+		}
+		byCode[seed.Code] = perm
+	}
+
+	for _, seed := range seeds {
+		if seed.Parent == "" {
+			continue
+		}
+		child, ok := byCode[seed.Code]
+		if !ok {
+			continue
+		}
+		parent, ok := byCode[seed.Parent]
+		if !ok || parent.ID == "" {
+			continue
+		}
+		if child.ParentID != parent.ID {
+			p.core.DB.Model(&core.Permission{}).Where("id = ?", child.ID).Update("parent_id", parent.ID)
 		}
 	}
-	
+
 	return nil
+}
+
+func (p *RBACPlugin) ensureAdminPermissions() error {
+	var admin core.Role
+	if err := p.core.DB.Where("code = ?", "admin").First(&admin).Error; err != nil {
+		return nil
+	}
+
+	var perms []core.Permission
+	if err := p.core.DB.Find(&perms).Error; err != nil {
+		return err
+	}
+
+	permPtrs := make([]*core.Permission, 0, len(perms))
+	for i := range perms {
+		permPtrs = append(permPtrs, &perms[i])
+	}
+	return p.core.DB.Model(&admin).Association("Permissions").Replace(permPtrs)
 }

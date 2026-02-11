@@ -11,10 +11,10 @@ import (
 )
 
 type Server struct {
-	config  *config.Config
-	core    *core.Core
-	pm      *plugin.Manager
-	engine  *gin.Engine
+	config *config.Config
+	core   *core.Core
+	pm     *plugin.Manager
+	engine *gin.Engine
 }
 
 func NewServer(cfg *config.Config, c *core.Core, pm *plugin.Manager) *Server {
@@ -63,7 +63,7 @@ func (s *Server) setupRoutes() {
 
 	// 需要认证的接口
 	auth := v1.Group("")
-	auth.Use(AuthMiddleware(s.core.Auth))
+	auth.Use(AuthMiddleware(s.core.Auth), OperationLogMiddleware(s.core.DB), RBACMiddleware(s.core.DB))
 	s.setupAuthRoutes(auth)
 
 	// 注册插件路由

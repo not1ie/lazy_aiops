@@ -51,6 +51,13 @@ const handleLogin = async () => {
         const res = await axios.post('/api/v1/login', form)
         if (res.data.code === 0) {
           localStorage.setItem('token', res.data.data.token)
+          const userInfo = res.data.data.user_info || null
+          if (userInfo) {
+            localStorage.setItem('user_info', JSON.stringify(userInfo))
+            localStorage.setItem('role_code', userInfo.role?.code || '')
+            const perms = userInfo.role?.permissions?.map((p) => p.code) || []
+            localStorage.setItem('permissions', JSON.stringify(perms))
+          }
           ElMessage.success('登录成功')
           router.push('/')
         } else {

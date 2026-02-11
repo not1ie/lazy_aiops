@@ -8,6 +8,11 @@ const routes = [
     component: () => import('@/views/login/index.vue')
   },
   {
+    path: '/403',
+    name: 'Forbidden',
+    component: () => import('@/views/error/403.vue')
+  },
+  {
     path: '/',
     component: Layout,
     redirect: '/dashboard',
@@ -410,19 +415,19 @@ const routes = [
         path: 'system/users',
         name: 'SystemUsers',
         component: () => import('@/views/system/users.vue'),
-        meta: { title: '用户管理', icon: 'User' }
+        meta: { title: '用户管理', icon: 'User', perm: 'system:user' }
       },
       {
         path: 'system/roles',
         name: 'SystemRoles',
         component: () => import('@/views/system/roles.vue'),
-        meta: { title: '角色管理', icon: 'UserFilled' }
+        meta: { title: '角色管理', icon: 'UserFilled', perm: 'system:role' }
       },
       {
         path: 'system/menus',
         name: 'SystemMenus',
         component: () => import('@/views/system/menus.vue'),
-        meta: { title: '菜单管理', icon: 'Menu' }
+        meta: { title: '权限管理', icon: 'Menu', perm: 'system:permission' }
       },
       {
         path: 'system/dept',
@@ -446,7 +451,7 @@ const routes = [
         path: 'system/audit-logs',
         name: 'SystemAuditLogs',
         component: () => import('@/views/system/audit-logs.vue'),
-        meta: { title: '操作日志', icon: 'Notebook' }
+        meta: { title: '操作日志', icon: 'Notebook', perm: 'system:log' }
       },
       {
         path: 'system/captcha',
@@ -463,10 +468,31 @@ const router = createRouter({
   routes
 })
 
+const hasPerm = (code) => {
+  if (!code) return true
+  const roleCode = localStorage.getItem('role_code')
+  if (roleCode === 'admin') return true
+  const perms = JSON.parse(localStorage.getItem('permissions') || '[]')
+  if (perms.includes(code)) return true
+  const parts = code.split(':')
+  while (parts.length > 1) {
+    parts.pop()
+    if (perms.includes(parts.join(':'))) return true
+  }
+  return false
+}
+
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  if (to.name !== 'Login' && !token) next({ name: 'Login' })
-  else next()
+  if (to.name !== 'Login' && !token) {
+    next({ name: 'Login' })
+    return
+  }
+  if (to.name !== 'Login' && to.name !== 'Forbidden' && to.meta?.perm && !hasPerm(to.meta.perm)) {
+    next({ name: 'Forbidden' })
+    return
+  }
+  next()
 })
 
 export default router
