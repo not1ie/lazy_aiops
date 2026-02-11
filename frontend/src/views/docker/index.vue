@@ -125,6 +125,7 @@
             <el-table-column prop="tag" label="Tag" width="120" />
             <el-table-column prop="id" label="ID" min-width="180" />
             <el-table-column prop="size" label="大小" width="120" />
+            <el-table-column prop="created" label="创建时间" min-width="180" />
             <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" type="danger" plain @click="removeImage(row)">删除</el-button>
@@ -468,7 +469,8 @@ const normalizeImages = (items) => items.map((row) => ({
   id: row.ID || row.Id || row.id || '-',
   repository: row.Repository || row.repository || '-',
   tag: row.Tag || row.tag || '-',
-  size: row.Size || row.size || '-'
+  size: row.Size || row.size || '-',
+  created: row.CreatedAt || row.CreatedSince || row.created_at || row.created || '-'
 }))
 
 const normalizeNetworks = (items) => items.map((row) => ({
