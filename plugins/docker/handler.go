@@ -543,6 +543,39 @@ func (h *DockerHandler) ListNetworks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": networks})
 }
 
+// InspectNetwork 查看网络详情
+func (h *DockerHandler) InspectNetwork(c *gin.Context) {
+	id := c.Param("id")
+	networkID := c.Param("network_id")
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker network inspect %s", networkID))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+
+	var result []interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析失败"})
+		return
+	}
+	if len(result) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "网络未找到"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result[0]})
+}
+
 // RemoveNetwork 删除网络
 func (h *DockerHandler) RemoveNetwork(c *gin.Context) {
 	id := c.Param("id")

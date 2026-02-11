@@ -91,7 +91,9 @@
         <el-tab-pane label="容器" name="containers">
           <div class="tab-toolbar">
             <div class="toolbar-left">
-              <el-button type="success" plain :disabled="selectedContainers.length === 0" @click="restartSelectedContainers">批量重启</el-button>
+              <el-button type="success" plain :disabled="selectedContainers.length === 0" @click="startSelectedContainers">批量启动</el-button>
+              <el-button type="warning" plain :disabled="selectedContainers.length === 0" @click="stopSelectedContainers">批量停止</el-button>
+              <el-button type="primary" plain :disabled="selectedContainers.length === 0" @click="restartSelectedContainers">批量重启</el-button>
               <el-button type="danger" plain :disabled="selectedContainers.length === 0" @click="removeSelectedContainers">批量删除</el-button>
             </div>
             <div class="toolbar-right">
@@ -196,12 +198,25 @@
 
         <el-tab-pane label="Services" name="services">
           <div class="tab-toolbar">
-            <el-select v-model="serviceStackFilter" placeholder="Stack" class="w-40" clearable>
-              <el-option v-for="s in serviceStacks" :key="s" :label="s" :value="s" />
-            </el-select>
-            <el-button icon="Refresh" @click="loadServices">刷新</el-button>
+            <div class="toolbar-left">
+              <el-button type="primary" plain :disabled="selectedServices.length === 0" @click="restartSelectedServices">批量重启</el-button>
+              <el-select v-model="serviceStackFilter" placeholder="Stack" class="w-40" clearable>
+                <el-option v-for="s in serviceStacks" :key="s" :label="s" :value="s" />
+              </el-select>
+            </div>
+            <div class="toolbar-right">
+              <el-button icon="Refresh" @click="loadServices">刷新</el-button>
+            </div>
           </div>
-          <el-table :data="filteredServices" v-loading="servicesLoading" style="width: 100%">
+          <el-table
+            ref="serviceTableRef"
+            :data="filteredServices"
+            v-loading="servicesLoading"
+            style="width: 100%"
+            :row-key="row => row.ID || row.Id || row.id || row.Name"
+            @selection-change="onServiceSelectionChange"
+          >
+            <el-table-column type="selection" width="48" />
             <el-table-column prop="Name" label="名称" min-width="200" />
             <el-table-column prop="Mode" label="模式" width="120" />
             <el-table-column prop="Replicas" label="副本" width="120" />
@@ -471,6 +486,8 @@ const selectedNetworks = ref([])
 const services = ref([])
 const servicesLoading = ref(false)
 const serviceStackFilter = ref('')
+const serviceTableRef = ref(null)
+const selectedServices = ref([])
 const stacks = ref([])
 const stacksLoading = ref(false)
 const stackTableRef = ref(null)
@@ -782,6 +799,8 @@ const loadServices = async () => {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services`, { headers: authHeaders() })
     if (res.data.code === 0) {
       services.value = res.data.data || []
+      selectedServices.value = []
+      serviceTableRef.value?.clearSelection?.()
     }
   } finally {
     servicesLoading.value = false
@@ -834,6 +853,88 @@ const onNetworkSelectionChange = (rows) => {
 
 const onStackSelectionChange = (rows) => {
   selectedStacks.value = rows || []
+}
+
+const onServiceSelectionChange = (rows) => {
+  selectedServices.value = rows || []
+}
+
+const startSelectedContainers = async () => {
+  if (!activeHost.value) return
+  const rows = selectedContainers.value.filter(r => r.id)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择容器')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定启动选中的 ${rows.length} 个容器吗?`, '提示', {
+      confirmButtonText: '启动',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  const results = []
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    try {
+      await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(row.id)}/start`, {}, { headers: authHeaders() })
+      ok += 1
+      results.push({ label: row.names || row.id, status: '成功', message: '已启动' })
+    } catch (e) {
+      fail += 1
+      results.push({ label: row.names || row.id, status: '失败', message: extractErrorMessage(e) })
+    }
+  }
+  batchResultRows.value = results
+  batchResultVisible.value = true
+  if (fail === 0) {
+    ElMessage.success(`已启动 ${ok} 个容器`)
+  } else {
+    ElMessage.warning(`已启动 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadContainers()
+}
+
+const stopSelectedContainers = async () => {
+  if (!activeHost.value) return
+  const rows = selectedContainers.value.filter(r => r.id)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择容器')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定停止选中的 ${rows.length} 个容器吗?`, '提示', {
+      confirmButtonText: '停止',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  const results = []
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    try {
+      await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(row.id)}/stop`, {}, { headers: authHeaders() })
+      ok += 1
+      results.push({ label: row.names || row.id, status: '成功', message: '已停止' })
+    } catch (e) {
+      fail += 1
+      results.push({ label: row.names || row.id, status: '失败', message: extractErrorMessage(e) })
+    }
+  }
+  batchResultRows.value = results
+  batchResultVisible.value = true
+  if (fail === 0) {
+    ElMessage.success(`已停止 ${ok} 个容器`)
+  } else {
+    ElMessage.warning(`已停止 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadContainers()
 }
 
 const restartSelectedContainers = async () => {
@@ -923,11 +1024,7 @@ const removeSelectedNetworks = async () => {
     return
   }
   try {
-    await ElMessageBox.confirm(`确定删除选中的 ${rows.length} 个网络吗?`, '警告', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
+    await confirmDeleteNetworks(rows)
   } catch (e) {
     return
   }
@@ -952,6 +1049,47 @@ const removeSelectedNetworks = async () => {
     ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
   }
   loadNetworks()
+}
+
+const restartSelectedServices = async () => {
+  if (!activeHost.value) return
+  const rows = selectedServices.value.filter(r => r.ID || r.Id || r.id)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择服务')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定重启选中的 ${rows.length} 个服务吗?`, '提示', {
+      confirmButtonText: '重启',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  const results = []
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    const id = row.ID || row.Id || row.id
+    const name = row.Name || row.name || id
+    try {
+      await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(id)}/restart`, {}, { headers: authHeaders() })
+      ok += 1
+      results.push({ label: name, status: '成功', message: '已重启' })
+    } catch (e) {
+      fail += 1
+      results.push({ label: name, status: '失败', message: extractErrorMessage(e) })
+    }
+  }
+  batchResultRows.value = results
+  batchResultVisible.value = true
+  if (fail === 0) {
+    ElMessage.success(`已重启 ${ok} 个服务`)
+  } else {
+    ElMessage.warning(`已重启 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadServices()
 }
 
 const removeSelectedStacks = async () => {
@@ -1053,6 +1191,34 @@ const getImageUsage = (rows, usage) => {
     }
   })
   return result
+}
+
+const confirmDeleteNetworks = async (rows) => {
+  if (!activeHost.value) return
+  const used = []
+  for (const row of rows) {
+    try {
+      const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/networks/${encodeURIComponent(row.id)}`, { headers: authHeaders() })
+      if (res.data.code === 0) {
+        const info = res.data.data || {}
+        const containers = info.Containers || {}
+        const names = Object.values(containers).map(c => c?.Name).filter(Boolean)
+        if (names.length > 0) {
+          used.push({ label: row.name || row.id, containers: names })
+        }
+      }
+    } catch (e) {}
+  }
+  let message = `确定删除选中的 ${rows.length} 个网络吗?`
+  if (used.length > 0) {
+    const lines = used.map(u => `${u.label} -> ${u.containers.join(', ')}`).join('\n')
+    message = `以下网络仍有容器连接，删除可能失败：\n${lines}\n\n是否继续?`
+  }
+  await ElMessageBox.confirm(message, '警告', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
 }
 
 const confirmDeleteImages = async (rows) => {
