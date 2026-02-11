@@ -41,8 +41,14 @@
       <el-table-column prop="restarts" label="重启" width="80" />
       <el-table-column label="容器" min-width="220">
         <template #default="scope">
-          <el-tag v-for="c in scope.row.containers" :key="c.name" size="small" class="mr-2">
-            {{ c.name }}
+          <el-tag
+            v-for="c in scope.row.containers"
+            :key="c.name"
+            size="small"
+            class="mr-2"
+            :type="c.ready ? 'success' : 'warning'"
+          >
+            {{ c.name }} ({{ c.state || (c.ready ? 'Ready' : 'NotReady') }})
           </el-tag>
         </template>
       </el-table-column>

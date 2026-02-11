@@ -606,6 +606,74 @@ func (h *DockerHandler) ListStackServices(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": services})
 }
 
+// ScaleService 调整服务副本数
+func (h *DockerHandler) ScaleService(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	var req struct {
+		Replicas int `json:"replicas"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Replicas < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "replicas 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	cmd := fmt.Sprintf("docker service scale %s=%d", serviceID, req.Replicas)
+	_, stderr, err := client.Execute(cmd)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已提交扩缩容"})
+}
+
+// UpdateServiceImage 更新服务镜像
+func (h *DockerHandler) UpdateServiceImage(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	var req struct {
+		Image string `json:"image"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Image) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "image 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	cmd := fmt.Sprintf("docker service update --image %s %s", req.Image, serviceID)
+	_, stderr, err := client.Execute(cmd)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已提交镜像更新"})
+}
+
+// RestartService 滚动重启服务
+func (h *DockerHandler) RestartService(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	cmd := fmt.Sprintf("docker service update --force %s", serviceID)
+	_, stderr, err := client.Execute(cmd)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已触发重启"})
+}
+
 // CommandExecutor 命令执行接口
 type CommandExecutor interface {
 	Execute(cmd string) (string, string, error)

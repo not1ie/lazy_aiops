@@ -61,6 +61,9 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/hosts/:id/services", h.ListServices)
 	g.GET("/hosts/:id/services/:service_id", h.InspectService)
 	g.GET("/hosts/:id/services/:service_id/tasks", h.ListServiceTasks)
+	g.POST("/hosts/:id/services/:service_id/scale", h.ScaleService)
+	g.POST("/hosts/:id/services/:service_id/update_image", h.UpdateServiceImage)
+	g.POST("/hosts/:id/services/:service_id/restart", h.RestartService)
 	g.GET("/hosts/:id/stacks", h.ListStacks)
 	g.GET("/hosts/:id/stacks/:stack/services", h.ListStackServices)
 }

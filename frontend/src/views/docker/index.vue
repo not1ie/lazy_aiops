@@ -158,11 +158,14 @@
             <el-table-column prop="Replicas" label="副本" width="120" />
             <el-table-column prop="Image" label="镜像" min-width="180" />
             <el-table-column prop="Ports" label="端口" min-width="160" />
-            <el-table-column label="操作" width="180" fixed="right">
+            <el-table-column label="操作" width="360" fixed="right">
               <template #default="{ row }">
                 <el-space size="8">
                   <el-button size="small" @click="openServiceDetail(row)">详情</el-button>
                   <el-button size="small" type="info" plain @click="openServiceTasks(row)">任务</el-button>
+                  <el-button size="small" type="primary" plain @click="scaleService(row)">扩缩容</el-button>
+                  <el-button size="small" type="warning" plain @click="updateServiceImage(row)">更新镜像</el-button>
+                  <el-button size="small" type="danger" plain @click="restartService(row)">重启</el-button>
                 </el-space>
               </template>
             </el-table-column>
@@ -865,6 +868,49 @@ const openStackServices = async (row) => {
   } finally {
     stackLoading.value = false
   }
+}
+
+const scaleService = async (row) => {
+  if (!activeHost.value || !row?.ID) return
+  try {
+    const { value } = await ElMessageBox.prompt('输入副本数', '扩缩容', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      inputPattern: /^[0-9]+$/,
+      inputErrorMessage: '请输入数字'
+    })
+    await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/scale`, {
+      replicas: Number(value)
+    }, { headers: authHeaders() })
+    ElMessage.success('已提交扩缩容')
+    loadServices()
+  } catch (e) {}
+}
+
+const updateServiceImage = async (row) => {
+  if (!activeHost.value || !row?.ID) return
+  try {
+    const { value } = await ElMessageBox.prompt('输入镜像 (如 nginx:latest)', '更新镜像', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消'
+    })
+    if (!value) return
+    await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/update_image`, {
+      image: value
+    }, { headers: authHeaders() })
+    ElMessage.success('已提交镜像更新')
+    loadServices()
+  } catch (e) {}
+}
+
+const restartService = async (row) => {
+  if (!activeHost.value || !row?.ID) return
+  try {
+    await ElMessageBox.confirm('确认滚动重启该服务吗？', '提示', { type: 'warning' })
+    await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/restart`, {}, { headers: authHeaders() })
+    ElMessage.success('已触发重启')
+    loadServices()
+  } catch (e) {}
 }
 
 const openPullImage = () => {
