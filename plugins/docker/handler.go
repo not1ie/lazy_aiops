@@ -1626,7 +1626,7 @@ func (h *DockerHandler) handleSSHExecWS(conn *websocket.Conn, host *cmdb.Host, c
 			break
 		}
 		if resize, ok := parseResizeMessage(message); ok {
-			_ = session.WindowChange(resize.rows, resize.cols)
+			_ = session.WindowChange(resize.Rows, resize.Cols)
 			continue
 		}
 		_, _ = stdin.Write(message)
