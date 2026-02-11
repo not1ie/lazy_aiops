@@ -31,7 +31,11 @@
       <el-table-column type="selection" width="48" />
       <el-table-column prop="namespace" label="命名空间" min-width="140" />
       <el-table-column prop="name" label="名称" min-width="220" />
-      <el-table-column prop="status" label="状态" width="120" />
+      <el-table-column label="状态" width="120">
+        <template #default="scope">
+          <el-tag :type="statusType(scope.row.status)">{{ scope.row.status }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="node" label="节点" min-width="160" />
       <el-table-column prop="ip" label="IP" width="140" />
       <el-table-column prop="restarts" label="重启" width="80" />
@@ -131,6 +135,21 @@ const filteredPods = computed(() => {
     )
   })
 })
+
+const statusType = (status) => {
+  switch (status) {
+    case 'Running':
+      return 'success'
+    case 'Pending':
+      return 'warning'
+    case 'Failed':
+      return 'danger'
+    case 'Succeeded':
+      return 'info'
+    default:
+      return 'info'
+  }
+}
 
 const handleClusterChange = async () => {
   await fetchNamespaces()

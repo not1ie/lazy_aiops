@@ -14,7 +14,19 @@
       如果没有数据，请确认 Prometheus 已采集 kubelet/cAdvisor 指标；若需要重启次数等，请安装 kube-state-metrics。
     </el-alert>
 
-    <el-table :data="rows" v-loading="loading" style="width: 100%; margin-top: 12px">
+    <div class="filter-bar">
+      <el-select v-model="nsFilter" placeholder="命名空间" class="w-40" clearable>
+        <el-option v-for="ns in namespaces" :key="ns" :label="ns" :value="ns" />
+      </el-select>
+      <el-input v-model="keyword" placeholder="搜索Pod/节点" class="w-52" clearable />
+      <el-select v-model="topN" class="w-40">
+        <el-option label="Top 20" :value="20" />
+        <el-option label="Top 50" :value="50" />
+        <el-option label="Top 100" :value="100" />
+      </el-select>
+    </div>
+
+    <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
       <el-table-column prop="namespace" label="命名空间" min-width="160" />
       <el-table-column prop="pod" label="Pod" min-width="220" />
       <el-table-column prop="instance" label="节点" min-width="160" />
@@ -25,17 +37,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 
 const rows = ref([])
 const loading = ref(false)
+const keyword = ref('')
+const nsFilter = ref('')
+const topN = ref(50)
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
-const cpuQuery =
-  'topk(50, sum by (pod, namespace, instance) (rate(container_cpu_usage_seconds_total{pod!=\"\",container!=\"POD\"}[5m])))'
-const memQuery =
-  'topk(50, sum by (pod, namespace, instance) (container_memory_working_set_bytes{pod!=\"\",container!=\"POD\"}))'
+const cpuQuery = (n) =>
+  `topk(${n}, sum by (pod, namespace, instance) (rate(container_cpu_usage_seconds_total{pod!=\"\",container!=\"POD\"}[5m])))`
+const memQuery = (n) =>
+  `topk(${n}, sum by (pod, namespace, instance) (container_memory_working_set_bytes{pod!=\"\",container!=\"POD\"}))`
 
 const fetchProm = async (query) => {
   const res = await axios.get('/api/v1/monitor/prometheus/query', {
@@ -48,7 +63,7 @@ const fetchProm = async (query) => {
 const fetchMetrics = async () => {
   loading.value = true
   try {
-    const [cpuRes, memRes] = await Promise.all([fetchProm(cpuQuery), fetchProm(memQuery)])
+    const [cpuRes, memRes] = await Promise.all([fetchProm(cpuQuery(topN.value)), fetchProm(memQuery(topN.value))])
     const map = {}
     cpuRes.forEach((item) => {
       const m = item.metric || {}
@@ -80,6 +95,23 @@ const fetchMetrics = async () => {
   }
 }
 
+const namespaces = computed(() => {
+  const set = new Set(rows.value.map(r => r.namespace).filter(Boolean))
+  return Array.from(set)
+})
+
+const filteredRows = computed(() => {
+  const key = keyword.value.trim().toLowerCase()
+  return rows.value.filter(r => {
+    if (nsFilter.value && r.namespace !== nsFilter.value) return false
+    if (!key) return true
+    return (
+      (r.pod || '').toLowerCase().includes(key) ||
+      (r.instance || '').toLowerCase().includes(key)
+    )
+  })
+})
+
 onMounted(fetchMetrics)
 </script>
 
@@ -88,4 +120,7 @@ onMounted(fetchMetrics)
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
+.filter-bar { display: flex; gap: 8px; margin-top: 12px; }
+.w-52 { width: 220px; }
+.w-40 { width: 140px; }
 </style>

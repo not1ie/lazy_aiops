@@ -147,9 +147,12 @@
 
         <el-tab-pane label="Services" name="services">
           <div class="tab-toolbar">
+            <el-select v-model="serviceStackFilter" placeholder="Stack" class="w-40" clearable>
+              <el-option v-for="s in serviceStacks" :key="s" :label="s" :value="s" />
+            </el-select>
             <el-button icon="Refresh" @click="loadServices">刷新</el-button>
           </div>
-          <el-table :data="services" v-loading="servicesLoading" style="width: 100%">
+          <el-table :data="filteredServices" v-loading="servicesLoading" style="width: 100%">
             <el-table-column prop="Name" label="名称" min-width="200" />
             <el-table-column prop="Mode" label="模式" width="120" />
             <el-table-column prop="Replicas" label="副本" width="120" />
@@ -273,6 +276,11 @@
           <el-table-column prop="container" label="容器端口" width="160" />
           <el-table-column prop="host" label="主机端口" width="160" />
           <el-table-column prop="ip" label="Host IP" width="160" />
+          <el-table-column label="复制" width="120">
+            <template #default="scope">
+              <el-button size="small" @click="copyText(`${scope.row.ip}:${scope.row.host}`)">复制</el-button>
+            </template>
+          </el-table-column>
         </el-table>
 
         <el-divider content-position="left">Networks</el-divider>
@@ -338,7 +346,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -361,6 +369,7 @@ const networksLoading = ref(false)
 
 const services = ref([])
 const servicesLoading = ref(false)
+const serviceStackFilter = ref('')
 const stacks = ref([])
 const stacksLoading = ref(false)
 
@@ -399,6 +408,21 @@ const serviceTasks = ref([])
 const stackVisible = ref(false)
 const stackLoading = ref(false)
 const stackServices = ref([])
+
+const serviceStacks = computed(() => {
+  const set = new Set()
+  services.value.forEach((s) => {
+    const name = s.Name || ''
+    const parts = name.split('_')
+    if (parts.length > 1) set.add(parts[0])
+  })
+  return Array.from(set)
+})
+
+const filteredServices = computed(() => {
+  if (!serviceStackFilter.value) return services.value
+  return services.value.filter(s => (s.Name || '').startsWith(`${serviceStackFilter.value}_`))
+})
 
 const createVisible = ref(false)
 const createLoading = ref(false)
@@ -749,6 +773,15 @@ const openExec = (row) => {
   execVisible.value = true
 }
 
+const copyText = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制')
+  } catch (e) {
+    ElMessage.warning('复制失败')
+  }
+}
+
 const runExec = async () => {
   if (!activeHost.value || !execContainerId.value || !execCommand.value) {
     ElMessage.warning('请输入命令')
@@ -922,6 +955,7 @@ onMounted(() => {
 .drawer-title { font-size: 18px; font-weight: 600; }
 .drawer-sub { color: #606266; margin-top: 6px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .drawer-meta { color: #909399; }
+.w-40 { width: 140px; }
 .manage-tabs { margin-top: 8px; }
 .tab-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
 .diagnose-block { display: flex; flex-direction: column; gap: 12px; }

@@ -69,7 +69,11 @@
         <h3 class="section-title">关联 Pods</h3>
         <el-table :data="pods" stripe style="width: 100%">
           <el-table-column prop="name" label="Pod" min-width="200" />
-          <el-table-column prop="status" label="状态" width="120" />
+          <el-table-column label="状态" width="120">
+            <template #default="scope">
+              <el-tag :type="statusType(scope.row.status)">{{ scope.row.status }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="node" label="节点" min-width="160" />
           <el-table-column prop="ip" label="IP" width="140" />
           <el-table-column prop="restarts" label="重启" width="80" />
@@ -369,6 +373,21 @@ const openPodDetail = (row) => {
       name: row.name
     }
   })
+}
+
+const statusType = (status) => {
+  switch (status) {
+    case 'Running':
+      return 'success'
+    case 'Pending':
+      return 'warning'
+    case 'Failed':
+      return 'danger'
+    case 'Succeeded':
+      return 'info'
+    default:
+      return 'info'
+  }
 }
 
 const fetchEvents = async () => {

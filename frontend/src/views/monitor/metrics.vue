@@ -16,6 +16,11 @@
       <el-col :span="6"><el-card><div class="card-title">磁盘</div><div class="card-value">{{ realtime.disk }}%</div></el-card></el-col>
       <el-col :span="6"><el-card><div class="card-title">网络(MB/s)</div><div class="card-value">{{ realtime.network }}</div></el-card></el-col>
     </el-row>
+    <div class="meta-row">
+      <el-tag v-if="promInfo.version" type="info">Prometheus v{{ promInfo.version }}</el-tag>
+      <span class="meta-text" v-if="promInfo.uptime">运行时长：{{ promInfo.uptime }}</span>
+      <span class="meta-text" v-if="currentProm">当前：{{ currentProm }}</span>
+    </div>
 
     <el-divider />
 
@@ -35,7 +40,7 @@
       <el-button @click="resetForm">清空</el-button>
     </div>
 
-    <el-table :data="settings" size="small" style="width: 100%; margin-top: 12px">
+    <el-table :data="settings" size="small" style="width: 100%; margin-top: 12px" :row-class-name="settingsRowClass">
       <el-table-column prop="name" label="名称" width="160" />
       <el-table-column prop="prometheus_url" label="地址" min-width="240" />
       <el-table-column prop="auth_type" label="认证" width="120" />
@@ -141,6 +146,8 @@ const form = ref({
   password: '',
   token: ''
 })
+const promInfo = ref({ version: '', uptime: '' })
+const currentProm = ref('')
 const activeTab = ref('chart')
 const chartRef = ref(null)
 let chartInstance = null
@@ -167,6 +174,8 @@ const fetchSettings = async () => {
   const res = await axios.get('/api/v1/monitor/settings', { headers: authHeaders() })
   if (res.data.code === 0) {
     settings.value = res.data.data || []
+    const active = settings.value.find(s => s.active)
+    currentProm.value = active ? (active.name || active.prometheus_url) : ''
   }
 }
 
@@ -220,6 +229,7 @@ const activateSetting = async (row) => {
   await axios.post(`/api/v1/monitor/settings/${row.id}/activate`, {}, { headers: authHeaders() })
   ElMessage.success('已设为当前')
   fetchSettings()
+  fetchPromInfo()
 }
 
 const testSetting = async (row) => {
@@ -233,6 +243,29 @@ const testSetting = async (row) => {
   } catch (err) {
     ElMessage.error('连接失败')
   }
+}
+
+const settingsRowClass = ({ row }) => {
+  return row.active ? 'row-active' : ''
+}
+
+const fetchPromInfo = async () => {
+  try {
+    const [buildRes, runtimeRes] = await Promise.all([
+      axios.get('/api/v1/monitor/prometheus/buildinfo', { headers: authHeaders() }),
+      axios.get('/api/v1/monitor/prometheus/runtimeinfo', { headers: authHeaders() })
+    ])
+    const version = buildRes.data?.data?.version || ''
+    const uptimeSec = runtimeRes.data?.data?.uptime || 0
+    let uptime = ''
+    if (uptimeSec > 0) {
+      const sec = Number(uptimeSec)
+      const h = Math.floor(sec / 3600)
+      const m = Math.floor((sec % 3600) / 60)
+      uptime = `${h}h ${m}m`
+    }
+    promInfo.value = { version, uptime }
+  } catch (e) {}
 }
 
 const runQuery = async () => {
@@ -391,6 +424,7 @@ const initRange = () => {
 onMounted(() => {
   initRange()
   fetchSettings()
+  fetchPromInfo()
   fetchRealtime()
   ensureChart()
   fetchHistory()
@@ -413,6 +447,9 @@ onBeforeUnmount(() => {
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 22px; font-weight: 600; margin-top: 6px; }
 .section-title { margin: 12px 0; }
+.meta-row { display: flex; gap: 12px; align-items: center; margin: 6px 0 12px; }
+.meta-text { color: #606266; font-size: 12px; }
+.row-active td { background: #f0f9eb !important; }
 .query-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .template-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .template-tag { cursor: pointer; }

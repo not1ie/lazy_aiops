@@ -392,6 +392,28 @@ func (h *MonitorHandler) ProxyPromQueryRange(c *gin.Context) {
 	h.proxyPromGet(c, reqURL.String(), authType, username, password, token)
 }
 
+// ProxyPromBuildInfo 获取 Prometheus 构建信息
+func (h *MonitorHandler) ProxyPromBuildInfo(c *gin.Context) {
+	promURL, authType, username, password, token := h.getPromConfig()
+	if promURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Prometheus 未配置"})
+		return
+	}
+	reqURL := promURL + "/api/v1/status/buildinfo"
+	h.proxyPromGet(c, reqURL, authType, username, password, token)
+}
+
+// ProxyPromRuntimeInfo 获取 Prometheus 运行信息
+func (h *MonitorHandler) ProxyPromRuntimeInfo(c *gin.Context) {
+	promURL, authType, username, password, token := h.getPromConfig()
+	if promURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Prometheus 未配置"})
+		return
+	}
+	reqURL := promURL + "/api/v1/status/runtimeinfo"
+	h.proxyPromGet(c, reqURL, authType, username, password, token)
+}
+
 // ProxyPushgatewayMetrics 获取 Pushgateway 指标
 func (h *MonitorHandler) ProxyPushgatewayMetrics(c *gin.Context) {
 	if h.pushURL == "" {

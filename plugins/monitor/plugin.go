@@ -97,6 +97,8 @@ func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	// Prometheus / Pushgateway
 	g.GET("/prometheus/query", h.ProxyPromQuery)
 	g.GET("/prometheus/query_range", h.ProxyPromQueryRange)
+	g.GET("/prometheus/buildinfo", h.ProxyPromBuildInfo)
+	g.GET("/prometheus/runtimeinfo", h.ProxyPromRuntimeInfo)
 	g.GET("/pushgateway/metrics", h.ProxyPushgatewayMetrics)
 	g.GET("/prometheus/history", h.ListPromHistory)
 	g.POST("/prometheus/history", h.CreatePromHistory)
