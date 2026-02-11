@@ -2,8 +2,12 @@ package docker
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -11,17 +15,24 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
+	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
 
 type DockerHandler struct {
-	db *gorm.DB
+	db   *gorm.DB
+	auth *core.AuthService
 }
 
-func NewDockerHandler(db *gorm.DB) *DockerHandler {
-	return &DockerHandler{db: db}
+var dockerUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+func NewDockerHandler(db *gorm.DB, auth *core.AuthService) *DockerHandler {
+	return &DockerHandler{db: db, auth: auth}
 }
 
 // ================= Host Management =================
@@ -199,6 +210,8 @@ func (h *DockerHandler) ContainerLogs(c *gin.Context) {
 	id := c.Param("id")
 	containerID := c.Param("container_id")
 	tail := c.DefaultQuery("tail", "100")
+	since := c.Query("since")
+	timestamps := c.DefaultQuery("timestamps", "0")
 
 	client, err := h.getClient(id)
 	if err != nil {
@@ -207,7 +220,14 @@ func (h *DockerHandler) ContainerLogs(c *gin.Context) {
 	}
 
 	// 使用 2>&1 合并 stdout 和 stderr
-	cmd := fmt.Sprintf("docker logs --tail %s %s 2>&1", tail, containerID)
+	cmd := fmt.Sprintf("docker logs --tail %s", tail)
+	if since != "" {
+		cmd += fmt.Sprintf(" --since %s", since)
+	}
+	if timestamps == "1" || strings.ToLower(timestamps) == "true" {
+		cmd += " --timestamps"
+	}
+	cmd = fmt.Sprintf("%s %s 2>&1", cmd, containerID)
 	stdout, _, err := client.Execute(cmd)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -243,6 +263,61 @@ func (h *DockerHandler) ExecContainer(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stdout})
+}
+
+// ExecContainerWS WebSocket 交互终端
+func (h *DockerHandler) ExecContainerWS(c *gin.Context) {
+	id := c.Param("id")
+	containerID := c.Param("container_id")
+	token := c.Query("token")
+	shell := c.DefaultQuery("shell", "/bin/sh")
+
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
+		return
+	}
+	if h.auth != nil {
+		if _, err := h.auth.ValidateToken(token); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "Token无效"})
+			return
+		}
+	}
+
+	if !isAllowedShell(shell) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Shell不支持"})
+		return
+	}
+
+	conn, err := dockerUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+
+	var dHost DockerHost
+	if err := h.db.First(&dHost, "id = ?", id).Error; err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("Docker主机不存在"))
+		conn.Close()
+		return
+	}
+
+	if dHost.HostID == "local" {
+		h.handleLocalExecWS(conn, containerID, shell)
+		return
+	}
+
+	var host cmdb.Host
+	if err := h.db.Preload("Credential").First(&host, "id = ?", dHost.HostID).Error; err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("关联主机不存在"))
+		conn.Close()
+		return
+	}
+	if host.Credential == nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("主机未配置凭据"))
+		conn.Close()
+		return
+	}
+
+	h.handleSSHExecWS(conn, &host, containerID, shell)
 }
 
 // ================= Container Management =================
@@ -423,6 +498,29 @@ func (h *DockerHandler) ContainerAction(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "操作成功"})
 }
 
+// ListContainerStats 容器资源概览
+func (h *DockerHandler) ListContainerStats(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	stdout, stderr, err := client.Execute("docker stats --no-stream --format '{{json .}}'")
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+
+	stats := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stats})
+}
+
 // ================= Image Management =================
 
 // ListImages 镜像列表
@@ -434,13 +532,31 @@ func (h *DockerHandler) ListImages(c *gin.Context) {
 		return
 	}
 
-	stdout, stderr, err := client.Execute("docker images --format '{{json .}}'")
+	stdout, stderr, err := client.Execute("docker images --no-trunc --format '{{.ID}}||{{.Repository}}||{{.Tag}}||{{.CreatedAt}}||{{.CreatedSince}}||{{.Size}}'")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
 		return
 	}
 
-	images := parseJSONList(stdout)
+	images := make([]map[string]string, 0)
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "||")
+		if len(parts) < 6 {
+			continue
+		}
+		images = append(images, map[string]string{
+			"ID":           parts[0],
+			"Repository":   parts[1],
+			"Tag":          parts[2],
+			"CreatedAt":    parts[3],
+			"CreatedSince": parts[4],
+			"Size":         parts[5],
+		})
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": images})
 }
 
@@ -520,6 +636,510 @@ func (h *DockerHandler) PruneImages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
+}
+
+// ================= Volume Management =================
+
+// ListVolumes 卷列表
+func (h *DockerHandler) ListVolumes(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute("docker volume ls --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	vols := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": vols})
+}
+
+// InspectVolume 卷详情
+func (h *DockerHandler) InspectVolume(c *gin.Context) {
+	id := c.Param("id")
+	volume := c.Param("volume")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker volume inspect %s", volume))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	var result []interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析失败"})
+		return
+	}
+	if len(result) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "卷未找到"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result[0]})
+}
+
+// CreateVolume 创建卷
+func (h *DockerHandler) CreateVolume(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name   string            `json:"name"`
+		Driver string            `json:"driver"`
+		Labels map[string]string `json:"labels"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	var cmd strings.Builder
+	cmd.WriteString("docker volume create")
+	if strings.TrimSpace(req.Driver) != "" {
+		cmd.WriteString(fmt.Sprintf(" --driver %s", req.Driver))
+	}
+	for k, v := range req.Labels {
+		cmd.WriteString(fmt.Sprintf(" --label %s=%s", k, v))
+	}
+	cmd.WriteString(fmt.Sprintf(" %s", req.Name))
+
+	_, stderr, err := client.Execute(cmd.String())
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "创建成功"})
+}
+
+// RemoveVolume 删除卷
+func (h *DockerHandler) RemoveVolume(c *gin.Context) {
+	id := c.Param("id")
+	volume := c.Param("volume")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	_, stderr, err := client.Execute(fmt.Sprintf("docker volume rm %s", volume))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ================= Secret/Config Management =================
+
+// ListSecrets secret 列表
+func (h *DockerHandler) ListSecrets(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute("docker secret ls --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	secrets := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": secrets})
+}
+
+// InspectSecret secret 详情
+func (h *DockerHandler) InspectSecret(c *gin.Context) {
+	id := c.Param("id")
+	secret := c.Param("secret")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker secret inspect %s", secret))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	var result []interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析失败"})
+		return
+	}
+	if len(result) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "Secret未找到"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result[0]})
+}
+
+// CreateSecret 创建 secret
+func (h *DockerHandler) CreateSecret(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name string `json:"name"`
+		Data string `json:"data"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(req.Data))
+	cmd := fmt.Sprintf("printf '%s' | base64 -d | docker secret create %s -", encoded, req.Name)
+	_, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "创建成功"})
+}
+
+// RemoveSecret 删除 secret
+func (h *DockerHandler) RemoveSecret(c *gin.Context) {
+	id := c.Param("id")
+	secret := c.Param("secret")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	_, stderr, err := client.Execute(fmt.Sprintf("docker secret rm %s", secret))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ListConfigs config 列表
+func (h *DockerHandler) ListConfigs(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute("docker config ls --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	configs := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": configs})
+}
+
+// InspectConfig config 详情
+func (h *DockerHandler) InspectConfig(c *gin.Context) {
+	id := c.Param("id")
+	config := c.Param("config")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker config inspect %s", config))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	var result []interface{}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析失败"})
+		return
+	}
+	if len(result) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "Config未找到"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result[0]})
+}
+
+// CreateConfig 创建 config
+func (h *DockerHandler) CreateConfig(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name string `json:"name"`
+		Data string `json:"data"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(req.Data))
+	cmd := fmt.Sprintf("printf '%s' | base64 -d | docker config create %s -", encoded, req.Name)
+	_, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "创建成功"})
+}
+
+// RemoveConfig 删除 config
+func (h *DockerHandler) RemoveConfig(c *gin.Context) {
+	id := c.Param("id")
+	config := c.Param("config")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	_, stderr, err := client.Execute(fmt.Sprintf("docker config rm %s", config))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ================= Node Management =================
+
+// ListNodes Swarm 节点列表
+func (h *DockerHandler) ListNodes(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stdout, stderr, err := client.Execute("docker node ls --format '{{json .}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
+		return
+	}
+	nodes := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": nodes})
+}
+
+// ================= Stack Deploy =================
+
+// DeployStack 部署/更新 Stack
+func (h *DockerHandler) DeployStack(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name    string `json:"name"`
+		Compose string `json:"compose"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Compose) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name/compose 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	stackName := sanitizeStackName(req.Name)
+	encoded := base64.StdEncoding.EncodeToString([]byte(req.Compose))
+	tmp := fmt.Sprintf("/tmp/lazy-aiops-stack-%d.yml", time.Now().UnixNano())
+	cmd := fmt.Sprintf("printf '%s' | base64 -d > %s && docker stack deploy -c %s %s", encoded, tmp, tmp, stackName)
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
+}
+
+// ================= Registry Management =================
+
+// ListRegistries 仓库列表
+func (h *DockerHandler) ListRegistries(c *gin.Context) {
+	var regs []DockerRegistry
+	if err := h.db.Order("created_at DESC").Find(&regs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	for i := range regs {
+		regs[i].Password = ""
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": regs})
+}
+
+// CreateRegistry 创建仓库
+func (h *DockerHandler) CreateRegistry(c *gin.Context) {
+	var req struct {
+		Name     string `json:"name"`
+		URL      string `json:"url"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Insecure bool   `json:"insecure"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.URL) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	reg := DockerRegistry{
+		Name:     req.Name,
+		URL:      req.URL,
+		Username: req.Username,
+		Password: req.Password,
+		Insecure: req.Insecure,
+	}
+	if err := h.db.Create(&reg).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	reg.Password = ""
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": reg})
+}
+
+// DeleteRegistry 删除仓库
+func (h *DockerHandler) DeleteRegistry(c *gin.Context) {
+	id := c.Param("registry_id")
+	h.db.Delete(&DockerRegistry{}, "id = ?", id)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// LoginRegistry 登录仓库（当前主机）
+func (h *DockerHandler) LoginRegistry(c *gin.Context) {
+	hostID := c.Param("id")
+	registryID := c.Param("registry_id")
+
+	var reg DockerRegistry
+	if err := h.db.First(&reg, "id = ?", registryID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "仓库不存在"})
+		return
+	}
+
+	client, err := h.getClient(hostID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	user := strings.TrimSpace(reg.Username)
+	pass := reg.Password
+	url := strings.TrimSpace(reg.URL)
+	if user == "" || pass == "" || url == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "仓库凭据不完整"})
+		return
+	}
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(pass))
+	cmd := fmt.Sprintf("printf '%s' | base64 -d | docker login %s -u %s --password-stdin", encoded, url, user)
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		_ = h.upsertRegistryLogin(hostID, registryID, "failed", msg)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+
+	_ = h.upsertRegistryLogin(hostID, registryID, "success", "login ok")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
+}
+
+// ListRegistriesForHost 按主机返回登录状态
+func (h *DockerHandler) ListRegistriesForHost(c *gin.Context) {
+	hostID := c.Param("id")
+	var regs []DockerRegistry
+	if err := h.db.Order("created_at DESC").Find(&regs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	var logins []DockerRegistryLogin
+	_ = h.db.Where("docker_host_id = ?", hostID).Find(&logins).Error
+	loginMap := make(map[string]DockerRegistryLogin)
+	for _, l := range logins {
+		loginMap[l.RegistryID] = l
+	}
+	resp := make([]gin.H, 0, len(regs))
+	for _, r := range regs {
+		login := loginMap[r.ID]
+		resp = append(resp, gin.H{
+			"id":            r.ID,
+			"name":          r.Name,
+			"url":           r.URL,
+			"username":      r.Username,
+			"insecure":      r.Insecure,
+			"login_status":  login.Status,
+			"last_login_at": login.LastLoginAt,
+			"login_message": login.Message,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resp})
+}
+
+func (h *DockerHandler) upsertRegistryLogin(hostID, registryID, status, msg string) error {
+	var rec DockerRegistryLogin
+	err := h.db.Where("docker_host_id = ? AND registry_id = ?", hostID, registryID).First(&rec).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			rec = DockerRegistryLogin{
+				DockerHostID: hostID,
+				RegistryID:   registryID,
+			}
+		} else {
+			return err
+		}
+	}
+	rec.Status = status
+	rec.Message = msg
+	rec.LastLoginAt = time.Now()
+	return h.db.Save(&rec).Error
 }
 
 // ================= Network Management =================
@@ -657,6 +1277,41 @@ func (h *DockerHandler) ListServiceTasks(c *gin.Context) {
 	}
 	tasks := parseJSONList(stdout)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": tasks})
+}
+
+// ServiceLogs 服务日志
+func (h *DockerHandler) ServiceLogs(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	tail := c.DefaultQuery("tail", "200")
+	since := c.Query("since")
+	timestamps := c.DefaultQuery("timestamps", "1")
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	cmd := "docker service logs --raw"
+	if timestamps == "1" || strings.ToLower(timestamps) == "true" {
+		cmd += " --timestamps"
+	}
+	if since != "" {
+		cmd += fmt.Sprintf(" --since %s", since)
+	}
+	cmd += fmt.Sprintf(" --tail %s %s", tail, serviceID)
+
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stdout})
 }
 
 // ListStacks Stack 列表
@@ -849,4 +1504,200 @@ func parseJSONList(output string) []map[string]interface{} {
 		}
 	}
 	return list
+}
+
+func sanitizeStackName(name string) string {
+	allowed := func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '_'
+	}
+	clean := strings.Map(allowed, name)
+	if clean == "" {
+		return "stack"
+	}
+	return clean
+}
+
+func isAllowedShell(shell string) bool {
+	switch shell {
+	case "/bin/sh", "/bin/bash", "/bin/ash":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *DockerHandler) handleLocalExecWS(conn *websocket.Conn, containerID, shell string) {
+	defer conn.Close()
+	cmd := fmt.Sprintf("docker exec -i %s %s", containerID, shell)
+	proc := exec.Command("sh", "-c", cmd)
+	stdin, err := proc.StdinPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("打开stdin失败"))
+		return
+	}
+	stdout, err := proc.StdoutPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("打开stdout失败"))
+		return
+	}
+	stderr, err := proc.StderrPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("打开stderr失败"))
+		return
+	}
+	if err := proc.Start(); err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("启动失败: "+err.Error()))
+		return
+	}
+
+	go streamToWS(conn, stdout)
+	go streamToWS(conn, stderr)
+
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		if isResizeMessage(message) {
+			continue
+		}
+		_, _ = stdin.Write(message)
+	}
+	_ = proc.Process.Kill()
+}
+
+func (h *DockerHandler) handleSSHExecWS(conn *websocket.Conn, host *cmdb.Host, containerID, shell string) {
+	defer conn.Close()
+	client, err := dialSSH(host)
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("SSH连接失败: "+err.Error()))
+		return
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("创建会话失败: "+err.Error()))
+		return
+	}
+	defer session.Close()
+
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          1,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+	if err := session.RequestPty("xterm-256color", 40, 120, modes); err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("请求PTY失败: "+err.Error()))
+		return
+	}
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("打开stdin失败"))
+		return
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("打开stdout失败"))
+		return
+	}
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("打开stderr失败"))
+		return
+	}
+
+	cmd := fmt.Sprintf("docker exec -it %s %s", containerID, shell)
+	if err := session.Start(cmd); err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte("执行失败: "+err.Error()))
+		return
+	}
+
+	go streamToWS(conn, stdout)
+	go streamToWS(conn, stderr)
+
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		if resize, ok := parseResizeMessage(message); ok {
+			_ = session.WindowChange(resize.rows, resize.cols)
+			continue
+		}
+		_, _ = stdin.Write(message)
+	}
+}
+
+type resizePayload struct {
+	Type string `json:"type"`
+	Cols int    `json:"cols"`
+	Rows int    `json:"rows"`
+}
+
+func parseResizeMessage(message []byte) (resizePayload, bool) {
+	var payload resizePayload
+	if err := json.Unmarshal(message, &payload); err != nil {
+		return payload, false
+	}
+	if payload.Type == "resize" && payload.Cols > 0 && payload.Rows > 0 {
+		return payload, true
+	}
+	return payload, false
+}
+
+func isResizeMessage(message []byte) bool {
+	_, ok := parseResizeMessage(message)
+	return ok
+}
+
+func streamToWS(conn *websocket.Conn, reader io.Reader) {
+	buf := make([]byte, 4096)
+	for {
+		n, err := reader.Read(buf)
+		if err != nil {
+			return
+		}
+		if n > 0 {
+			_ = conn.WriteMessage(websocket.BinaryMessage, buf[:n])
+		}
+	}
+}
+
+func dialSSH(host *cmdb.Host) (*ssh.Client, error) {
+	var authMethods []ssh.AuthMethod
+	if host.Credential == nil {
+		return nil, fmt.Errorf("主机未配置凭据")
+	}
+	if host.Credential.Password != "" {
+		authMethods = append(authMethods, ssh.Password(host.Credential.Password))
+	}
+	if host.Credential.PrivateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(host.Credential.PrivateKey))
+		if err == nil {
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+		}
+	}
+
+	cfg := &ssh.ClientConfig{
+		User:            host.Credential.Username,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+
+	addr := fmt.Sprintf("%s:%d", host.IP, host.Port)
+	conn, err := net.DialTimeout("tcp", addr, cfg.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return ssh.NewClient(sshConn, chans, reqs), nil
 }
