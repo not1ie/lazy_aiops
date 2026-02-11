@@ -61,6 +61,8 @@
           </template>
           <el-menu-item index="/monitor/overview">监控概览</el-menu-item>
           <el-menu-item index="/monitor/metrics">指标采集</el-menu-item>
+          <el-menu-item index="/monitor/containers">容器监控</el-menu-item>
+          <el-menu-item index="/monitor/pods">Pod监控</el-menu-item>
           <el-menu-item index="/monitor/agents">Agent心跳</el-menu-item>
           <el-menu-item index="/alert/rules">告警规则</el-menu-item>
           <el-menu-item index="/alert/events">告警事件</el-menu-item>
