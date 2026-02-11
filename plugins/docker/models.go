@@ -24,12 +24,12 @@ func (b *BaseModel) BeforeCreate(tx *gorm.DB) error {
 // DockerHost Docker主机
 type DockerHost struct {
 	BaseModel
-	Name      string `gorm:"size:128" json:"name"`
-	HostID    string `gorm:"size:36" json:"host_id"` // 关联CMDB Host
-	Status    string `gorm:"size:32" json:"status"` // online, offline
-	Version   string `gorm:"size:64" json:"version"`
-	ContainerCount int `json:"container_count"`
-	ImageCount     int `json:"image_count"`
+	Name           string `gorm:"size:128" json:"name"`
+	HostID         string `gorm:"size:36" json:"host_id"` // 关联CMDB Host
+	Status         string `gorm:"size:32" json:"status"`  // online, offline
+	Version        string `gorm:"size:64" json:"version"`
+	ContainerCount int    `json:"container_count"`
+	ImageCount     int    `json:"image_count"`
 }
 
 // DockerContainer 容器信息
@@ -37,6 +37,7 @@ type DockerContainer struct {
 	ID      string   `json:"id"`
 	Names   []string `json:"names"`
 	Image   string   `json:"image"`
+	ImageID string   `json:"image_id"`
 	State   string   `json:"state"`
 	Status  string   `json:"status"`
 	Created string   `json:"created"` // Changed from int64 to string

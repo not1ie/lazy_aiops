@@ -86,7 +86,7 @@ func (h *DockerHandler) TestConnection(c *gin.Context) {
 	// 3. PS JSON (List)
 	cmdPsJson := "docker ps -a --format '{{json .}}'"
 	outPsJson, errPsJson, _ := client.Execute(cmdPsJson)
-	
+
 	result := gin.H{
 		"step1_info": gin.H{
 			"cmd": cmdInfo,
@@ -132,7 +132,7 @@ func (h *DockerHandler) SyncHosts(c *gin.Context) {
 // GetHostInfo 获取主机概览信息 (Docker Info)
 func (h *DockerHandler) GetHostInfo(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	// 强制同步一次
 	if err := h.syncHostInternal(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "同步失败: " + err.Error()})
@@ -156,12 +156,12 @@ func (h *DockerHandler) syncHostInternal(id string) error {
 
 	// 使用 docker system info 更稳健
 	stdout, stderr, err := client.Execute("docker system info --format '{{json .}}'")
-	
+
 	// 即使 err != nil，有时候 stdout 也有内容（比如有警告）
 	// 但如果 err != nil 且 stderr 有严重错误，那肯定是挂了
 	if err != nil && stdout == "" {
 		h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
-			"status": "error", 
+			"status":  "error",
 			"version": fmt.Sprintf("Error: %s", stderr),
 		})
 		return err
@@ -171,16 +171,16 @@ func (h *DockerHandler) syncHostInternal(id string) error {
 	if err := json.Unmarshal([]byte(stdout), &info); err != nil {
 		// JSON 解析失败
 		h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
-			"status": "error",
+			"status":  "error",
 			"version": "JSON Parse Error",
 		})
 		return fmt.Errorf("JSON parse failed: %v | Output: %s", err, stdout)
 	}
-	
+
 	updates := map[string]interface{}{
 		"status": "online",
 	}
-	
+
 	if v, ok := info["Containers"].(float64); ok {
 		updates["container_count"] = int(v)
 	}
@@ -269,31 +269,33 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 	for _, item := range rawList {
 		// 容错处理：Docker CLI 返回的 Key 可能是 ID, Names, Image 等 (PascalCase)
 		// 我们将其映射到 DockerContainer (camelCase json tags)
-		
+
 		id, _ := item["ID"].(string)
-		
+
 		// Names 可能是 "name1,name2" 字符串，我们需要转为数组
 		namesStr, _ := item["Names"].(string)
 		names := strings.Split(namesStr, ",")
-		
+
 		image, _ := item["Image"].(string)
+		imageID, _ := item["ImageID"].(string)
 		state, _ := item["State"].(string)
 		status, _ := item["Status"].(string)
 		ports, _ := item["Ports"].(string)
 		createdStr, _ := item["CreatedAt"].(string)
-		
-		// 尝试解析时间 (Docker time format is tricky, keep it simple or raw string for now if needed, 
+
+		// 尝试解析时间 (Docker time format is tricky, keep it simple or raw string for now if needed,
 		// but model expects int64 timestamp. Let's change model to string for display simplicity or parse it)
 		// For now, let's keep Created as int64 0 to avoid parsing errors, or update model.
-		// Actually, let's update the model to use string for 'created' to be safe, 
+		// Actually, let's update the model to use string for 'created' to be safe,
 		// OR just pass the string in a new field.
 		// To match existing frontend expectation, let's see.
 		// Frontend uses `c.Created` (Turn 36).
-		
+
 		containers = append(containers, DockerContainer{
 			ID:      id,
 			Names:   names,
 			Image:   image,
+			ImageID: imageID,
 			State:   state,
 			Status:  status,
 			Ports:   ports,
@@ -323,7 +325,7 @@ func (h *DockerHandler) InspectContainer(c *gin.Context) {
 	// docker inspect 返回的是一个数组，我们只取第一个
 	var result []interface{}
 	json.Unmarshal([]byte(stdout), &result)
-	
+
 	if len(result) > 0 {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "data": result[0]})
 	} else {
@@ -476,7 +478,7 @@ func (h *DockerHandler) PullImage(c *gin.Context) {
 func (h *DockerHandler) RemoveImage(c *gin.Context) {
 	id := c.Param("id")
 	imageID := c.Param("image_id")
-	
+
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
@@ -485,10 +487,39 @@ func (h *DockerHandler) RemoveImage(c *gin.Context) {
 
 	_, stderr, err := client.Execute(fmt.Sprintf("docker rmi %s", imageID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// PruneImages 清理悬挂镜像
+func (h *DockerHandler) PruneImages(c *gin.Context) {
+	id := c.Param("id")
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	cmd := "docker image prune -f --filter dangling=true"
+
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
 }
 
 // ================= Network Management =================

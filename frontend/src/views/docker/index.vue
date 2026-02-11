@@ -117,15 +117,25 @@
 
         <el-tab-pane label="镜像" name="images">
           <div class="tab-toolbar">
-            <el-button type="danger" plain :disabled="selectedImages.length === 0" @click="removeSelectedImages">
-              批量删除
-            </el-button>
-            <el-button type="primary" icon="Download" @click="openPullImage">拉取镜像</el-button>
-            <el-button icon="Refresh" @click="loadImages">刷新</el-button>
+            <div class="toolbar-left">
+              <el-input v-model="imageFilters.keyword" class="w-48" placeholder="仓库/Tag/ID" clearable />
+              <el-input v-model="imageFilters.minSize" class="w-28" placeholder="最小MB" clearable />
+              <el-input v-model="imageFilters.maxSize" class="w-28" placeholder="最大MB" clearable />
+              <el-checkbox v-model="imageFilters.danglingOnly">仅悬挂</el-checkbox>
+              <el-button plain @click="clearImageFilters">重置</el-button>
+            </div>
+            <div class="toolbar-right">
+              <el-button type="danger" plain :disabled="selectedImages.length === 0" @click="removeSelectedImages">
+                批量删除
+              </el-button>
+              <el-button type="warning" plain @click="pruneImages">清理悬挂</el-button>
+              <el-button type="primary" icon="Download" @click="openPullImage">拉取镜像</el-button>
+              <el-button icon="Refresh" @click="loadImages">刷新</el-button>
+            </div>
           </div>
           <el-table
             ref="imageTableRef"
-            :data="images"
+            :data="filteredImages"
             v-loading="imagesLoading"
             style="width: 100%"
             :row-key="row => row.id"
@@ -246,6 +256,30 @@
       <template #footer>
         <el-button @click="pullVisible = false">关闭</el-button>
         <el-button type="primary" :loading="pullLoading" @click="submitPull">拉取</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 批量删除结果 -->
+    <el-dialog v-model="batchResultVisible" title="批量删除结果" width="720px">
+      <el-table :data="batchResultRows" style="width: 100%">
+        <el-table-column prop="label" label="镜像" min-width="220" />
+        <el-table-column prop="status" label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.status === '成功' ? 'success' : 'danger'">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="message" label="信息" min-width="240" />
+      </el-table>
+      <template #footer>
+        <el-button type="primary" @click="batchResultVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 清理悬挂镜像结果 -->
+    <el-dialog v-model="pruneVisible" title="清理结果" width="720px">
+      <el-input v-model="pruneOutput" type="textarea" :rows="10" readonly placeholder="输出" />
+      <template #footer>
+        <el-button type="primary" @click="pruneVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -381,6 +415,12 @@ const images = ref([])
 const imagesLoading = ref(false)
 const imageTableRef = ref(null)
 const selectedImages = ref([])
+const imageFilters = reactive({
+  keyword: '',
+  minSize: '',
+  maxSize: '',
+  danglingOnly: false
+})
 const networks = ref([])
 const networksLoading = ref(false)
 
@@ -456,6 +496,10 @@ const pullVisible = ref(false)
 const pullLoading = ref(false)
 const pullImage = ref('')
 const pullOutput = ref('')
+const pruneVisible = ref(false)
+const pruneOutput = ref('')
+const batchResultVisible = ref(false)
+const batchResultRows = ref([])
 
 const form = reactive({
   name: '',
@@ -472,6 +516,7 @@ const normalizeContainers = (items) => items.map((row) => {
     id,
     names,
     image: row.Image || row.image || '-',
+    imageId: row.ImageID || row.ImageId || row.image_id || row.imageID || '',
     state: row.State || row.state || '-',
     status: row.Status || row.status || '-',
     created: row.Created || row.created || row.CreatedAt || row.created_at || '-'
@@ -492,6 +537,55 @@ const normalizeNetworks = (items) => items.map((row) => ({
   driver: row.Driver || row.driver || '-',
   scope: row.Scope || row.scope || '-'
 }))
+
+const parseSizeToMB = (value) => {
+  if (!value) return NaN
+  const text = String(value).trim()
+  const match = text.match(/^([0-9.]+)\s*([KMGTP]?B)$/i)
+  if (!match) return NaN
+  const num = Number(match[1])
+  if (Number.isNaN(num)) return NaN
+  const unit = match[2].toUpperCase()
+  switch (unit) {
+    case 'KB': return num / 1024
+    case 'MB': return num
+    case 'GB': return num * 1024
+    case 'TB': return num * 1024 * 1024
+    case 'PB': return num * 1024 * 1024 * 1024
+    default: return num / (1024 * 1024)
+  }
+}
+
+const isDanglingImage = (row) => {
+  const repo = (row.repository || '').toLowerCase()
+  const tag = (row.tag || '').toLowerCase()
+  return repo === '<none>' || tag === '<none>'
+}
+
+const filteredImages = computed(() => {
+  let list = images.value.slice()
+  const kw = imageFilters.keyword.trim().toLowerCase()
+  if (kw) {
+    list = list.filter((row) => {
+      const repo = String(row.repository || '').toLowerCase()
+      const tag = String(row.tag || '').toLowerCase()
+      const id = String(row.id || '').toLowerCase()
+      return repo.includes(kw) || tag.includes(kw) || id.includes(kw)
+    })
+  }
+  if (imageFilters.danglingOnly) {
+    list = list.filter(isDanglingImage)
+  }
+  const min = parseSizeToMB(imageFilters.minSize)
+  if (!Number.isNaN(min)) {
+    list = list.filter(row => parseSizeToMB(row.size) >= min)
+  }
+  const max = parseSizeToMB(imageFilters.maxSize)
+  if (!Number.isNaN(max)) {
+    list = list.filter(row => parseSizeToMB(row.size) <= max)
+  }
+  return list
+})
 
 const fetchData = async () => {
   loading.value = true
@@ -655,6 +749,103 @@ const loadStacks = async () => {
   } finally {
     stacksLoading.value = false
   }
+}
+
+const clearImageFilters = () => {
+  imageFilters.keyword = ''
+  imageFilters.minSize = ''
+  imageFilters.maxSize = ''
+  imageFilters.danglingOnly = false
+}
+
+const formatImageLabel = (row) => {
+  const repo = row.repository || ''
+  const tag = row.tag || ''
+  if (repo && repo !== '<none>' && tag && tag !== '<none>') {
+    return `${repo}:${tag}`
+  }
+  return row.id || repo || '-'
+}
+
+const extractErrorMessage = (e) => {
+  const msg = e?.response?.data?.message || e?.message || '操作失败'
+  return String(msg)
+}
+
+const fetchContainersForUsage = async () => {
+  if (!activeHost.value) return []
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      return normalizeContainers(res.data.data || [])
+    }
+  } catch (e) {}
+  return []
+}
+
+const buildUsageMap = (list) => {
+  const idMap = new Map()
+  const nameMap = new Map()
+  list.forEach((c) => {
+    const name = c.names || c.id || '-'
+    const imageId = (c.imageId || '').replace(/^sha256:/, '')
+    if (imageId) {
+      const arr = idMap.get(imageId) || []
+      arr.push(name)
+      idMap.set(imageId, arr)
+    }
+    const imageName = c.image || ''
+    if (imageName) {
+      const arr = nameMap.get(imageName) || []
+      arr.push(name)
+      nameMap.set(imageName, arr)
+    }
+  })
+  return { idMap, nameMap }
+}
+
+const getImageUsage = (rows, usage) => {
+  const result = []
+  rows.forEach((row) => {
+    const label = formatImageLabel(row)
+    const imageId = String(row.id || '').replace(/^sha256:/, '')
+    let containers = []
+    if (imageId) {
+      usage.idMap.forEach((names, key) => {
+        if (key.startsWith(imageId)) {
+          containers = containers.concat(names)
+        }
+      })
+    }
+    if (containers.length === 0) {
+      const repo = row.repository || ''
+      const tag = row.tag || ''
+      if (repo && tag && repo !== '<none>' && tag !== '<none>') {
+        const imageName = `${repo}:${tag}`
+        containers = (usage.nameMap.get(imageName) || []).slice()
+      }
+    }
+    if (containers.length > 0) {
+      result.push({ label, containers })
+    }
+  })
+  return result
+}
+
+const confirmDeleteImages = async (rows) => {
+  const containers = await fetchContainersForUsage()
+  const usageMap = buildUsageMap(containers)
+  const used = getImageUsage(rows, usageMap)
+  let message = `确定删除选中的 ${rows.length} 个镜像吗?`
+  if (used.length > 0) {
+    const lines = used.map((u) => `${u.label} -> ${u.containers.join(', ')}`).join('\n')
+    message = `以下镜像正在被容器使用，删除可能失败：\n${lines}\n\n是否继续?`
+  }
+  await ElMessageBox.confirm(message, '警告', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning'
+  })
 }
 
 const openCreateContainer = () => {
@@ -958,19 +1149,45 @@ const submitPull = async () => {
   }
 }
 
+const pruneImages = async () => {
+  if (!activeHost.value) return
+  try {
+    await ElMessageBox.confirm('确定清理悬挂镜像吗?', '提示', {
+      confirmButtonText: '清理',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  try {
+    const res = await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/images/prune`, {}, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      pruneOutput.value = res.data.data?.output || '清理完成'
+      pruneVisible.value = true
+      loadImages()
+      refreshManage()
+    } else {
+      ElMessage.error(res.data.message || '清理失败')
+    }
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e))
+  }
+}
+
 const removeImage = (row) => {
   if (!activeHost.value) return
   const id = row.id
   if (!id) return
-  ElMessageBox.confirm('确定删除镜像吗?', '警告', {
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(async () => {
-    await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/images/${encodeURIComponent(id)}`, { headers: authHeaders() })
-    ElMessage.success('删除成功')
-    loadImages()
-  })
+  confirmDeleteImages([row]).then(async () => {
+    try {
+      await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/images/${encodeURIComponent(id)}`, { headers: authHeaders() })
+      ElMessage.success('删除成功')
+      loadImages()
+    } catch (e) {
+      ElMessage.error(extractErrorMessage(e))
+    }
+  }).catch(() => {})
 }
 
 const onImageSelectionChange = (rows) => {
@@ -985,22 +1202,21 @@ const removeSelectedImages = async () => {
     return
   }
   try {
-    await ElMessageBox.confirm(`确定删除选中的 ${rows.length} 个镜像吗?`, '警告', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
+    await confirmDeleteImages(rows)
   } catch (e) {
     return
   }
   let ok = 0
   let fail = 0
+  const results = []
   for (const row of rows) {
     try {
       await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/images/${encodeURIComponent(row.id)}`, { headers: authHeaders() })
       ok += 1
+      results.push({ label: formatImageLabel(row), status: '成功', message: '删除成功' })
     } catch (e) {
       fail += 1
+      results.push({ label: formatImageLabel(row), status: '失败', message: extractErrorMessage(e) })
     }
   }
   if (fail === 0) {
@@ -1008,6 +1224,8 @@ const removeSelectedImages = async () => {
   } else {
     ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
   }
+  batchResultRows.value = results
+  batchResultVisible.value = true
   loadImages()
 }
 
@@ -1057,8 +1275,12 @@ onMounted(() => {
 .drawer-sub { color: #606266; margin-top: 6px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .drawer-meta { color: #909399; }
 .w-40 { width: 140px; }
+.w-48 { width: 180px; }
+.w-28 { width: 110px; }
 .manage-tabs { margin-top: 8px; }
-.tab-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+.tab-toolbar { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.toolbar-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.toolbar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .diagnose-block { display: flex; flex-direction: column; gap: 12px; }
 .diagnose-title { font-weight: 600; }
 .diagnose-pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 200px; }

@@ -40,20 +40,21 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.DELETE("/hosts/:id", h.DeleteHost)
 	g.GET("/hosts/:id/info", h.GetHostInfo)
 	g.POST("/hosts/:id/test", h.TestConnection) // 新增测试接口
-	
+
 	// Containers
 	g.GET("/hosts/:id/containers", h.ListContainers)
 	g.POST("/hosts/:id/containers", h.CreateContainer) // 创建容器
 	g.GET("/hosts/:id/containers/:container_id", h.InspectContainer)
-	g.GET("/hosts/:id/containers/:container_id/logs", h.ContainerLogs) // 日志
-	g.POST("/hosts/:id/containers/:container_id/exec", h.ExecContainer) // 执行命令
+	g.GET("/hosts/:id/containers/:container_id/logs", h.ContainerLogs)       // 日志
+	g.POST("/hosts/:id/containers/:container_id/exec", h.ExecContainer)      // 执行命令
 	g.POST("/hosts/:id/containers/:container_id/:action", h.ContainerAction) // action: start, stop, restart, remove
-	
+
 	// Images
 	g.GET("/hosts/:id/images", h.ListImages)
 	g.POST("/hosts/:id/images/pull", h.PullImage) // 拉取镜像
 	g.DELETE("/hosts/:id/images/:image_id", h.RemoveImage)
-	
+	g.POST("/hosts/:id/images/prune", h.PruneImages)
+
 	// Networks
 	g.GET("/hosts/:id/networks", h.ListNetworks)
 
