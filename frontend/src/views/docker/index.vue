@@ -117,10 +117,21 @@
 
         <el-tab-pane label="镜像" name="images">
           <div class="tab-toolbar">
+            <el-button type="danger" plain :disabled="selectedImages.length === 0" @click="removeSelectedImages">
+              批量删除
+            </el-button>
             <el-button type="primary" icon="Download" @click="openPullImage">拉取镜像</el-button>
             <el-button icon="Refresh" @click="loadImages">刷新</el-button>
           </div>
-          <el-table :data="images" v-loading="imagesLoading" style="width: 100%">
+          <el-table
+            ref="imageTableRef"
+            :data="images"
+            v-loading="imagesLoading"
+            style="width: 100%"
+            :row-key="row => row.id"
+            @selection-change="onImageSelectionChange"
+          >
+            <el-table-column type="selection" width="48" />
             <el-table-column prop="repository" label="仓库" min-width="200" />
             <el-table-column prop="tag" label="Tag" width="120" />
             <el-table-column prop="id" label="ID" min-width="180" />
@@ -368,6 +379,8 @@ const containers = ref([])
 const containersLoading = ref(false)
 const images = ref([])
 const imagesLoading = ref(false)
+const imageTableRef = ref(null)
+const selectedImages = ref([])
 const networks = ref([])
 const networksLoading = ref(false)
 
@@ -597,6 +610,8 @@ const loadImages = async () => {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/images`, { headers: authHeaders() })
     if (res.data.code === 0) {
       images.value = normalizeImages(res.data.data || [])
+      selectedImages.value = []
+      imageTableRef.value?.clearSelection?.()
     }
   } finally {
     imagesLoading.value = false
@@ -956,6 +971,44 @@ const removeImage = (row) => {
     ElMessage.success('删除成功')
     loadImages()
   })
+}
+
+const onImageSelectionChange = (rows) => {
+  selectedImages.value = rows || []
+}
+
+const removeSelectedImages = async () => {
+  if (!activeHost.value) return
+  const rows = selectedImages.value.filter(r => r.id && r.id !== '-')
+  if (rows.length === 0) {
+    ElMessage.warning('请选择要删除的镜像')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${rows.length} 个镜像吗?`, '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    try {
+      await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/images/${encodeURIComponent(row.id)}`, { headers: authHeaders() })
+      ok += 1
+    } catch (e) {
+      fail += 1
+    }
+  }
+  if (fail === 0) {
+    ElMessage.success(`已删除 ${ok} 个镜像`)
+  } else {
+    ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
+  }
+  loadImages()
 }
 
 const handleDiagnose = async (row) => {
