@@ -436,6 +436,22 @@ func (h *DockerHandler) CreateContainer(c *gin.Context) {
 		HealthTimeout     string            `json:"health_timeout"`
 		HealthRetries     *int              `json:"health_retries"`
 		HealthStartPeriod string            `json:"health_start_period"`
+		User              string            `json:"user"`
+		Workdir           string            `json:"workdir"`
+		Hostname          string            `json:"hostname"`
+		Runtime           string            `json:"runtime"`
+		ReadOnly          bool              `json:"read_only"`
+		CPUs              string            `json:"cpus"`
+		Memory            string            `json:"memory"`
+		MemoryReservation string            `json:"memory_reservation"`
+		PidsLimit         *int              `json:"pids_limit"`
+		Ulimits           []string          `json:"ulimits"`
+		Sysctls           map[string]string `json:"sysctls"`
+		SecurityOpt       []string          `json:"security_opt"`
+		Devices           []string          `json:"devices"`
+		Tmpfs             []string          `json:"tmpfs"`
+		LogDriver         string            `json:"log_driver"`
+		LogOpts           map[string]string `json:"log_opts"`
 		RestartPolicy     string            `json:"restart_policy"`
 		AutoRemove        bool              `json:"auto_remove"`
 	}
@@ -456,6 +472,18 @@ func (h *DockerHandler) CreateContainer(c *gin.Context) {
 
 	if req.Name != "" {
 		cmdBuilder.WriteString(fmt.Sprintf(" --name %s", shellEscape(req.Name)))
+	}
+	if req.User != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --user %s", shellEscape(req.User)))
+	}
+	if req.Workdir != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --workdir %s", shellEscape(req.Workdir)))
+	}
+	if req.Hostname != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --hostname %s", shellEscape(req.Hostname)))
+	}
+	if req.Runtime != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --runtime %s", shellEscape(req.Runtime)))
 	}
 
 	for _, p := range req.Ports {
@@ -484,11 +512,58 @@ func (h *DockerHandler) CreateContainer(c *gin.Context) {
 	if req.Privileged {
 		cmdBuilder.WriteString(" --privileged")
 	}
+	if req.ReadOnly {
+		cmdBuilder.WriteString(" --read-only")
+	}
+	if req.CPUs != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --cpus %s", shellEscape(req.CPUs)))
+	}
+	if req.Memory != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --memory %s", shellEscape(req.Memory)))
+	}
+	if req.MemoryReservation != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --memory-reservation %s", shellEscape(req.MemoryReservation)))
+	}
+	if req.PidsLimit != nil && *req.PidsLimit >= 0 {
+		cmdBuilder.WriteString(fmt.Sprintf(" --pids-limit %d", *req.PidsLimit))
+	}
 
 	for _, cap := range req.CapAdd {
 		cap = strings.TrimSpace(cap)
 		if cap != "" {
 			cmdBuilder.WriteString(fmt.Sprintf(" --cap-add %s", shellEscape(cap)))
+		}
+	}
+
+	for _, opt := range req.SecurityOpt {
+		opt = strings.TrimSpace(opt)
+		if opt != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --security-opt %s", shellEscape(opt)))
+		}
+	}
+
+	for _, u := range req.Ulimits {
+		u = strings.TrimSpace(u)
+		if u != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --ulimit %s", shellEscape(u)))
+		}
+	}
+
+	for k, v := range req.Sysctls {
+		cmdBuilder.WriteString(fmt.Sprintf(" --sysctl %s", shellEscape(fmt.Sprintf("%s=%s", k, v))))
+	}
+
+	for _, dev := range req.Devices {
+		dev = strings.TrimSpace(dev)
+		if dev != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --device %s", shellEscape(dev)))
+		}
+	}
+
+	for _, t := range req.Tmpfs {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --tmpfs %s", shellEscape(t)))
 		}
 	}
 
@@ -504,6 +579,13 @@ func (h *DockerHandler) CreateContainer(c *gin.Context) {
 		if host != "" {
 			cmdBuilder.WriteString(fmt.Sprintf(" --add-host %s", shellEscape(host)))
 		}
+	}
+
+	if req.LogDriver != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --log-driver %s", shellEscape(req.LogDriver)))
+	}
+	for k, v := range req.LogOpts {
+		cmdBuilder.WriteString(fmt.Sprintf(" --log-opt %s", shellEscape(fmt.Sprintf("%s=%s", k, v))))
 	}
 
 	if req.HealthDisable {

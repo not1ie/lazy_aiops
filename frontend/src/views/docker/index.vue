@@ -617,6 +617,57 @@
         <el-form-item label="Start Period">
           <el-input v-model="createForm.health_start_period" :disabled="createForm.health_disable" placeholder="如 10s" />
         </el-form-item>
+        <el-divider content-position="left">资源限制</el-divider>
+        <el-form-item label="CPUs">
+          <el-input v-model="createForm.cpus" placeholder="如 0.5" />
+        </el-form-item>
+        <el-form-item label="Memory">
+          <el-input v-model="createForm.memory" placeholder="如 512M" />
+        </el-form-item>
+        <el-form-item label="Memory Reservation">
+          <el-input v-model="createForm.memory_reservation" placeholder="如 256M" />
+        </el-form-item>
+        <el-form-item label="Pids Limit">
+          <el-input v-model="createForm.pids_limit" placeholder="如 200" />
+        </el-form-item>
+        <el-divider content-position="left">安全与系统</el-divider>
+        <el-form-item label="User">
+          <el-input v-model="createForm.user" placeholder="如 1000:1000" />
+        </el-form-item>
+        <el-form-item label="Workdir">
+          <el-input v-model="createForm.workdir" placeholder="如 /app" />
+        </el-form-item>
+        <el-form-item label="Hostname">
+          <el-input v-model="createForm.hostname" placeholder="可选" />
+        </el-form-item>
+        <el-form-item label="Runtime">
+          <el-input v-model="createForm.runtime" placeholder="如 runc" />
+        </el-form-item>
+        <el-form-item label="Read-only">
+          <el-switch v-model="createForm.read_only" />
+        </el-form-item>
+        <el-form-item label="Ulimits">
+          <el-input v-model="createForm.ulimits" type="textarea" :rows="2" placeholder="每行一条，如 nofile=1024:2048" />
+        </el-form-item>
+        <el-form-item label="Sysctls">
+          <el-input v-model="createForm.sysctls" type="textarea" :rows="2" placeholder="KEY=VALUE，每行一个" />
+        </el-form-item>
+        <el-form-item label="Security Opt">
+          <el-input v-model="createForm.security_opt" type="textarea" :rows="2" placeholder="每行一个，如 no-new-privileges" />
+        </el-form-item>
+        <el-form-item label="Devices">
+          <el-input v-model="createForm.devices" type="textarea" :rows="2" placeholder="每行一条，如 /dev/sda:/dev/xvda:rwm" />
+        </el-form-item>
+        <el-form-item label="Tmpfs">
+          <el-input v-model="createForm.tmpfs" type="textarea" :rows="2" placeholder="每行一条，如 /tmp:rw,noexec,nosuid,size=64m" />
+        </el-form-item>
+        <el-divider content-position="left">日志</el-divider>
+        <el-form-item label="Log Driver">
+          <el-input v-model="createForm.log_driver" placeholder="如 json-file 或 syslog" />
+        </el-form-item>
+        <el-form-item label="Log Opts">
+          <el-input v-model="createForm.log_opts" type="textarea" :rows="2" placeholder="KEY=VALUE，每行一个" />
+        </el-form-item>
         <el-form-item label="重启策略">
           <el-select v-model="createForm.restart_policy" placeholder="不设置">
             <el-option label="不设置" value="" />
@@ -1025,6 +1076,15 @@
           <el-descriptions-item label="Command">{{ inspectCommand || '-' }}</el-descriptions-item>
         </el-descriptions>
 
+        <el-divider content-position="left">运行参数</el-divider>
+        <el-descriptions :column="3" border>
+          <el-descriptions-item label="User">{{ inspectUser || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Workdir">{{ inspectWorkdir || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Hostname">{{ inspectHostname || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Runtime">{{ inspectRuntime || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Read-only">{{ inspectReadOnly ? 'true' : 'false' }}</el-descriptions-item>
+        </el-descriptions>
+
         <el-divider content-position="left">Labels</el-divider>
         <el-table :data="inspectLabels" style="width: 100%">
           <el-table-column prop="key" label="Key" min-width="200" />
@@ -1036,6 +1096,17 @@
           <el-descriptions-item label="Cap Add">{{ inspectCapAdd?.join(', ') || '-' }}</el-descriptions-item>
           <el-descriptions-item label="DNS">{{ inspectDns?.join(', ') || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Extra Hosts">{{ inspectExtraHosts?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Security Opt">{{ inspectSecurityOpt?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Sysctls">{{ inspectSysctls?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Ulimits">{{ inspectUlimits?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Devices">{{ inspectDevices?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Tmpfs">{{ inspectTmpfs?.join(', ') || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">日志配置</el-divider>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="Log Driver">{{ inspectLogDriver || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Log Opts">{{ inspectLogOpts?.join(', ') || '-' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-divider content-position="left">资源限制</el-divider>
@@ -1198,6 +1269,11 @@
 
     <!-- Stack 服务弹窗 -->
     <el-dialog v-model="stackVisible" title="Stack 服务" width="90%" append-to-body>
+      <el-descriptions v-if="stackSummary" :column="3" border>
+        <el-descriptions-item label="服务数">{{ stackSummary.total }}</el-descriptions-item>
+        <el-descriptions-item label="运行中">{{ stackSummary.running }}</el-descriptions-item>
+        <el-descriptions-item label="期望副本">{{ stackSummary.desired }}</el-descriptions-item>
+      </el-descriptions>
       <el-table :data="stackServices" v-loading="stackLoading" style="width: 100%">
         <el-table-column prop="Name" label="名称" min-width="220" />
         <el-table-column prop="Mode" label="模式" width="120" />
@@ -1689,6 +1765,18 @@ const inspectDns = ref([])
 const inspectExtraHosts = ref([])
 const inspectHealth = ref(null)
 const inspectResources = ref(null)
+const inspectUser = ref('')
+const inspectWorkdir = ref('')
+const inspectHostname = ref('')
+const inspectRuntime = ref('')
+const inspectReadOnly = ref(false)
+const inspectSecurityOpt = ref([])
+const inspectSysctls = ref([])
+const inspectUlimits = ref([])
+const inspectDevices = ref([])
+const inspectTmpfs = ref([])
+const inspectLogDriver = ref('')
+const inspectLogOpts = ref([])
 
 const execVisible = ref(false)
 const execLoading = ref(false)
@@ -1716,6 +1804,7 @@ const serviceLogTargetId = ref('')
 const stackVisible = ref(false)
 const stackLoading = ref(false)
 const stackServices = ref([])
+const stackSummary = ref(null)
 
 const serviceStacks = computed(() => {
   const set = new Set()
@@ -1825,6 +1914,22 @@ const createForm = reactive({
   health_timeout: '',
   health_retries: '',
   health_start_period: '',
+  user: '',
+  workdir: '',
+  hostname: '',
+  read_only: false,
+  runtime: '',
+  cpus: '',
+  memory: '',
+  memory_reservation: '',
+  pids_limit: '',
+  ulimits: '',
+  sysctls: '',
+  security_opt: '',
+  devices: '',
+  tmpfs: '',
+  log_driver: '',
+  log_opts: '',
   restart_policy: '',
   auto_remove: false
 })
@@ -3780,6 +3885,22 @@ const openCreateContainer = () => {
   createForm.health_timeout = ''
   createForm.health_retries = ''
   createForm.health_start_period = ''
+  createForm.user = ''
+  createForm.workdir = ''
+  createForm.hostname = ''
+  createForm.runtime = ''
+  createForm.read_only = false
+  createForm.cpus = ''
+  createForm.memory = ''
+  createForm.memory_reservation = ''
+  createForm.pids_limit = ''
+  createForm.ulimits = ''
+  createForm.sysctls = ''
+  createForm.security_opt = ''
+  createForm.devices = ''
+  createForm.tmpfs = ''
+  createForm.log_driver = ''
+  createForm.log_opts = ''
   createForm.restart_policy = ''
   createForm.auto_remove = false
   createVisible.value = true
@@ -3818,6 +3939,14 @@ const submitCreate = async () => {
     ElMessage.warning('Health Retries 必须是数字')
     return
   }
+  if (createForm.cpus && Number.isNaN(Number(createForm.cpus))) {
+    ElMessage.warning('CPUs 必须是数字')
+    return
+  }
+  if (createForm.pids_limit && Number.isNaN(Number(createForm.pids_limit))) {
+    ElMessage.warning('Pids Limit 必须是数字')
+    return
+  }
   createLoading.value = true
   try {
     const ports = String(createForm.ports || '')
@@ -3845,6 +3974,22 @@ const submitCreate = async () => {
       health_timeout: String(createForm.health_timeout || '').trim(),
       health_retries: createForm.health_retries ? Number(createForm.health_retries) : undefined,
       health_start_period: String(createForm.health_start_period || '').trim(),
+      user: String(createForm.user || '').trim(),
+      workdir: String(createForm.workdir || '').trim(),
+      hostname: String(createForm.hostname || '').trim(),
+      runtime: String(createForm.runtime || '').trim(),
+      read_only: !!createForm.read_only,
+      cpus: String(createForm.cpus || '').trim(),
+      memory: String(createForm.memory || '').trim(),
+      memory_reservation: String(createForm.memory_reservation || '').trim(),
+      pids_limit: createForm.pids_limit ? Number(createForm.pids_limit) : undefined,
+      ulimits: parseListText(createForm.ulimits),
+      sysctls: parseKeyValueText(createForm.sysctls),
+      security_opt: parseListText(createForm.security_opt),
+      devices: parseListText(createForm.devices),
+      tmpfs: parseListText(createForm.tmpfs),
+      log_driver: String(createForm.log_driver || '').trim(),
+      log_opts: parseKeyValueText(createForm.log_opts),
       restart_policy: createForm.restart_policy,
       auto_remove: createForm.auto_remove
     }
@@ -3907,6 +4052,18 @@ const openInspect = async (row) => {
   inspectExtraHosts.value = []
   inspectHealth.value = null
   inspectResources.value = null
+  inspectUser.value = ''
+  inspectWorkdir.value = ''
+  inspectHostname.value = ''
+  inspectRuntime.value = ''
+  inspectReadOnly.value = false
+  inspectSecurityOpt.value = []
+  inspectSysctls.value = []
+  inspectUlimits.value = []
+  inspectDevices.value = []
+  inspectTmpfs.value = []
+  inspectLogDriver.value = ''
+  inspectLogOpts.value = []
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(id)}`, { headers: authHeaders() })
     if (res.data.code === 0) {
@@ -3971,6 +4128,18 @@ const openInspect = async (row) => {
         blkioWeight: hostConfig.BlkioWeight ?? '',
         logDriver: hostConfig.LogConfig?.Type || ''
       }
+      inspectUser.value = config.User || ''
+      inspectWorkdir.value = config.WorkingDir || ''
+      inspectHostname.value = config.Hostname || inspectData.value?.Config?.Hostname || ''
+      inspectRuntime.value = hostConfig.Runtime || ''
+      inspectReadOnly.value = !!hostConfig.ReadonlyRootfs
+      inspectSecurityOpt.value = hostConfig.SecurityOpt || []
+      inspectSysctls.value = Object.entries(hostConfig.Sysctls || {}).map(([k, v]) => `${k}=${v}`)
+      inspectUlimits.value = (hostConfig.Ulimits || []).map(u => `${u.Name}=${u.Soft}:${u.Hard}`)
+      inspectDevices.value = (hostConfig.Devices || []).map(d => `${d.PathOnHost}:${d.PathInContainer}:${d.CgroupPermissions}`)
+      inspectTmpfs.value = Object.entries(hostConfig.Tmpfs || {}).map(([k, v]) => `${k}:${v}`)
+      inspectLogDriver.value = hostConfig.LogConfig?.Type || ''
+      inspectLogOpts.value = Object.entries(hostConfig.LogConfig?.Config || {}).map(([k, v]) => `${k}=${v}`)
     }
   } finally {
     inspectLoading.value = false
@@ -4516,10 +4685,24 @@ const openStackServices = async (row) => {
   stackVisible.value = true
   stackLoading.value = true
   stackServices.value = []
+  stackSummary.value = null
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/${encodeURIComponent(row.Name)}/services`, { headers: authHeaders() })
     if (res.data.code === 0) {
       stackServices.value = res.data.data || []
+      const summary = { total: stackServices.value.length, desired: 0, running: 0, warning: 0 }
+      stackServices.value.forEach((s) => {
+        const rep = String(s.Replicas || '')
+        const match = rep.match(/(\d+)\s*\/\s*(\d+)/)
+        if (match) {
+          const running = Number(match[1])
+          const desired = Number(match[2])
+          summary.running += Number.isNaN(running) ? 0 : running
+          summary.desired += Number.isNaN(desired) ? 0 : desired
+          if (running < desired) summary.warning += 1
+        }
+      })
+      stackSummary.value = summary
     }
   } finally {
     stackLoading.value = false
