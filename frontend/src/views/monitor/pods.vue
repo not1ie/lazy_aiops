@@ -53,10 +53,65 @@ const nsFilter = ref('')
 const topN = ref(50)
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
-const cpuQuery = (n) =>
-  `topk(${n}, sum by (pod, namespace, instance) (rate(container_cpu_usage_seconds_total{pod!=\"\",container!=\"POD\"}[5m])))`
-const memQuery = (n) =>
-  `topk(${n}, sum by (pod, namespace, instance) (container_memory_working_set_bytes{pod!=\"\",container!=\"POD\"}))`
+const cpuQuery = (n) => `topk(${n},
+  sum by (pod, namespace, instance) (
+    rate(container_cpu_usage_seconds_total{pod!="",container!="POD"}[5m])
+  )
+  or
+  sum by (pod, namespace, instance) (
+    rate(
+      label_replace(container_cpu_usage_seconds_total{name!=""}[5m],
+        "pod", "$1", "name", "(.*)"
+      )
+    )
+  )
+  or
+  sum by (pod, namespace, instance) (
+    rate(
+      label_replace(container_cpu_usage_seconds_total{container_label_com_docker_container_name!=""}[5m],
+        "pod", "$1", "container_label_com_docker_container_name", "(.*)"
+      )
+    )
+  )
+  or
+  sum by (pod, namespace, instance) (
+    rate(
+      label_replace(
+        label_replace(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name!=""}[5m],
+          "pod", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
+        ),
+        "namespace", "$1", "container_label_com_docker_stack_namespace", "(.*)"
+      )
+    )
+  )
+)`
+
+const memQuery = (n) => `topk(${n},
+  sum by (pod, namespace, instance) (
+    container_memory_working_set_bytes{pod!="",container!="POD"}
+  )
+  or
+  sum by (pod, namespace, instance) (
+    label_replace(container_memory_working_set_bytes{name!=""}
+      , "pod", "$1", "name", "(.*)"
+    )
+  )
+  or
+  sum by (pod, namespace, instance) (
+    label_replace(container_memory_working_set_bytes{container_label_com_docker_container_name!=""}
+      , "pod", "$1", "container_label_com_docker_container_name", "(.*)"
+    )
+  )
+  or
+  sum by (pod, namespace, instance) (
+    label_replace(
+      label_replace(container_memory_working_set_bytes{container_label_com_docker_swarm_service_name!=""}
+        , "pod", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
+      ),
+      "namespace", "$1", "container_label_com_docker_stack_namespace", "(.*)"
+    )
+  )
+)`
 
 const fetchProm = async (query) => {
   const res = await axios.get('/api/v1/monitor/prometheus/query', {

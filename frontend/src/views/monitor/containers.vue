@@ -49,10 +49,65 @@ const keyword = ref('')
 const topN = ref(50)
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
-const cpuQuery = (n) =>
-  `topk(${n}, sum by (container, instance, image) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])))`
-const memQuery = (n) =>
-  `topk(${n}, sum by (container, instance, image) (container_memory_working_set_bytes{container!="",container!="POD"}))`
+const cpuQuery = (n) => `topk(${n},
+  sum by (container, instance, image) (
+    rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])
+  )
+  or
+  sum by (container, instance, image) (
+    rate(label_replace(container_cpu_usage_seconds_total{name!=""}[5m],
+      "container", "$1", "name", "(.*)"
+    ))
+  )
+  or
+  sum by (container, instance, image) (
+    rate(label_replace(container_cpu_usage_seconds_total{container_label_com_docker_container_name!=""}[5m],
+      "container", "$1", "container_label_com_docker_container_name", "(.*)"
+    ))
+  )
+  or
+  sum by (container, instance, image) (
+    rate(label_replace(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name!=""}[5m],
+      "container", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
+    ))
+  )
+  or
+  sum by (container, instance, image) (
+    rate(label_replace(container_cpu_usage_seconds_total{container_label_com_docker_swarm_task_name!=""}[5m],
+      "container", "$1", "container_label_com_docker_swarm_task_name", "(.*)"
+    ))
+  )
+)`
+
+const memQuery = (n) => `topk(${n},
+  sum by (container, instance, image) (
+    container_memory_working_set_bytes{container!="",container!="POD"}
+  )
+  or
+  sum by (container, instance, image) (
+    label_replace(container_memory_working_set_bytes{name!=""}
+      , "container", "$1", "name", "(.*)"
+    )
+  )
+  or
+  sum by (container, instance, image) (
+    label_replace(container_memory_working_set_bytes{container_label_com_docker_container_name!=""}
+      , "container", "$1", "container_label_com_docker_container_name", "(.*)"
+    )
+  )
+  or
+  sum by (container, instance, image) (
+    label_replace(container_memory_working_set_bytes{container_label_com_docker_swarm_service_name!=""}
+      , "container", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
+    )
+  )
+  or
+  sum by (container, instance, image) (
+    label_replace(container_memory_working_set_bytes{container_label_com_docker_swarm_task_name!=""}
+      , "container", "$1", "container_label_com_docker_swarm_task_name", "(.*)"
+    )
+  )
+)`
 
 const fetchProm = async (query) => {
   const res = await axios.get('/api/v1/monitor/prometheus/query', {
