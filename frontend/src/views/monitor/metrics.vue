@@ -20,6 +20,7 @@
       <el-tag v-if="promInfo.version" type="info">Prometheus v{{ promInfo.version }}</el-tag>
       <span class="meta-text" v-if="promInfo.uptime">运行时长：{{ promInfo.uptime }}</span>
       <span class="meta-text" v-if="currentProm">当前：{{ currentProm }}</span>
+      <span class="meta-text" v-if="lastUpdated">刷新时间：{{ lastUpdated }}</span>
     </div>
 
     <el-divider />
@@ -143,6 +144,7 @@ import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 
 const realtime = ref({ cpu: 0, memory: 0, disk: 0, network: 0 })
+const lastUpdated = ref('')
 const query = ref('up')
 const mode = ref('instant')
 const rangeStart = ref('')
@@ -180,9 +182,57 @@ const onlyFavorite = ref(false)
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const fetchPromValue = async (query) => {
+  const res = await axios.get('/api/v1/monitor/prometheus/query', {
+    headers: authHeaders(),
+    params: { query }
+  })
+  if (res.data?.status && res.data.status !== 'success') {
+    throw new Error(res.data?.error || 'Prometheus 查询失败')
+  }
+  const result = res.data?.data?.result || []
+  if (!result.length) return 0
+  return Number(result[0]?.value?.[1] || 0)
+}
+
+const toFixedSafe = (val, digits = 2) => {
+  const num = Number(val)
+  if (!Number.isFinite(num)) return 0
+  return Number(num.toFixed(digits))
+}
+
 const fetchRealtime = async () => {
-  const res = await axios.get('/api/v1/monitor/metrics', { headers: authHeaders() })
-  realtime.value = res.data.data || realtime.value
+  try {
+    const res = await axios.get('/api/v1/monitor/metrics', { headers: authHeaders() })
+    if (res.data?.data) {
+      realtime.value = res.data.data
+    }
+  } catch (e) {
+    // fallback to Prometheus below
+  }
+
+  const allZero = ['cpu', 'memory', 'disk', 'network']
+    .every(key => Number(realtime.value?.[key] || 0) === 0)
+
+  if (allZero) {
+    try {
+      const [cpu, memory, disk, network] = await Promise.all([
+        fetchPromValue('avg(100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))'),
+        fetchPromValue('avg((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)'),
+        fetchPromValue('avg(100 - (node_filesystem_free_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100)'),
+        fetchPromValue('sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])) / 1024 / 1024')
+      ])
+      realtime.value = {
+        cpu: toFixedSafe(cpu, 2),
+        memory: toFixedSafe(memory, 2),
+        disk: toFixedSafe(disk, 2),
+        network: toFixedSafe(network, 2)
+      }
+    } catch (e) {
+      // keep fallback values
+    }
+  }
+  lastUpdated.value = new Date().toLocaleString()
 }
 
 const fetchSettings = async () => {

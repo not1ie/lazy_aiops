@@ -10,6 +10,10 @@
       </div>
     </div>
 
+    <div class="meta-row" v-if="lastRefresh">
+      <span class="meta-text">刷新时间：{{ lastRefresh }}</span>
+    </div>
+
     <el-alert type="info" :closable="false" show-icon>
       如果没有数据，请确认 Prometheus 已采集 kubelet/cAdvisor 指标；若需要重启次数等，请安装 kube-state-metrics。
     </el-alert>
@@ -45,12 +49,14 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
 const rows = ref([])
 const loading = ref(false)
 const keyword = ref('')
 const nsFilter = ref('')
 const topN = ref(50)
+const lastRefresh = ref('')
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const cpuQuery = (n) => `topk(${n},
@@ -59,29 +65,23 @@ const cpuQuery = (n) => `topk(${n},
   )
   or
   sum by (pod, namespace, instance) (
-    rate(
-      label_replace(container_cpu_usage_seconds_total{name!=""}[5m],
-        "pod", "$1", "name", "(.*)"
-      )
+    label_replace(rate(container_cpu_usage_seconds_total{name!=""}[5m]),
+      "pod", "$1", "name", "(.*)"
     )
   )
   or
   sum by (pod, namespace, instance) (
-    rate(
-      label_replace(container_cpu_usage_seconds_total{container_label_com_docker_container_name!=""}[5m],
-        "pod", "$1", "container_label_com_docker_container_name", "(.*)"
-      )
+    label_replace(rate(container_cpu_usage_seconds_total{container_label_com_docker_container_name!=""}[5m]),
+      "pod", "$1", "container_label_com_docker_container_name", "(.*)"
     )
   )
   or
   sum by (pod, namespace, instance) (
-    rate(
-      label_replace(
-        label_replace(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name!=""}[5m],
-          "pod", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
-        ),
-        "namespace", "$1", "container_label_com_docker_stack_namespace", "(.*)"
-      )
+    label_replace(
+      label_replace(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name!=""}[5m]),
+        "pod", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
+      ),
+      "namespace", "$1", "container_label_com_docker_stack_namespace", "(.*)"
     )
   )
 )`
@@ -116,8 +116,11 @@ const memQuery = (n) => `topk(${n},
 const fetchProm = async (query) => {
   const res = await axios.get('/api/v1/monitor/prometheus/query', {
     headers: authHeaders(),
-    params: { query }
+    params: { query: query.replace(/\s+/g, ' ').trim() }
   })
+  if (res.data?.status && res.data.status !== 'success') {
+    throw new Error(res.data?.error || 'Prometheus 查询失败')
+  }
   return res.data?.data?.result || []
 }
 
@@ -151,6 +154,12 @@ const fetchMetrics = async () => {
       map[key].memory = (Number(item.value?.[1] || 0) / 1024 / 1024).toFixed(1)
     })
     rows.value = Object.values(map)
+    lastRefresh.value = new Date().toLocaleString()
+    if (!rows.value.length) {
+      ElMessage.warning('未获取到 Pod 指标，请确认 Prometheus 已采集 kubelet/cAdvisor 指标')
+    }
+  } catch (err) {
+    ElMessage.error('拉取 Pod 指标失败')
   } finally {
     loading.value = false
   }
@@ -190,6 +199,7 @@ onMounted(fetchMetrics)
 .page-actions { display: flex; gap: 8px; }
 .filter-bar { display: flex; gap: 8px; margin-top: 12px; }
 .summary-row { margin-top: 12px; }
+.meta-row { display: flex; align-items: center; margin-top: 8px; color: #606266; font-size: 12px; }
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
