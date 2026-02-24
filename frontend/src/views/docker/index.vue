@@ -1141,6 +1141,7 @@
         <el-divider content-position="left">Ports</el-divider>
         <el-table :data="inspectPorts" style="width: 100%">
           <el-table-column prop="container" label="容器端口" width="160" />
+          <el-table-column prop="proto" label="协议" width="100" />
           <el-table-column prop="host" label="主机端口" width="160" />
           <el-table-column prop="ip" label="Host IP" width="160" />
           <el-table-column label="复制" width="120">
@@ -1150,21 +1151,33 @@
           </el-table-column>
         </el-table>
 
+        <el-divider content-position="left">Exposed Ports</el-divider>
+        <div class="text-xs text-gray-400" v-if="inspectExposedPorts.length === 0">无</div>
+        <el-tag v-else v-for="p in inspectExposedPorts" :key="p" class="mr-2 mb-2">{{ p }}</el-tag>
+
         <el-divider content-position="left">Networks</el-divider>
         <el-table :data="inspectNetworks" style="width: 100%">
           <el-table-column prop="name" label="名称" width="200" />
           <el-table-column prop="ip" label="IP" width="180" />
           <el-table-column prop="gateway" label="网关" width="180" />
+          <el-table-column prop="mac" label="MAC" width="180" />
+          <el-table-column prop="aliases" label="Aliases" min-width="180" />
         </el-table>
 
         <el-divider content-position="left">Mounts</el-divider>
         <el-table :data="inspectMounts" style="width: 100%">
           <el-table-column prop="type" label="类型" width="120" />
+          <el-table-column prop="name" label="名称" width="180" />
           <el-table-column prop="source" label="Source" min-width="220" />
           <el-table-column prop="destination" label="Destination" min-width="220" />
           <el-table-column prop="mode" label="Mode" width="120" />
           <el-table-column prop="rw" label="RW" width="80" />
+          <el-table-column prop="propagation" label="Propagation" width="140" />
         </el-table>
+
+        <el-divider content-position="left">Binds</el-divider>
+        <div class="text-xs text-gray-400" v-if="inspectBinds.length === 0">无</div>
+        <el-tag v-else v-for="b in inspectBinds" :key="b" class="mr-2 mb-2">{{ b }}</el-tag>
 
         <el-divider content-position="left">Env</el-divider>
         <el-input v-model="inspectEnvText" type="textarea" :rows="8" readonly />
@@ -1206,6 +1219,8 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item label="名称">{{ serviceInspectSummary?.name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="镜像">{{ serviceInspectSummary?.image || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="镜像引用">{{ serviceInspectImage.ref }}</el-descriptions-item>
+          <el-descriptions-item label="镜像 Digest">{{ serviceInspectImage.digest }}</el-descriptions-item>
           <el-descriptions-item label="模式">{{ serviceInspectSummary?.mode || '-' }}</el-descriptions-item>
           <el-descriptions-item label="副本">{{ serviceInspectSummary?.replicas ?? '-' }}</el-descriptions-item>
           <el-descriptions-item label="Endpoint">{{ serviceInspectSummary?.endpoint || '-' }}</el-descriptions-item>
@@ -1273,6 +1288,11 @@
         <el-descriptions-item label="服务数">{{ stackSummary.total }}</el-descriptions-item>
         <el-descriptions-item label="运行中">{{ stackSummary.running }}</el-descriptions-item>
         <el-descriptions-item label="期望副本">{{ stackSummary.desired }}</el-descriptions-item>
+      </el-descriptions>
+      <el-descriptions v-if="stackMeta" :column="2" border class="mt-2">
+        <el-descriptions-item label="Networks">{{ stackMeta.networks?.join(', ') || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="Images">{{ stackMeta.images?.join(', ') || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="Labels">{{ stackMeta.labels?.join(', ') || '-' }}</el-descriptions-item>
       </el-descriptions>
       <el-table :data="stackServices" v-loading="stackLoading" style="width: 100%">
         <el-table-column prop="Name" label="名称" min-width="220" />
@@ -1777,6 +1797,8 @@ const inspectDevices = ref([])
 const inspectTmpfs = ref([])
 const inspectLogDriver = ref('')
 const inspectLogOpts = ref([])
+const inspectExposedPorts = ref([])
+const inspectBinds = ref([])
 
 const execVisible = ref(false)
 const execLoading = ref(false)
@@ -1805,6 +1827,7 @@ const stackVisible = ref(false)
 const stackLoading = ref(false)
 const stackServices = ref([])
 const stackSummary = ref(null)
+const stackMeta = ref(null)
 
 const serviceStacks = computed(() => {
   const set = new Set()
@@ -2801,6 +2824,16 @@ const buildServiceInspectSummary = (data) => {
 }
 
 const serviceInspectSummary = computed(() => buildServiceInspectSummary(serviceInspectData.value))
+
+const serviceInspectImage = computed(() => {
+  const image = serviceInspectData.value?.Spec?.TaskTemplate?.ContainerSpec?.Image || ''
+  if (!image) return { ref: '-', digest: '-' }
+  const parts = String(image).split('@')
+  return {
+    ref: parts[0] || image,
+    digest: parts[1] ? `@${parts[1]}` : '-'
+  }
+})
 
 const formatStatusInfo = (status) => {
   if (!status) return null
@@ -4064,6 +4097,8 @@ const openInspect = async (row) => {
   inspectTmpfs.value = []
   inspectLogDriver.value = ''
   inspectLogOpts.value = []
+  inspectExposedPorts.value = []
+  inspectBinds.value = []
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(id)}`, { headers: authHeaders() })
     if (res.data.code === 0) {
@@ -4074,12 +4109,15 @@ const openInspect = async (row) => {
       const ports = []
       const portMap = inspectData.value?.NetworkSettings?.Ports || {}
       Object.entries(portMap).forEach(([containerPort, hostBindings]) => {
+        const parts = String(containerPort || '').split('/')
+        const container = parts[0] || containerPort
+        const proto = parts[1] || ''
         if (!hostBindings || hostBindings.length === 0) {
-          ports.push({ container: containerPort, host: '-', ip: '-' })
+          ports.push({ container, proto, host: '-', ip: '-' })
           return
         }
         hostBindings.forEach((b) => {
-          ports.push({ container: containerPort, host: b.HostPort || '-', ip: b.HostIp || '-' })
+          ports.push({ container, proto, host: b.HostPort || '-', ip: b.HostIp || '-' })
         })
       })
       inspectPorts.value = ports
@@ -4087,16 +4125,24 @@ const openInspect = async (row) => {
       const networks = []
       const nets = inspectData.value?.NetworkSettings?.Networks || {}
       Object.entries(nets).forEach(([name, info]) => {
-        networks.push({ name, ip: info.IPAddress || '-', gateway: info.Gateway || '-' })
+        networks.push({
+          name,
+          ip: info.IPAddress || '-',
+          gateway: info.Gateway || '-',
+          mac: info.MacAddress || '-',
+          aliases: (info.Aliases || []).join(', ')
+        })
       })
       inspectNetworks.value = networks
 
       const mounts = (inspectData.value?.Mounts || []).map(m => ({
         type: m.Type,
+        name: m.Name || '-',
         source: m.Source,
         destination: m.Destination,
         mode: m.Mode,
-        rw: m.RW ? 'true' : 'false'
+        rw: m.RW ? 'true' : 'false',
+        propagation: m.Propagation || '-'
       }))
       inspectMounts.value = mounts
 
@@ -4140,6 +4186,8 @@ const openInspect = async (row) => {
       inspectTmpfs.value = Object.entries(hostConfig.Tmpfs || {}).map(([k, v]) => `${k}:${v}`)
       inspectLogDriver.value = hostConfig.LogConfig?.Type || ''
       inspectLogOpts.value = Object.entries(hostConfig.LogConfig?.Config || {}).map(([k, v]) => `${k}=${v}`)
+      inspectExposedPorts.value = Object.keys(config.ExposedPorts || {})
+      inspectBinds.value = hostConfig.Binds || []
     }
   } finally {
     inspectLoading.value = false
@@ -4686,10 +4734,14 @@ const openStackServices = async (row) => {
   stackLoading.value = true
   stackServices.value = []
   stackSummary.value = null
+  stackMeta.value = null
   try {
-    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/${encodeURIComponent(row.Name)}/services`, { headers: authHeaders() })
-    if (res.data.code === 0) {
-      stackServices.value = res.data.data || []
+    const [stackRes, servicesRes] = await Promise.allSettled([
+      axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/${encodeURIComponent(row.Name)}/services`, { headers: authHeaders() }),
+      axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services`, { params: { detail: 1 }, headers: authHeaders() })
+    ])
+    if (stackRes.status === 'fulfilled' && stackRes.value.data.code === 0) {
+      stackServices.value = stackRes.value.data.data || []
       const summary = { total: stackServices.value.length, desired: 0, running: 0, warning: 0 }
       stackServices.value.forEach((s) => {
         const rep = String(s.Replicas || '')
@@ -4703,6 +4755,32 @@ const openStackServices = async (row) => {
         }
       })
       stackSummary.value = summary
+    }
+    if (servicesRes.status === 'fulfilled' && servicesRes.value.data.code === 0) {
+      const list = servicesRes.value.data.data || []
+      const stackName = row.Name
+      const detailServices = list.filter(s => (s.Name || '').startsWith(`${stackName}_`))
+      const networks = new Set()
+      const labels = new Set()
+      const images = new Set()
+      detailServices.forEach((svc) => {
+        const spec = svc.Spec || {}
+        const task = spec.TaskTemplate || {}
+        const container = task.ContainerSpec || {}
+        const nets = task.Networks || []
+        nets.forEach((n) => {
+          const target = n?.Target || n?.Name
+          if (target) networks.add(target)
+        })
+        const lbls = spec.Labels || {}
+        Object.entries(lbls).forEach(([k, v]) => labels.add(`${k}=${v}`))
+        if (container.Image) images.add(container.Image)
+      })
+      stackMeta.value = {
+        networks: Array.from(networks),
+        labels: Array.from(labels),
+        images: Array.from(images)
+      }
     }
   } finally {
     stackLoading.value = false
