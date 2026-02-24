@@ -420,6 +420,16 @@ func (h *DockerHandler) CreateContainer(c *gin.Context) {
 		Image         string            `json:"image" binding:"required"`
 		Ports         []string          `json:"ports"` // Format: "8080:80"
 		Env           map[string]string `json:"env"`
+		Labels        map[string]string `json:"labels"`
+		Networks      []string          `json:"networks"`
+		Mounts        []string          `json:"mounts"`
+		Entrypoint    string            `json:"entrypoint"`
+		Command       []string          `json:"command"`
+		Privileged    bool              `json:"privileged"`
+		CapAdd        []string          `json:"cap_add"`
+		NetworkMode   string            `json:"network_mode"`
+		DNS           []string          `json:"dns"`
+		ExtraHosts    []string          `json:"extra_hosts"`
 		RestartPolicy string            `json:"restart_policy"`
 		AutoRemove    bool              `json:"auto_remove"`
 	}
@@ -439,26 +449,87 @@ func (h *DockerHandler) CreateContainer(c *gin.Context) {
 	cmdBuilder.WriteString("docker run -d")
 
 	if req.Name != "" {
-		cmdBuilder.WriteString(fmt.Sprintf(" --name %s", req.Name))
+		cmdBuilder.WriteString(fmt.Sprintf(" --name %s", shellEscape(req.Name)))
 	}
 
 	for _, p := range req.Ports {
 		if p != "" {
-			cmdBuilder.WriteString(fmt.Sprintf(" -p %s", p))
+			cmdBuilder.WriteString(fmt.Sprintf(" -p %s", shellEscape(p)))
 		}
 	}
 
 	for k, v := range req.Env {
-		cmdBuilder.WriteString(fmt.Sprintf(" -e %s=%s", k, v))
+		cmdBuilder.WriteString(fmt.Sprintf(" -e %s", shellEscape(fmt.Sprintf("%s=%s", k, v))))
+	}
+
+	for k, v := range req.Labels {
+		cmdBuilder.WriteString(fmt.Sprintf(" --label %s", shellEscape(fmt.Sprintf("%s=%s", k, v))))
+	}
+
+	for _, n := range req.Networks {
+		if strings.TrimSpace(n) != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --network %s", shellEscape(n)))
+		}
+	}
+	if req.NetworkMode != "" && len(req.Networks) == 0 {
+		cmdBuilder.WriteString(fmt.Sprintf(" --network %s", shellEscape(req.NetworkMode)))
+	}
+
+	if req.Privileged {
+		cmdBuilder.WriteString(" --privileged")
+	}
+
+	for _, cap := range req.CapAdd {
+		cap = strings.TrimSpace(cap)
+		if cap != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --cap-add %s", shellEscape(cap)))
+		}
+	}
+
+	for _, dns := range req.DNS {
+		dns = strings.TrimSpace(dns)
+		if dns != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --dns %s", shellEscape(dns)))
+		}
+	}
+
+	for _, host := range req.ExtraHosts {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --add-host %s", shellEscape(host)))
+		}
+	}
+
+	for _, m := range req.Mounts {
+		m = strings.TrimSpace(m)
+		if m == "" {
+			continue
+		}
+		if strings.Contains(m, "type=") {
+			cmdBuilder.WriteString(fmt.Sprintf(" --mount %s", shellEscape(m)))
+		} else {
+			cmdBuilder.WriteString(fmt.Sprintf(" -v %s", shellEscape(m)))
+		}
+	}
+
+	if req.Entrypoint != "" {
+		cmdBuilder.WriteString(fmt.Sprintf(" --entrypoint %s", shellEscape(req.Entrypoint)))
 	}
 
 	if req.AutoRemove {
 		cmdBuilder.WriteString(" --rm")
 	} else if req.RestartPolicy != "" {
-		cmdBuilder.WriteString(fmt.Sprintf(" --restart %s", req.RestartPolicy))
+		cmdBuilder.WriteString(fmt.Sprintf(" --restart %s", shellEscape(req.RestartPolicy)))
 	}
 
-	cmdBuilder.WriteString(fmt.Sprintf(" %s", req.Image))
+	cmdBuilder.WriteString(fmt.Sprintf(" %s", shellEscape(req.Image)))
+
+	for _, arg := range req.Command {
+		arg = strings.TrimSpace(arg)
+		if arg != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" %s", shellEscape(arg)))
+		}
+	}
 
 	// 执行
 	stdout, stderr, err := client.Execute(cmdBuilder.String())
@@ -1650,6 +1721,7 @@ type serviceReplicated struct {
 type serviceTask struct {
 	ContainerSpec serviceContainerSpec `json:"ContainerSpec"`
 	Networks      []serviceNetwork     `json:"Networks"`
+	Placement     servicePlacement     `json:"Placement"`
 }
 
 type serviceContainerSpec struct {
@@ -1660,6 +1732,10 @@ type serviceContainerSpec struct {
 
 type serviceNetwork struct {
 	Target string `json:"Target"`
+}
+
+type servicePlacement struct {
+	Constraints []string `json:"Constraints"`
 }
 
 type serviceEndpoint struct {
@@ -1689,16 +1765,34 @@ func parseEnvKeys(env []string) []string {
 func (h *DockerHandler) CreateService(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
-		Name        string            `json:"name" binding:"required"`
-		Image       string            `json:"image" binding:"required"`
-		Replicas    *int              `json:"replicas"`
-		Ports       []string          `json:"ports"`
-		Env         map[string]string `json:"env"`
-		Labels      map[string]string `json:"labels"`
-		Networks    []string          `json:"networks"`
-		Constraints []string          `json:"constraints"`
-		Mounts      []string          `json:"mounts"`
-		Command     []string          `json:"command"`
+		Name                  string            `json:"name" binding:"required"`
+		Image                 string            `json:"image" binding:"required"`
+		Mode                  string            `json:"mode"` // replicated/global
+		EndpointMode          string            `json:"endpoint_mode"`
+		Replicas              *int              `json:"replicas"`
+		Ports                 []string          `json:"ports"`
+		Env                   map[string]string `json:"env"`
+		Labels                map[string]string `json:"labels"`
+		Networks              []string          `json:"networks"`
+		Constraints           []string          `json:"constraints"`
+		PlacementPrefs        []string          `json:"placement_prefs"`
+		MaxReplicasPerNode    *int              `json:"max_replicas_per_node"`
+		Mounts                []string          `json:"mounts"`
+		Command               []string          `json:"command"`
+		RestartCondition      string            `json:"restart_condition"`
+		UpdateParallelism     *int              `json:"update_parallelism"`
+		UpdateDelay           string            `json:"update_delay"`
+		UpdateFailureAction   string            `json:"update_failure_action"`
+		UpdateOrder           string            `json:"update_order"`
+		RollbackParallelism   *int              `json:"rollback_parallelism"`
+		RollbackDelay         string            `json:"rollback_delay"`
+		RollbackFailureAction string            `json:"rollback_failure_action"`
+		RollbackOrder         string            `json:"rollback_order"`
+		LimitCPU              string            `json:"limit_cpu"`
+		LimitMemory           string            `json:"limit_memory"`
+		ReserveCPU            string            `json:"reserve_cpu"`
+		ReserveMemory         string            `json:"reserve_memory"`
+		MaxReplicasPerNode    *int              `json:"max_replicas_per_node"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
@@ -1714,8 +1808,13 @@ func (h *DockerHandler) CreateService(c *gin.Context) {
 	var cmdBuilder strings.Builder
 	cmdBuilder.WriteString("docker service create")
 	cmdBuilder.WriteString(" --name " + shellEscape(req.Name))
-	if req.Replicas != nil {
+	if strings.ToLower(req.Mode) == "global" {
+		cmdBuilder.WriteString(" --mode global")
+	} else if req.Replicas != nil {
 		cmdBuilder.WriteString(fmt.Sprintf(" --replicas %d", *req.Replicas))
+	}
+	if req.EndpointMode != "" {
+		cmdBuilder.WriteString(" --endpoint-mode " + shellEscape(req.EndpointMode))
 	}
 	for _, p := range req.Ports {
 		p = strings.TrimSpace(p)
@@ -1741,11 +1840,62 @@ func (h *DockerHandler) CreateService(c *gin.Context) {
 			cmdBuilder.WriteString(" --constraint " + shellEscape(cst))
 		}
 	}
+	for _, pref := range req.PlacementPrefs {
+		pref = strings.TrimSpace(pref)
+		if pref != "" {
+			cmdBuilder.WriteString(" --placement-pref " + shellEscape(pref))
+		}
+	}
+	if req.MaxReplicasPerNode != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --replicas-max-per-node %d", *req.MaxReplicasPerNode))
+	}
 	for _, m := range req.Mounts {
 		m = strings.TrimSpace(m)
 		if m != "" {
 			cmdBuilder.WriteString(" --mount " + shellEscape(m))
 		}
+	}
+	if req.RestartCondition != "" {
+		cmdBuilder.WriteString(" --restart-condition " + shellEscape(req.RestartCondition))
+	}
+	if req.UpdateParallelism != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --update-parallelism %d", *req.UpdateParallelism))
+	}
+	if req.UpdateDelay != "" {
+		cmdBuilder.WriteString(" --update-delay " + shellEscape(req.UpdateDelay))
+	}
+	if req.UpdateFailureAction != "" {
+		cmdBuilder.WriteString(" --update-failure-action " + shellEscape(req.UpdateFailureAction))
+	}
+	if req.UpdateOrder != "" {
+		cmdBuilder.WriteString(" --update-order " + shellEscape(req.UpdateOrder))
+	}
+	if req.RollbackParallelism != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --rollback-parallelism %d", *req.RollbackParallelism))
+	}
+	if req.RollbackDelay != "" {
+		cmdBuilder.WriteString(" --rollback-delay " + shellEscape(req.RollbackDelay))
+	}
+	if req.RollbackFailureAction != "" {
+		cmdBuilder.WriteString(" --rollback-failure-action " + shellEscape(req.RollbackFailureAction))
+	}
+	if req.RollbackOrder != "" {
+		cmdBuilder.WriteString(" --rollback-order " + shellEscape(req.RollbackOrder))
+	}
+	if req.LimitCPU != "" {
+		cmdBuilder.WriteString(" --limit-cpu " + shellEscape(req.LimitCPU))
+	}
+	if req.LimitMemory != "" {
+		cmdBuilder.WriteString(" --limit-memory " + shellEscape(req.LimitMemory))
+	}
+	if req.ReserveCPU != "" {
+		cmdBuilder.WriteString(" --reserve-cpu " + shellEscape(req.ReserveCPU))
+	}
+	if req.ReserveMemory != "" {
+		cmdBuilder.WriteString(" --reserve-memory " + shellEscape(req.ReserveMemory))
+	}
+	if req.MaxReplicasPerNode != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --replicas-max-per-node %d", *req.MaxReplicasPerNode))
 	}
 	cmdBuilder.WriteString(" " + shellEscape(req.Image))
 	for _, arg := range req.Command {
@@ -1772,16 +1922,33 @@ func (h *DockerHandler) UpdateService(c *gin.Context) {
 	id := c.Param("id")
 	serviceID := c.Param("service_id")
 	var req struct {
-		Image         string            `json:"image"`
-		Replicas      *int              `json:"replicas"`
-		Env           map[string]string `json:"env"`
-		Labels        map[string]string `json:"labels"`
-		Ports         []string          `json:"ports"`
-		Networks      []string          `json:"networks"`
-		ResetEnv      bool              `json:"reset_env"`
-		ResetLabels   bool              `json:"reset_labels"`
-		ResetPorts    bool              `json:"reset_ports"`
-		ResetNetworks bool              `json:"reset_networks"`
+		Image                 string            `json:"image"`
+		Mode                  string            `json:"mode"`
+		EndpointMode          string            `json:"endpoint_mode"`
+		Replicas              *int              `json:"replicas"`
+		Env                   map[string]string `json:"env"`
+		Labels                map[string]string `json:"labels"`
+		Ports                 []string          `json:"ports"`
+		Networks              []string          `json:"networks"`
+		Constraints           []string          `json:"constraints"`
+		ResetEnv              bool              `json:"reset_env"`
+		ResetLabels           bool              `json:"reset_labels"`
+		ResetPorts            bool              `json:"reset_ports"`
+		ResetNetworks         bool              `json:"reset_networks"`
+		ResetConstraints      bool              `json:"reset_constraints"`
+		RestartCondition      string            `json:"restart_condition"`
+		UpdateParallelism     *int              `json:"update_parallelism"`
+		UpdateDelay           string            `json:"update_delay"`
+		UpdateFailureAction   string            `json:"update_failure_action"`
+		UpdateOrder           string            `json:"update_order"`
+		RollbackParallelism   *int              `json:"rollback_parallelism"`
+		RollbackDelay         string            `json:"rollback_delay"`
+		RollbackFailureAction string            `json:"rollback_failure_action"`
+		RollbackOrder         string            `json:"rollback_order"`
+		LimitCPU              string            `json:"limit_cpu"`
+		LimitMemory           string            `json:"limit_memory"`
+		ReserveCPU            string            `json:"reserve_cpu"`
+		ReserveMemory         string            `json:"reserve_memory"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
@@ -1795,7 +1962,7 @@ func (h *DockerHandler) UpdateService(c *gin.Context) {
 	}
 
 	var current serviceInspect
-	if req.ResetEnv || req.ResetLabels || req.ResetPorts || req.ResetNetworks {
+	if req.ResetEnv || req.ResetLabels || req.ResetPorts || req.ResetNetworks || req.ResetConstraints {
 		stdout, stderr, err := client.Execute(fmt.Sprintf("docker service inspect %s --format '{{json .}}'", serviceID))
 		if err != nil {
 			msg := strings.TrimSpace(stderr)
@@ -1812,6 +1979,14 @@ func (h *DockerHandler) UpdateService(c *gin.Context) {
 	cmdBuilder.WriteString("docker service update")
 	if req.Image != "" {
 		cmdBuilder.WriteString(" --image " + shellEscape(req.Image))
+	}
+	if strings.ToLower(req.Mode) == "global" {
+		cmdBuilder.WriteString(" --mode global")
+	} else if strings.ToLower(req.Mode) == "replicated" {
+		cmdBuilder.WriteString(" --mode replicated")
+	}
+	if req.EndpointMode != "" {
+		cmdBuilder.WriteString(" --endpoint-mode " + shellEscape(req.EndpointMode))
 	}
 	if req.Replicas != nil {
 		cmdBuilder.WriteString(fmt.Sprintf(" --replicas %d", *req.Replicas))
@@ -1859,6 +2034,59 @@ func (h *DockerHandler) UpdateService(c *gin.Context) {
 		if n != "" {
 			cmdBuilder.WriteString(" --network-add " + shellEscape(n))
 		}
+	}
+	if req.ResetConstraints {
+		for _, cst := range current.Spec.TaskTemplate.Placement.Constraints {
+			cst = strings.TrimSpace(cst)
+			if cst != "" {
+				cmdBuilder.WriteString(" --constraint-rm " + shellEscape(cst))
+			}
+		}
+	}
+	for _, cst := range req.Constraints {
+		cst = strings.TrimSpace(cst)
+		if cst != "" {
+			cmdBuilder.WriteString(" --constraint-add " + shellEscape(cst))
+		}
+	}
+	if req.RestartCondition != "" {
+		cmdBuilder.WriteString(" --restart-condition " + shellEscape(req.RestartCondition))
+	}
+	if req.UpdateParallelism != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --update-parallelism %d", *req.UpdateParallelism))
+	}
+	if req.UpdateDelay != "" {
+		cmdBuilder.WriteString(" --update-delay " + shellEscape(req.UpdateDelay))
+	}
+	if req.UpdateFailureAction != "" {
+		cmdBuilder.WriteString(" --update-failure-action " + shellEscape(req.UpdateFailureAction))
+	}
+	if req.UpdateOrder != "" {
+		cmdBuilder.WriteString(" --update-order " + shellEscape(req.UpdateOrder))
+	}
+	if req.RollbackParallelism != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --rollback-parallelism %d", *req.RollbackParallelism))
+	}
+	if req.RollbackDelay != "" {
+		cmdBuilder.WriteString(" --rollback-delay " + shellEscape(req.RollbackDelay))
+	}
+	if req.RollbackFailureAction != "" {
+		cmdBuilder.WriteString(" --rollback-failure-action " + shellEscape(req.RollbackFailureAction))
+	}
+	if req.RollbackOrder != "" {
+		cmdBuilder.WriteString(" --rollback-order " + shellEscape(req.RollbackOrder))
+	}
+	if req.LimitCPU != "" {
+		cmdBuilder.WriteString(" --limit-cpu " + shellEscape(req.LimitCPU))
+	}
+	if req.LimitMemory != "" {
+		cmdBuilder.WriteString(" --limit-memory " + shellEscape(req.LimitMemory))
+	}
+	if req.ReserveCPU != "" {
+		cmdBuilder.WriteString(" --reserve-cpu " + shellEscape(req.ReserveCPU))
+	}
+	if req.ReserveMemory != "" {
+		cmdBuilder.WriteString(" --reserve-memory " + shellEscape(req.ReserveMemory))
 	}
 
 	cmdBuilder.WriteString(" " + shellEscape(serviceID))
@@ -2015,7 +2243,7 @@ func (h *DockerHandler) RemoveStack(c *gin.Context) {
 		return
 	}
 
-	_, stderr, err := client.Execute(fmt.Sprintf("docker stack rm %s", stack))
+	_, stderr, err := client.Execute(fmt.Sprintf("docker stack rm %s", shellEscape(stack)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -2044,7 +2272,7 @@ func (h *DockerHandler) ScaleService(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	cmd := fmt.Sprintf("docker service scale %s=%d", serviceID, req.Replicas)
+	cmd := fmt.Sprintf("docker service scale %s=%d", shellEscape(serviceID), req.Replicas)
 	_, stderr, err := client.Execute(cmd)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
@@ -2069,7 +2297,7 @@ func (h *DockerHandler) UpdateServiceImage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	cmd := fmt.Sprintf("docker service update --image %s %s", req.Image, serviceID)
+	cmd := fmt.Sprintf("docker service update --image %s %s", shellEscape(req.Image), shellEscape(serviceID))
 	_, stderr, err := client.Execute(cmd)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
@@ -2087,13 +2315,35 @@ func (h *DockerHandler) RestartService(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	cmd := fmt.Sprintf("docker service update --force %s", serviceID)
+	cmd := fmt.Sprintf("docker service update --force %s", shellEscape(serviceID))
 	_, stderr, err := client.Execute(cmd)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": stderr})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已触发重启"})
+}
+
+// RollbackService 回滚服务
+func (h *DockerHandler) RollbackService(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	cmd := fmt.Sprintf("docker service rollback %s", shellEscape(serviceID))
+	_, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已触发回滚"})
 }
 
 // CommandExecutor 命令执行接口

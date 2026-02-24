@@ -60,7 +60,7 @@
     </el-dialog>
 
     <!-- 管理抽屉 -->
-    <el-drawer v-model="manageVisible" size="85%" :with-header="false" :append-to-body="true">
+    <el-drawer v-model="manageVisible" size="100%" :with-header="false" :append-to-body="true">
       <div class="drawer-header">
         <div>
           <div class="drawer-title">{{ activeHost?.name || 'Docker 环境' }}</div>
@@ -93,6 +93,14 @@
             <div class="toolbar-left">
               <el-button type="info" plain @click="loadContainerStats" :loading="statsLoading">刷新资源</el-button>
               <el-switch v-model="autoRefreshStats" active-text="自动刷新" />
+              <el-input v-model="containerFilters.keyword" class="w-48" placeholder="名称/镜像/ID" clearable />
+              <el-select v-model="containerFilters.state" class="w-28" clearable placeholder="状态">
+                <el-option label="running" value="running" />
+                <el-option label="exited" value="exited" />
+                <el-option label="paused" value="paused" />
+                <el-option label="restarting" value="restarting" />
+                <el-option label="created" value="created" />
+              </el-select>
               <el-button type="success" plain :disabled="selectedContainers.length === 0" @click="startSelectedContainers">批量启动</el-button>
               <el-button type="warning" plain :disabled="selectedContainers.length === 0" @click="stopSelectedContainers">批量停止</el-button>
               <el-button type="primary" plain :disabled="selectedContainers.length === 0" @click="restartSelectedContainers">批量重启</el-button>
@@ -105,7 +113,7 @@
           </div>
           <el-table
             ref="containerTableRef"
-            :data="containers"
+            :data="filteredContainers"
             v-loading="containersLoading"
             style="width: 100%"
             :row-key="row => row.id"
@@ -114,6 +122,7 @@
             <el-table-column type="selection" width="48" />
             <el-table-column prop="names" label="名称" min-width="200" />
             <el-table-column prop="image" label="镜像" min-width="180" />
+            <el-table-column prop="ports" label="端口" min-width="160" />
             <el-table-column prop="state" label="状态" width="120" />
             <el-table-column prop="status" label="详情" min-width="180" />
             <el-table-column label="资源" min-width="200">
@@ -469,6 +478,7 @@
                   <el-button size="small" type="primary" plain @click="scaleService(row)">扩缩容</el-button>
                   <el-button size="small" type="warning" plain @click="updateServiceImage(row)">更新镜像</el-button>
                   <el-button size="small" type="danger" plain @click="restartService(row)">重启</el-button>
+                  <el-button size="small" type="warning" plain @click="rollbackService(row)">回滚</el-button>
                   <el-button size="small" type="danger" @click="removeService(row)">删除</el-button>
                 </el-space>
               </template>
@@ -499,9 +509,12 @@
             <el-table-column prop="Name" label="名称" min-width="200" />
             <el-table-column prop="Services" label="服务数" width="120" />
             <el-table-column prop="Orchestrator" label="编排" width="160" />
-            <el-table-column label="操作" width="140" fixed="right">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" @click="openStackServices(row)">查看服务</el-button>
+                <el-space size="8">
+                  <el-button size="small" @click="openStackServices(row)">查看服务</el-button>
+                  <el-button size="small" type="danger" plain @click="removeStack(row)">删除</el-button>
+                </el-space>
               </template>
             </el-table-column>
           </el-table>
@@ -523,6 +536,42 @@
         </el-form-item>
         <el-form-item label="环境变量">
           <el-input v-model="createForm.env" type="textarea" :rows="4" placeholder="KEY=VALUE，每行一个" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="createForm.labels" type="textarea" :rows="3" placeholder="KEY=VALUE，每行一个" />
+        </el-form-item>
+        <el-form-item label="网络">
+          <el-input v-model="createForm.networks" type="textarea" :rows="2" placeholder="每行一个网络名称或ID" />
+        </el-form-item>
+        <el-form-item label="挂载">
+          <el-input v-model="createForm.mounts" type="textarea" :rows="3" placeholder="每行一个挂载，如 /host:/container 或 type=bind,src=/host,dst=/container" />
+        </el-form-item>
+        <el-form-item label="Entrypoint">
+          <el-input v-model="createForm.entrypoint" placeholder="可选，如 /bin/sh" />
+        </el-form-item>
+        <el-form-item label="命令">
+          <el-input v-model="createForm.command" type="textarea" :rows="2" placeholder="可选，按空格分隔" />
+        </el-form-item>
+        <el-divider content-position="left">高级</el-divider>
+        <el-form-item label="特权模式">
+          <el-switch v-model="createForm.privileged" />
+        </el-form-item>
+        <el-form-item label="Cap Add">
+          <el-input v-model="createForm.cap_add" type="textarea" :rows="2" placeholder="每行一个，如 NET_ADMIN" />
+        </el-form-item>
+        <el-form-item label="Network Mode">
+          <el-select v-model="createForm.network_mode" filterable allow-create clearable placeholder="bridge/host/none/自定义">
+            <el-option label="bridge" value="bridge" />
+            <el-option label="host" value="host" />
+            <el-option label="none" value="none" />
+          </el-select>
+          <div class="text-xs text-gray-400 mt-1">填写网络列表时，此项将被忽略</div>
+        </el-form-item>
+        <el-form-item label="DNS">
+          <el-input v-model="createForm.dns" type="textarea" :rows="2" placeholder="每行一个 DNS，如 8.8.8.8" />
+        </el-form-item>
+        <el-form-item label="Extra Hosts">
+          <el-input v-model="createForm.extra_hosts" type="textarea" :rows="2" placeholder="每行一个，如 example.com:1.2.3.4" />
         </el-form-item>
         <el-form-item label="重启策略">
           <el-select v-model="createForm.restart_policy" placeholder="不设置">
@@ -551,8 +600,20 @@
         <el-form-item label="镜像" required>
           <el-input v-model="serviceCreateForm.image" placeholder="例如 nginx:latest" />
         </el-form-item>
+        <el-form-item label="模式">
+          <el-select v-model="serviceCreateForm.mode">
+            <el-option label="replicated" value="replicated" />
+            <el-option label="global" value="global" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Endpoint">
+          <el-select v-model="serviceCreateForm.endpoint_mode">
+            <el-option label="vip" value="vip" />
+            <el-option label="dnsrr" value="dnsrr" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="副本数">
-          <el-input-number v-model="serviceCreateForm.replicas" :min="0" />
+          <el-input-number v-model="serviceCreateForm.replicas" :min="0" :disabled="serviceCreateIsGlobal" />
         </el-form-item>
         <el-form-item label="端口发布">
           <el-input v-model="serviceCreateForm.ports" type="textarea" :rows="3" placeholder="每行一条，如 8080:80 或 published=8080,target=80" />
@@ -566,8 +627,16 @@
         <el-form-item label="网络">
           <el-input v-model="serviceCreateForm.networks" type="textarea" :rows="2" placeholder="每行一个网络名称或ID" />
         </el-form-item>
+        <el-divider content-position="left">调度</el-divider>
         <el-form-item label="约束">
           <el-input v-model="serviceCreateForm.constraints" type="textarea" :rows="2" placeholder="如 node.role==manager" />
+        </el-form-item>
+        <el-form-item label="Placement Pref">
+          <el-input v-model="serviceCreateForm.placement_prefs" type="textarea" :rows="2" placeholder="每行一条，如 spread=node.labels.zone" />
+        </el-form-item>
+        <el-form-item label="每节点上限">
+          <el-input v-model="serviceCreateForm.max_replicas_per_node" :disabled="serviceCreateIsGlobal" placeholder="如 1" />
+          <div class="text-xs text-gray-400 mt-1">仅 replicated 模式生效</div>
         </el-form-item>
         <el-form-item label="挂载">
           <el-input v-model="serviceCreateForm.mounts" type="textarea" :rows="3" placeholder="每行一条 --mount 参数，如 type=bind,src=/data,dst=/data" />
@@ -575,6 +644,67 @@
         <el-form-item label="命令">
           <el-input v-model="serviceCreateForm.command" type="textarea" :rows="2" placeholder="可选，按空格分隔" />
         </el-form-item>
+        <el-divider content-position="left">更新策略</el-divider>
+        <el-form-item label="重启条件">
+          <el-select v-model="serviceCreateForm.restart_condition" placeholder="不设置">
+            <el-option label="none" value="none" />
+            <el-option label="on-failure" value="on-failure" />
+            <el-option label="any" value="any" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="并行度">
+          <el-input v-model="serviceCreateForm.update_parallelism" placeholder="如 2" />
+        </el-form-item>
+        <el-form-item label="更新延迟">
+          <el-input v-model="serviceCreateForm.update_delay" placeholder="如 10s" />
+        </el-form-item>
+        <el-form-item label="更新失败策略">
+          <el-select v-model="serviceCreateForm.update_failure_action" placeholder="不设置">
+            <el-option label="pause" value="pause" />
+            <el-option label="continue" value="continue" />
+            <el-option label="rollback" value="rollback" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="更新顺序">
+          <el-select v-model="serviceCreateForm.update_order" placeholder="不设置">
+            <el-option label="stop-first" value="stop-first" />
+            <el-option label="start-first" value="start-first" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回滚并行度">
+          <el-input v-model="serviceCreateForm.rollback_parallelism" placeholder="如 2" />
+        </el-form-item>
+        <el-form-item label="回滚延迟">
+          <el-input v-model="serviceCreateForm.rollback_delay" placeholder="如 10s" />
+        </el-form-item>
+        <el-form-item label="回滚失败策略">
+          <el-select v-model="serviceCreateForm.rollback_failure_action" placeholder="不设置">
+            <el-option label="pause" value="pause" />
+            <el-option label="continue" value="continue" />
+            <el-option label="rollback" value="rollback" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回滚顺序">
+          <el-select v-model="serviceCreateForm.rollback_order" placeholder="不设置">
+            <el-option label="stop-first" value="stop-first" />
+            <el-option label="start-first" value="start-first" />
+          </el-select>
+        </el-form-item>
+        <el-divider content-position="left">资源限制</el-divider>
+        <el-form-item label="Limit CPU">
+          <el-input v-model="serviceCreateForm.limit_cpu" placeholder="如 0.5" />
+        </el-form-item>
+        <el-form-item label="Limit Memory">
+          <el-input v-model="serviceCreateForm.limit_memory" placeholder="如 512M" />
+        </el-form-item>
+        <el-form-item label="Reserve CPU">
+          <el-input v-model="serviceCreateForm.reserve_cpu" placeholder="如 0.25" />
+        </el-form-item>
+        <el-form-item label="Reserve Memory">
+          <el-input v-model="serviceCreateForm.reserve_memory" placeholder="如 256M" />
+        </el-form-item>
+        <el-divider content-position="left">配置预览</el-divider>
+        <el-input :model-value="serviceCreatePreview" type="textarea" :rows="6" readonly />
       </el-form>
       <template #footer>
         <el-button @click="createServiceVisible = false">取消</el-button>
@@ -591,8 +721,20 @@
         <el-form-item label="镜像">
           <el-input v-model="serviceEditForm.image" placeholder="例如 nginx:latest" />
         </el-form-item>
+        <el-form-item label="模式">
+          <el-select v-model="serviceEditForm.mode" placeholder="不调整">
+            <el-option label="replicated" value="replicated" />
+            <el-option label="global" value="global" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Endpoint">
+          <el-select v-model="serviceEditForm.endpoint_mode" placeholder="不调整">
+            <el-option label="vip" value="vip" />
+            <el-option label="dnsrr" value="dnsrr" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="副本数">
-          <el-input-number v-model="serviceEditForm.replicas" :min="0" />
+          <el-input-number v-model="serviceEditForm.replicas" :min="0" :disabled="serviceEditIsGlobal" />
         </el-form-item>
         <el-form-item label="端口发布">
           <el-input v-model="serviceEditForm.ports" type="textarea" :rows="3" placeholder="每行一条，如 8080:80 或 published=8080,target=80" />
@@ -610,6 +752,75 @@
           <el-input v-model="serviceEditForm.networks" type="textarea" :rows="2" placeholder="每行一个网络名称或ID" />
           <el-checkbox v-model="serviceEditForm.reset_networks">覆盖现有网络</el-checkbox>
         </el-form-item>
+        <el-form-item label="约束">
+          <el-input v-model="serviceEditForm.constraints" type="textarea" :rows="2" placeholder="如 node.role==manager" />
+          <el-checkbox v-model="serviceEditForm.reset_constraints">覆盖现有约束</el-checkbox>
+        </el-form-item>
+        <el-form-item label="每节点上限">
+          <el-input v-model="serviceEditForm.max_replicas_per_node" :disabled="serviceEditIsGlobal" placeholder="如 1" />
+          <div class="text-xs text-gray-400 mt-1">仅 replicated 模式生效</div>
+        </el-form-item>
+        <el-divider content-position="left">更新策略</el-divider>
+        <el-form-item label="重启条件">
+          <el-select v-model="serviceEditForm.restart_condition" placeholder="不设置">
+            <el-option label="none" value="none" />
+            <el-option label="on-failure" value="on-failure" />
+            <el-option label="any" value="any" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="并行度">
+          <el-input v-model="serviceEditForm.update_parallelism" placeholder="如 2" />
+        </el-form-item>
+        <el-form-item label="更新延迟">
+          <el-input v-model="serviceEditForm.update_delay" placeholder="如 10s" />
+        </el-form-item>
+        <el-form-item label="更新失败策略">
+          <el-select v-model="serviceEditForm.update_failure_action" placeholder="不设置">
+            <el-option label="pause" value="pause" />
+            <el-option label="continue" value="continue" />
+            <el-option label="rollback" value="rollback" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="更新顺序">
+          <el-select v-model="serviceEditForm.update_order" placeholder="不设置">
+            <el-option label="stop-first" value="stop-first" />
+            <el-option label="start-first" value="start-first" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回滚并行度">
+          <el-input v-model="serviceEditForm.rollback_parallelism" placeholder="如 2" />
+        </el-form-item>
+        <el-form-item label="回滚延迟">
+          <el-input v-model="serviceEditForm.rollback_delay" placeholder="如 10s" />
+        </el-form-item>
+        <el-form-item label="回滚失败策略">
+          <el-select v-model="serviceEditForm.rollback_failure_action" placeholder="不设置">
+            <el-option label="pause" value="pause" />
+            <el-option label="continue" value="continue" />
+            <el-option label="rollback" value="rollback" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回滚顺序">
+          <el-select v-model="serviceEditForm.rollback_order" placeholder="不设置">
+            <el-option label="stop-first" value="stop-first" />
+            <el-option label="start-first" value="start-first" />
+          </el-select>
+        </el-form-item>
+        <el-divider content-position="left">资源限制</el-divider>
+        <el-form-item label="Limit CPU">
+          <el-input v-model="serviceEditForm.limit_cpu" placeholder="如 0.5" />
+        </el-form-item>
+        <el-form-item label="Limit Memory">
+          <el-input v-model="serviceEditForm.limit_memory" placeholder="如 512M" />
+        </el-form-item>
+        <el-form-item label="Reserve CPU">
+          <el-input v-model="serviceEditForm.reserve_cpu" placeholder="如 0.25" />
+        </el-form-item>
+        <el-form-item label="Reserve Memory">
+          <el-input v-model="serviceEditForm.reserve_memory" placeholder="如 256M" />
+        </el-form-item>
+        <el-divider content-position="left">配置预览</el-divider>
+        <el-input :model-value="serviceEditPreview" type="textarea" :rows="6" readonly />
       </el-form>
       <template #footer>
         <el-button @click="editServiceVisible = false">取消</el-button>
@@ -1062,6 +1273,10 @@ const containers = ref([])
 const containersLoading = ref(false)
 const containerTableRef = ref(null)
 const selectedContainers = ref([])
+const containerFilters = reactive({
+  keyword: '',
+  state: ''
+})
 const statsLoading = ref(false)
 const containerStats = ref({})
 const containerStatsHistory = ref({})
@@ -1191,14 +1406,31 @@ const createServiceLoading = ref(false)
 const serviceCreateForm = reactive({
   name: '',
   image: '',
+  mode: 'replicated',
+  endpoint_mode: 'vip',
   replicas: 1,
   ports: '',
   env: '',
   labels: '',
   networks: '',
   constraints: '',
+  placement_prefs: '',
+  max_replicas_per_node: '',
   mounts: '',
-  command: ''
+  command: '',
+  restart_condition: '',
+  update_parallelism: '',
+  update_delay: '',
+  update_failure_action: '',
+  update_order: '',
+  rollback_parallelism: '',
+  rollback_delay: '',
+  rollback_failure_action: '',
+  rollback_order: '',
+  limit_cpu: '',
+  limit_memory: '',
+  reserve_cpu: '',
+  reserve_memory: ''
 })
 const editServiceVisible = ref(false)
 const editServiceLoading = ref(false)
@@ -1207,15 +1439,33 @@ const serviceEditForm = reactive({
   id: '',
   name: '',
   image: '',
+  mode: '',
+  endpoint_mode: '',
   replicas: 1,
   ports: '',
   env: '',
   labels: '',
   networks: '',
+  constraints: '',
+  reset_constraints: true,
+  max_replicas_per_node: '',
   reset_env: true,
   reset_labels: true,
   reset_ports: true,
-  reset_networks: true
+  reset_networks: true,
+  restart_condition: '',
+  update_parallelism: '',
+  update_delay: '',
+  update_failure_action: '',
+  update_order: '',
+  rollback_parallelism: '',
+  rollback_delay: '',
+  rollback_failure_action: '',
+  rollback_order: '',
+  limit_cpu: '',
+  limit_memory: '',
+  reserve_cpu: '',
+  reserve_memory: ''
 })
 const stacks = ref([])
 const stacksLoading = ref(false)
@@ -1279,6 +1529,23 @@ const serviceStacks = computed(() => {
   return Array.from(set)
 })
 
+const filteredContainers = computed(() => {
+  let rows = containers.value
+  const keyword = String(containerFilters.keyword || '').trim().toLowerCase()
+  if (keyword) {
+    rows = rows.filter((c) => {
+      const names = Array.isArray(c.names) ? c.names.join(',') : String(c.names || '')
+      const hay = `${names} ${c.image || ''} ${c.id || ''} ${c.status || ''}`.toLowerCase()
+      return hay.includes(keyword)
+    })
+  }
+  const state = String(containerFilters.state || '').trim().toLowerCase()
+  if (state) {
+    rows = rows.filter(c => String(c.state || '').toLowerCase() === state)
+  }
+  return rows
+})
+
 const filteredServices = computed(() => {
   if (!serviceStackFilter.value) return services.value
   return services.value.filter(s => (s.Name || '').startsWith(`${serviceStackFilter.value}_`))
@@ -1334,6 +1601,16 @@ const createForm = reactive({
   name: '',
   ports: '',
   env: '',
+  labels: '',
+  networks: '',
+  mounts: '',
+  entrypoint: '',
+  command: '',
+  privileged: false,
+  cap_add: '',
+  network_mode: '',
+  dns: '',
+  extra_hosts: '',
   restart_policy: '',
   auto_remove: false
 })
@@ -2083,6 +2360,72 @@ const parseCommandText = (text) => {
     .filter(Boolean)
 }
 
+const serviceCreateIsGlobal = computed(() => String(serviceCreateForm.mode || '').toLowerCase() === 'global')
+const serviceEditIsGlobal = computed(() => String(serviceEditForm.mode || '').toLowerCase() === 'global')
+
+const buildServicePreview = (form, options = {}) => {
+  const lines = []
+  const name = form.name || '-'
+  const image = form.image || '-'
+  lines.push(`名称: ${name}`)
+  lines.push(`镜像: ${image}`)
+  const mode = form.mode ? String(form.mode) : 'replicated'
+  lines.push(`模式: ${mode}`)
+  if (mode === 'replicated') {
+    const replicas = form.replicas !== undefined && form.replicas !== null ? form.replicas : '-'
+    lines.push(`副本: ${replicas}`)
+    if (form.max_replicas_per_node) {
+      lines.push(`每节点上限: ${form.max_replicas_per_node}`)
+    }
+  }
+  if (form.endpoint_mode) {
+    lines.push(`Endpoint: ${form.endpoint_mode}`)
+  }
+  const ports = parseListText(form.ports || '')
+  if (ports.length) lines.push(`端口发布: ${ports.join(', ')}`)
+  const env = parseKeyValueText(form.env || '')
+  const labels = parseKeyValueText(form.labels || '')
+  if (Object.keys(env).length) lines.push(`环境变量: ${Object.keys(env).length} 项`)
+  if (Object.keys(labels).length) lines.push(`标签: ${Object.keys(labels).length} 项`)
+  const networks = parseListText(form.networks || '')
+  if (networks.length) lines.push(`网络: ${networks.join(', ')}`)
+  if (options.includeConstraints) {
+    const constraints = parseListText(form.constraints || '')
+    if (constraints.length) lines.push(`约束: ${constraints.join(', ')}`)
+    const prefs = parseListText(form.placement_prefs || '')
+    if (prefs.length) lines.push(`Placement: ${prefs.join(', ')}`)
+  }
+  const mounts = parseListText(form.mounts || '')
+  if (mounts.length) lines.push(`挂载: ${mounts.length} 项`)
+  const command = parseCommandText(form.command || '')
+  if (command.length) lines.push(`命令: ${command.join(' ')}`)
+  const update = []
+  if (form.update_parallelism) update.push(`并行=${form.update_parallelism}`)
+  if (form.update_delay) update.push(`延迟=${form.update_delay}`)
+  if (form.update_failure_action) update.push(`失败策略=${form.update_failure_action}`)
+  if (form.update_order) update.push(`顺序=${form.update_order}`)
+  if (form.restart_condition) update.push(`重启=${form.restart_condition}`)
+  if (update.length) lines.push(`更新策略: ${update.join(', ')}`)
+  const rollback = []
+  if (form.rollback_parallelism) rollback.push(`并行=${form.rollback_parallelism}`)
+  if (form.rollback_delay) rollback.push(`延迟=${form.rollback_delay}`)
+  if (form.rollback_failure_action) rollback.push(`失败策略=${form.rollback_failure_action}`)
+  if (form.rollback_order) rollback.push(`顺序=${form.rollback_order}`)
+  if (rollback.length) lines.push(`回滚策略: ${rollback.join(', ')}`)
+  const limits = []
+  if (form.limit_cpu) limits.push(`CPU=${form.limit_cpu}`)
+  if (form.limit_memory) limits.push(`内存=${form.limit_memory}`)
+  const reserves = []
+  if (form.reserve_cpu) reserves.push(`CPU=${form.reserve_cpu}`)
+  if (form.reserve_memory) reserves.push(`内存=${form.reserve_memory}`)
+  if (limits.length) lines.push(`限制: ${limits.join(', ')}`)
+  if (reserves.length) lines.push(`保留: ${reserves.join(', ')}`)
+  return lines.join('\n')
+}
+
+const serviceCreatePreview = computed(() => buildServicePreview(serviceCreateForm, { includeConstraints: true }))
+const serviceEditPreview = computed(() => buildServicePreview(serviceEditForm, { includeConstraints: true }))
+
 const mapToText = (obj) => {
   return Object.entries(obj || {}).map(([k, v]) => `${k}=${v}`).join('\n')
 }
@@ -2097,6 +2440,28 @@ const parseReplicaValue = (replicas) => {
   if (match) return Number(match[2])
   const num = Number(rep)
   return Number.isNaN(num) ? 0 : num
+}
+
+const formatDuration = (value) => {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') {
+    const seconds = value / 1e9
+    if (seconds >= 1) return `${Math.round(seconds)}s`
+    return `${Math.round(value)}ns`
+  }
+  return String(value)
+}
+
+const nanoToCpu = (nano) => {
+  if (!nano || typeof nano !== 'number') return ''
+  return (nano / 1e9).toFixed(3).replace(/\.?0+$/, '')
+}
+
+const bytesToMem = (bytes) => {
+  if (!bytes || typeof bytes !== 'number') return ''
+  const mib = Math.round(bytes / 1024 / 1024)
+  return `${mib}M`
 }
 
 const onContainerSelectionChange = (rows) => {
@@ -2554,6 +2919,10 @@ const applyServiceScale = async (row) => {
   if (!activeHost.value) return
   const id = row.ID || row.Id || row.id
   if (!id) return
+  if (String(row.Mode || '').toLowerCase().includes('global')) {
+    ElMessage.warning('Global 模式不支持设置副本')
+    return
+  }
   const replicas = Number(serviceScaleMap[id])
   if (Number.isNaN(replicas) || replicas < 0) {
     ElMessage.warning('副本数无效')
@@ -2577,6 +2946,10 @@ const scaleSelectedServices = async () => {
     ElMessage.warning('请选择服务')
     return
   }
+  const globalServices = rows.filter(r => String(r.Mode || '').toLowerCase().includes('global'))
+  if (globalServices.length > 0) {
+    ElMessage.warning('包含 Global 模式服务，已跳过')
+  }
   const replicas = Number(batchServiceScale.value)
   if (Number.isNaN(replicas) || replicas < 0) {
     ElMessage.warning('副本数无效')
@@ -2595,6 +2968,10 @@ const scaleSelectedServices = async () => {
   let ok = 0
   let fail = 0
   for (const row of rows) {
+    if (String(row.Mode || '').toLowerCase().includes('global')) {
+      results.push({ label: row.Name || row.name || row.ID, status: '跳过', message: 'Global 模式不支持' })
+      continue
+    }
     const id = row.ID || row.Id || row.id
     const name = row.Name || row.name || id
     try {
@@ -2892,6 +3269,29 @@ const removeSelectedStacks = async () => {
   loadServices()
 }
 
+const removeStack = async (row) => {
+  if (!activeHost.value) return
+  const stackName = row?.Name || row?.name
+  if (!stackName) return
+  try {
+    await ElMessageBox.confirm(`确定删除 Stack ${stackName} 吗?`, '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  try {
+    await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/${encodeURIComponent(stackName)}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    loadStacks()
+    loadServices()
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e))
+  }
+}
+
 const fetchContainersForUsage = async () => {
   if (!activeHost.value) return []
   try {
@@ -3001,6 +3401,16 @@ const openCreateContainer = () => {
   createForm.name = ''
   createForm.ports = ''
   createForm.env = ''
+  createForm.labels = ''
+  createForm.networks = ''
+  createForm.mounts = ''
+  createForm.entrypoint = ''
+  createForm.command = ''
+  createForm.privileged = false
+  createForm.cap_add = ''
+  createForm.network_mode = ''
+  createForm.dns = ''
+  createForm.extra_hosts = ''
   createForm.restart_policy = ''
   createForm.auto_remove = false
   createVisible.value = true
@@ -3013,24 +3423,25 @@ const submitCreate = async () => {
   }
   createLoading.value = true
   try {
-    const ports = createForm.ports
-      .split(',')
+    const ports = String(createForm.ports || '')
+      .split(/[,\\n]/)
       .map(v => v.trim())
       .filter(Boolean)
-    const env = {}
-    createForm.env.split('\n').map(v => v.trim()).filter(Boolean).forEach((line) => {
-      const idx = line.indexOf('=')
-      if (idx > 0) {
-        const k = line.slice(0, idx).trim()
-        const v = line.slice(idx + 1).trim()
-        env[k] = v
-      }
-    })
     const payload = {
       name: createForm.name,
       image: createForm.image,
       ports,
-      env,
+      env: parseKeyValueText(createForm.env),
+      labels: parseKeyValueText(createForm.labels),
+      networks: parseListText(createForm.networks),
+      mounts: parseListText(createForm.mounts),
+      entrypoint: String(createForm.entrypoint || '').trim(),
+      command: parseCommandText(createForm.command),
+      privileged: !!createForm.privileged,
+      cap_add: parseListText(createForm.cap_add),
+      network_mode: String(createForm.network_mode || '').trim(),
+      dns: parseListText(createForm.dns),
+      extra_hosts: parseListText(createForm.extra_hosts),
       restart_policy: createForm.restart_policy,
       auto_remove: createForm.auto_remove
     }
@@ -3417,14 +3828,31 @@ watch(serviceLogFollow, (val) => {
 const openCreateService = () => {
   serviceCreateForm.name = ''
   serviceCreateForm.image = ''
+  serviceCreateForm.mode = 'replicated'
+  serviceCreateForm.endpoint_mode = 'vip'
   serviceCreateForm.replicas = 1
   serviceCreateForm.ports = ''
   serviceCreateForm.env = ''
   serviceCreateForm.labels = ''
   serviceCreateForm.networks = ''
   serviceCreateForm.constraints = ''
+  serviceCreateForm.placement_prefs = ''
+  serviceCreateForm.max_replicas_per_node = ''
   serviceCreateForm.mounts = ''
   serviceCreateForm.command = ''
+  serviceCreateForm.restart_condition = ''
+  serviceCreateForm.update_parallelism = ''
+  serviceCreateForm.update_delay = ''
+  serviceCreateForm.update_failure_action = ''
+  serviceCreateForm.update_order = ''
+  serviceCreateForm.rollback_parallelism = ''
+  serviceCreateForm.rollback_delay = ''
+  serviceCreateForm.rollback_failure_action = ''
+  serviceCreateForm.rollback_order = ''
+  serviceCreateForm.limit_cpu = ''
+  serviceCreateForm.limit_memory = ''
+  serviceCreateForm.reserve_cpu = ''
+  serviceCreateForm.reserve_memory = ''
   createServiceVisible.value = true
 }
 
@@ -3436,17 +3864,35 @@ const submitCreateService = async () => {
   }
   createServiceLoading.value = true
   try {
+    const isGlobal = String(serviceCreateForm.mode || '').toLowerCase() === 'global'
     const payload = {
       name: serviceCreateForm.name,
       image: serviceCreateForm.image,
-      replicas: Number(serviceCreateForm.replicas || 0),
+      mode: serviceCreateForm.mode,
+      endpoint_mode: serviceCreateForm.endpoint_mode,
+      replicas: isGlobal ? undefined : Number(serviceCreateForm.replicas || 0),
       ports: parseListText(serviceCreateForm.ports),
       env: parseKeyValueText(serviceCreateForm.env),
       labels: parseKeyValueText(serviceCreateForm.labels),
       networks: parseListText(serviceCreateForm.networks),
       constraints: parseListText(serviceCreateForm.constraints),
+      placement_prefs: parseListText(serviceCreateForm.placement_prefs),
+      max_replicas_per_node: !isGlobal && serviceCreateForm.max_replicas_per_node ? Number(serviceCreateForm.max_replicas_per_node) : undefined,
       mounts: parseListText(serviceCreateForm.mounts),
-      command: parseCommandText(serviceCreateForm.command)
+      command: parseCommandText(serviceCreateForm.command),
+      restart_condition: serviceCreateForm.restart_condition,
+      update_parallelism: serviceCreateForm.update_parallelism ? Number(serviceCreateForm.update_parallelism) : undefined,
+      update_delay: serviceCreateForm.update_delay,
+      update_failure_action: serviceCreateForm.update_failure_action,
+      update_order: serviceCreateForm.update_order,
+      rollback_parallelism: serviceCreateForm.rollback_parallelism ? Number(serviceCreateForm.rollback_parallelism) : undefined,
+      rollback_delay: serviceCreateForm.rollback_delay,
+      rollback_failure_action: serviceCreateForm.rollback_failure_action,
+      rollback_order: serviceCreateForm.rollback_order,
+      limit_cpu: serviceCreateForm.limit_cpu,
+      limit_memory: serviceCreateForm.limit_memory,
+      reserve_cpu: serviceCreateForm.reserve_cpu,
+      reserve_memory: serviceCreateForm.reserve_memory
     }
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services`, payload, { headers: authHeaders() })
     ElMessage.success('创建成功')
@@ -3468,15 +3914,20 @@ const openEditService = async (row) => {
   serviceEditForm.id = id
   serviceEditForm.name = row?.Name || ''
   serviceEditForm.image = row?.Image || ''
+  serviceEditForm.mode = ''
+  serviceEditForm.endpoint_mode = ''
   serviceEditForm.replicas = parseReplicaValue(row?.Replicas)
   serviceEditForm.ports = ''
   serviceEditForm.env = ''
   serviceEditForm.labels = ''
   serviceEditForm.networks = ''
+  serviceEditForm.constraints = ''
+  serviceEditForm.max_replicas_per_node = ''
   serviceEditForm.reset_env = true
   serviceEditForm.reset_labels = true
   serviceEditForm.reset_ports = true
   serviceEditForm.reset_networks = true
+  serviceEditForm.reset_constraints = true
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(id)}`, { headers: authHeaders() })
     if (res.data.code === 0) {
@@ -3486,6 +3937,15 @@ const openEditService = async (row) => {
       const envList = containerSpec.Env || []
       const labels = spec.Labels || {}
       const networks = (spec.TaskTemplate?.Networks || []).map(n => n?.Target || n?.Name).filter(Boolean)
+      const constraints = spec.TaskTemplate?.Placement?.Constraints || []
+      const mode = spec.Mode?.Global ? 'global' : 'replicated'
+      const endpointMode = spec.EndpointSpec?.Mode || ''
+      const restartCondition = spec.TaskTemplate?.RestartPolicy?.Condition || ''
+      const updateConfig = spec.UpdateConfig || {}
+      const rollbackConfig = spec.RollbackConfig || {}
+      const resources = spec.TaskTemplate?.Resources || {}
+      const limits = resources.Limits || {}
+      const reserves = resources.Reservations || {}
       const ports = (spec.EndpointSpec?.Ports || []).map((p) => {
         if (p?.PublishedPort) {
           const parts = [`published=${p.PublishedPort}`, `target=${p.TargetPort}`]
@@ -3497,10 +3957,28 @@ const openEditService = async (row) => {
       }).filter(Boolean)
       serviceEditForm.image = containerSpec.Image || serviceEditForm.image
       serviceEditForm.replicas = Number(spec.Mode?.Replicated?.Replicas ?? serviceEditForm.replicas)
+      const maxReplicas = spec.Mode?.Replicated?.MaxReplicasPerNode ?? spec.Mode?.Replicated?.MaxReplicas ?? ''
+      serviceEditForm.max_replicas_per_node = maxReplicas ? String(maxReplicas) : ''
+      serviceEditForm.mode = mode
+      serviceEditForm.endpoint_mode = endpointMode
       serviceEditForm.env = listToText(envList)
       serviceEditForm.labels = mapToText(labels)
       serviceEditForm.networks = listToText(networks)
+      serviceEditForm.constraints = listToText(constraints)
       serviceEditForm.ports = listToText(ports)
+      serviceEditForm.restart_condition = restartCondition
+      serviceEditForm.update_parallelism = updateConfig.Parallelism ? String(updateConfig.Parallelism) : ''
+      serviceEditForm.update_delay = formatDuration(updateConfig.Delay)
+      serviceEditForm.update_failure_action = updateConfig.FailureAction || ''
+      serviceEditForm.update_order = updateConfig.Order || ''
+      serviceEditForm.rollback_parallelism = rollbackConfig.Parallelism ? String(rollbackConfig.Parallelism) : ''
+      serviceEditForm.rollback_delay = formatDuration(rollbackConfig.Delay)
+      serviceEditForm.rollback_failure_action = rollbackConfig.FailureAction || ''
+      serviceEditForm.rollback_order = rollbackConfig.Order || ''
+      serviceEditForm.limit_cpu = nanoToCpu(limits.NanoCPUs)
+      serviceEditForm.limit_memory = bytesToMem(limits.MemoryBytes)
+      serviceEditForm.reserve_cpu = nanoToCpu(reserves.NanoCPUs)
+      serviceEditForm.reserve_memory = bytesToMem(reserves.MemoryBytes)
     }
   } finally {
     editServiceLoading.value = false
@@ -3511,17 +3989,36 @@ const submitEditService = async () => {
   if (!activeHost.value || !serviceEditForm.id) return
   editServiceSaving.value = true
   try {
+    const isGlobal = String(serviceEditForm.mode || '').toLowerCase() === 'global'
     const payload = {
       image: serviceEditForm.image,
-      replicas: Number(serviceEditForm.replicas || 0),
+      mode: serviceEditForm.mode,
+      endpoint_mode: serviceEditForm.endpoint_mode,
+      replicas: isGlobal ? undefined : Number(serviceEditForm.replicas || 0),
       ports: parseListText(serviceEditForm.ports),
       env: parseKeyValueText(serviceEditForm.env),
       labels: parseKeyValueText(serviceEditForm.labels),
       networks: parseListText(serviceEditForm.networks),
+      constraints: parseListText(serviceEditForm.constraints),
       reset_env: serviceEditForm.reset_env,
       reset_labels: serviceEditForm.reset_labels,
       reset_ports: serviceEditForm.reset_ports,
-      reset_networks: serviceEditForm.reset_networks
+      reset_networks: serviceEditForm.reset_networks,
+      reset_constraints: serviceEditForm.reset_constraints,
+      restart_condition: serviceEditForm.restart_condition,
+      update_parallelism: serviceEditForm.update_parallelism ? Number(serviceEditForm.update_parallelism) : undefined,
+      update_delay: serviceEditForm.update_delay,
+      update_failure_action: serviceEditForm.update_failure_action,
+      update_order: serviceEditForm.update_order,
+      rollback_parallelism: serviceEditForm.rollback_parallelism ? Number(serviceEditForm.rollback_parallelism) : undefined,
+      rollback_delay: serviceEditForm.rollback_delay,
+      rollback_failure_action: serviceEditForm.rollback_failure_action,
+      rollback_order: serviceEditForm.rollback_order,
+      limit_cpu: serviceEditForm.limit_cpu,
+      limit_memory: serviceEditForm.limit_memory,
+      reserve_cpu: serviceEditForm.reserve_cpu,
+      reserve_memory: serviceEditForm.reserve_memory,
+      max_replicas_per_node: !isGlobal && serviceEditForm.max_replicas_per_node ? Number(serviceEditForm.max_replicas_per_node) : undefined
     }
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(serviceEditForm.id)}/update`, payload, { headers: authHeaders() })
     ElMessage.success('更新成功')
@@ -3551,10 +4048,15 @@ const openStackServices = async (row) => {
 
 const scaleService = async (row) => {
   if (!activeHost.value || !row?.ID) return
+  if (String(row.Mode || '').toLowerCase().includes('global')) {
+    ElMessage.warning('Global 模式不支持设置副本')
+    return
+  }
   try {
     const { value } = await ElMessageBox.prompt('输入副本数', '扩缩容', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
+      inputValue: String(parseReplicaValue(row?.Replicas)),
       inputPattern: /^[0-9]+$/,
       inputErrorMessage: '请输入数字'
     })
@@ -3571,7 +4073,8 @@ const updateServiceImage = async (row) => {
   try {
     const { value } = await ElMessageBox.prompt('输入镜像 (如 nginx:latest)', '更新镜像', {
       confirmButtonText: '确定',
-      cancelButtonText: '取消'
+      cancelButtonText: '取消',
+      inputValue: row?.Image || ''
     })
     if (!value) return
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/update_image`, {
@@ -3588,6 +4091,16 @@ const restartService = async (row) => {
     await ElMessageBox.confirm('确认滚动重启该服务吗？', '提示', { type: 'warning' })
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/restart`, {}, { headers: authHeaders() })
     ElMessage.success('已触发重启')
+    loadServices()
+  } catch (e) {}
+}
+
+const rollbackService = async (row) => {
+  if (!activeHost.value || !row?.ID) return
+  try {
+    await ElMessageBox.confirm('确认回滚该服务到上一个版本吗？', '提示', { type: 'warning' })
+    await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/rollback`, {}, { headers: authHeaders() })
+    ElMessage.success('已触发回滚')
     loadServices()
   } catch (e) {}
 }

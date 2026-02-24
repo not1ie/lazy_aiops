@@ -75,6 +75,7 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/hosts/:id/services/:service_id/update", h.UpdateService)
 	g.POST("/hosts/:id/services/:service_id/update_image", h.UpdateServiceImage)
 	g.POST("/hosts/:id/services/:service_id/restart", h.RestartService)
+	g.POST("/hosts/:id/services/:service_id/rollback", h.RollbackService)
 	g.DELETE("/hosts/:id/services/:service_id", h.RemoveService)
 	g.GET("/hosts/:id/stacks", h.ListStacks)
 	g.GET("/hosts/:id/stacks/:stack/services", h.ListStackServices)
