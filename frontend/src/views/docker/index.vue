@@ -435,6 +435,7 @@
           <div class="tab-toolbar">
             <div class="toolbar-left">
               <el-button type="primary" plain :disabled="selectedServices.length === 0" @click="restartSelectedServices">批量重启</el-button>
+              <el-input v-model="serviceFilters.keyword" class="w-48" placeholder="名称/镜像/端口" clearable />
               <el-input-number v-model="batchServiceScale" :min="0" class="w-28" controls-position="right" />
               <el-button type="success" plain :disabled="selectedServices.length === 0" @click="scaleSelectedServices">
                 批量设置副本
@@ -988,7 +989,43 @@
           <el-descriptions-item label="Name">{{ inspectData?.Name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Image">{{ inspectData?.Config?.Image || '-' }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ inspectData?.State?.Status || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ formatTime(inspectData?.Created) }}</el-descriptions-item>
+          <el-descriptions-item label="重启策略">{{ inspectRestartPolicy || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Network Mode">{{ inspectNetworkMode || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Privileged">{{ inspectPrivileged ? 'true' : 'false' }}</el-descriptions-item>
         </el-descriptions>
+
+        <el-divider content-position="left">命令</el-divider>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="Entrypoint">{{ inspectEntrypoint || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Command">{{ inspectCommand || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">Labels</el-divider>
+        <el-table :data="inspectLabels" style="width: 100%">
+          <el-table-column prop="key" label="Key" min-width="200" />
+          <el-table-column prop="value" label="Value" min-width="220" />
+        </el-table>
+
+        <el-divider content-position="left">Host 配置</el-divider>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="Cap Add">{{ inspectCapAdd?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="DNS">{{ inspectDns?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Extra Hosts">{{ inspectExtraHosts?.join(', ') || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider v-if="inspectHealth" content-position="left">Health</el-divider>
+        <el-descriptions v-if="inspectHealth" :column="3" border>
+          <el-descriptions-item label="状态">{{ inspectHealth?.Status || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="失败次数">{{ inspectHealth?.FailingStreak ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="日志数">{{ inspectHealth?.Log?.length ?? 0 }}</el-descriptions-item>
+        </el-descriptions>
+        <el-table v-if="inspectHealth?.Log?.length" :data="inspectHealth.Log.slice(-5)" style="width: 100%">
+          <el-table-column prop="Start" label="Start" min-width="180" />
+          <el-table-column prop="End" label="End" min-width="180" />
+          <el-table-column prop="ExitCode" label="Exit" width="80" />
+          <el-table-column prop="Output" label="Output" min-width="200" />
+        </el-table>
 
         <el-divider content-position="left">Ports</el-divider>
         <el-table :data="inspectPorts" style="width: 100%">
@@ -1052,6 +1089,34 @@
           <el-descriptions-item label="Pending">{{ serviceSummary?.tasks?.pending ?? 0 }}</el-descriptions-item>
           <el-descriptions-item label="Starting">{{ serviceSummary?.tasks?.starting ?? 0 }}</el-descriptions-item>
           <el-descriptions-item label="Preparing">{{ serviceSummary?.tasks?.preparing ?? 0 }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">Spec</el-divider>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="名称">{{ serviceInspectSummary?.name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="镜像">{{ serviceInspectSummary?.image || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="模式">{{ serviceInspectSummary?.mode || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="副本">{{ serviceInspectSummary?.replicas ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Endpoint">{{ serviceInspectSummary?.endpoint || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="环境变量">{{ serviceInspectSummary?.envCount ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="标签数量">{{ serviceInspectSummary?.labelCount ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="命令">{{ serviceInspectSummary?.command || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="网络">{{ serviceInspectSummary?.networks?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="约束">{{ serviceInspectSummary?.constraints?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Placement">{{ serviceInspectSummary?.placement?.join(', ') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="挂载">{{ serviceInspectSummary?.mounts?.join(', ') || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">更新/回滚配置</el-divider>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="更新并行">{{ serviceInspectSummary?.update?.parallelism || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="更新延迟">{{ serviceInspectSummary?.update?.delay || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="更新失败">{{ serviceInspectSummary?.update?.failureAction || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="更新顺序">{{ serviceInspectSummary?.update?.order || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚并行">{{ serviceInspectSummary?.rollback?.parallelism || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚延迟">{{ serviceInspectSummary?.rollback?.delay || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚失败">{{ serviceInspectSummary?.rollback?.failureAction || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚顺序">{{ serviceInspectSummary?.rollback?.order || '-' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-divider content-position="left">更新/回滚</el-divider>
@@ -1470,6 +1535,9 @@ const servicesLoading = ref(false)
 const serviceStackFilter = ref('')
 const serviceTableRef = ref(null)
 const selectedServices = ref([])
+const serviceFilters = reactive({
+  keyword: ''
+})
 const serviceScaleMap = reactive({})
 const batchServiceScale = ref(1)
 const createServiceVisible = ref(false)
@@ -1570,6 +1638,16 @@ const inspectPorts = ref([])
 const inspectNetworks = ref([])
 const inspectMounts = ref([])
 const inspectEnvText = ref('')
+const inspectLabels = ref([])
+const inspectCommand = ref('')
+const inspectEntrypoint = ref('')
+const inspectRestartPolicy = ref('')
+const inspectNetworkMode = ref('')
+const inspectPrivileged = ref(false)
+const inspectCapAdd = ref([])
+const inspectDns = ref([])
+const inspectExtraHosts = ref([])
+const inspectHealth = ref(null)
 
 const execVisible = ref(false)
 const execLoading = ref(false)
@@ -1581,6 +1659,7 @@ const serviceVisible = ref(false)
 const serviceLoading = ref(false)
 const serviceJson = ref('')
 const serviceSummary = ref(null)
+const serviceInspectData = ref(null)
 const tasksVisible = ref(false)
 const tasksLoading = ref(false)
 const serviceTasks = ref([])
@@ -1625,8 +1704,18 @@ const filteredContainers = computed(() => {
 })
 
 const filteredServices = computed(() => {
-  if (!serviceStackFilter.value) return services.value
-  return services.value.filter(s => (s.Name || '').startsWith(`${serviceStackFilter.value}_`))
+  let rows = services.value
+  if (serviceStackFilter.value) {
+    rows = rows.filter(s => (s.Name || '').startsWith(`${serviceStackFilter.value}_`))
+  }
+  const keyword = String(serviceFilters.keyword || '').trim().toLowerCase()
+  if (keyword) {
+    rows = rows.filter((s) => {
+      const hay = `${s.Name || ''} ${s.Image || ''} ${s.Ports || ''}`.toLowerCase()
+      return hay.includes(keyword)
+    })
+  }
+  return rows
 })
 
 const topologyTree = computed(() => {
@@ -2518,6 +2607,51 @@ const summarizeServiceTasks = (tasks) => {
   })
   return summary
 }
+
+const buildServiceInspectSummary = (data) => {
+  if (!data) return null
+  const spec = data.Spec || {}
+  const task = spec.TaskTemplate || {}
+  const containerSpec = task.ContainerSpec || {}
+  const mode = spec.Mode?.Global ? 'global' : 'replicated'
+  const replicas = spec.Mode?.Replicated?.Replicas
+  const endpointMode = spec.EndpointSpec?.Mode || ''
+  const networks = (task.Networks || []).map(n => n?.Target || n?.Name).filter(Boolean)
+  const constraints = task.Placement?.Constraints || []
+  const prefs = (task.Placement?.Preferences || []).map(p => p?.Spread?.SpreadDescriptor).filter(Boolean).map(v => `spread=${v}`)
+  const mounts = (containerSpec.Mounts || []).map(formatServiceMount).filter(Boolean)
+  const command = containerSpec.Command || containerSpec.Args || []
+  const updateCfg = spec.UpdateConfig || {}
+  const rollbackCfg = spec.RollbackConfig || {}
+  return {
+    name: spec.Name || spec?.Annotations?.Name || '-',
+    image: containerSpec.Image || '-',
+    mode,
+    replicas: replicas === undefined ? '-' : replicas,
+    endpoint: endpointMode || '-',
+    networks,
+    constraints,
+    placement: prefs,
+    mounts,
+    command: command.join(' ') || '-',
+    envCount: (containerSpec.Env || []).length,
+    labelCount: Object.keys(spec.Labels || {}).length,
+    update: {
+      parallelism: updateCfg.Parallelism ?? '-',
+      delay: formatDuration(updateCfg.Delay) || '-',
+      failureAction: updateCfg.FailureAction || '-',
+      order: updateCfg.Order || '-'
+    },
+    rollback: {
+      parallelism: rollbackCfg.Parallelism ?? '-',
+      delay: formatDuration(rollbackCfg.Delay) || '-',
+      failureAction: rollbackCfg.FailureAction || '-',
+      order: rollbackCfg.Order || '-'
+    }
+  }
+}
+
+const serviceInspectSummary = computed(() => buildServiceInspectSummary(serviceInspectData.value))
 
 const formatStatusInfo = (status) => {
   if (!status) return null
@@ -3706,10 +3840,23 @@ const openInspect = async (row) => {
   inspectNetworks.value = []
   inspectMounts.value = []
   inspectEnvText.value = ''
+  inspectLabels.value = []
+  inspectCommand.value = ''
+  inspectEntrypoint.value = ''
+  inspectRestartPolicy.value = ''
+  inspectNetworkMode.value = ''
+  inspectPrivileged.value = false
+  inspectCapAdd.value = []
+  inspectDns.value = []
+  inspectExtraHosts.value = []
+  inspectHealth.value = null
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(id)}`, { headers: authHeaders() })
     if (res.data.code === 0) {
       inspectData.value = res.data.data || null
+      const config = inspectData.value?.Config || {}
+      const hostConfig = inspectData.value?.HostConfig || {}
+      const state = inspectData.value?.State || {}
       const ports = []
       const portMap = inspectData.value?.NetworkSettings?.Ports || {}
       Object.entries(portMap).forEach(([containerPort, hostBindings]) => {
@@ -3741,6 +3888,18 @@ const openInspect = async (row) => {
 
       const env = inspectData.value?.Config?.Env || []
       inspectEnvText.value = env.join('\n')
+
+      const labels = config.Labels || {}
+      inspectLabels.value = Object.entries(labels).map(([key, value]) => ({ key, value }))
+      inspectCommand.value = Array.isArray(config.Cmd) ? config.Cmd.join(' ') : (config.Cmd || '')
+      inspectEntrypoint.value = Array.isArray(config.Entrypoint) ? config.Entrypoint.join(' ') : (config.Entrypoint || '')
+      inspectRestartPolicy.value = hostConfig.RestartPolicy?.Name || '-'
+      inspectNetworkMode.value = hostConfig.NetworkMode || '-'
+      inspectPrivileged.value = !!hostConfig.Privileged
+      inspectCapAdd.value = hostConfig.CapAdd || []
+      inspectDns.value = hostConfig.Dns || []
+      inspectExtraHosts.value = hostConfig.ExtraHosts || []
+      inspectHealth.value = state.Health || null
     }
   } finally {
     inspectLoading.value = false
@@ -3957,6 +4116,7 @@ const openServiceDetail = async (row) => {
   serviceLoading.value = true
   serviceJson.value = ''
   serviceSummary.value = null
+  serviceInspectData.value = null
   try {
     const [inspectRes, taskRes] = await Promise.allSettled([
       axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}`, { headers: authHeaders() }),
@@ -3965,6 +4125,7 @@ const openServiceDetail = async (row) => {
     if (inspectRes.status === 'fulfilled' && inspectRes.value.data.code === 0) {
       const data = inspectRes.value.data.data || {}
       serviceJson.value = JSON.stringify(data, null, 2)
+      serviceInspectData.value = data
       const updateInfo = formatStatusInfo(data.UpdateStatus)
       const rollbackInfo = formatStatusInfo(data.RollbackStatus)
       const tasks = taskRes.status === 'fulfilled' && taskRes.value.data.code === 0 ? (taskRes.value.data.data || []) : []
