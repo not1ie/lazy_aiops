@@ -74,6 +74,12 @@
       <el-input v-model="rangeEnd" placeholder="end (unix sec)" class="w-52" />
       <el-input v-model="rangeStep" placeholder="step (sec)" class="w-40" />
       <el-button type="primary" @click="runQuery">查询</el-button>
+      <el-space v-if="mode === 'range'" class="ml-2">
+        <el-button size="small" @click="setRange(1)">1h</el-button>
+        <el-button size="small" @click="setRange(6)">6h</el-button>
+        <el-button size="small" @click="setRange(24)">24h</el-button>
+        <el-button size="small" @click="setRange(168)">7d</el-button>
+      </el-space>
     </div>
     <div class="template-bar">
       <el-tag
@@ -89,6 +95,13 @@
     <el-tabs v-model="activeTab">
       <el-tab-pane label="图表" name="chart">
         <div ref="chartRef" class="chart-box"></div>
+      </el-tab-pane>
+      <el-tab-pane label="表格" name="table">
+        <el-table :data="resultRows" size="small" style="width: 100%">
+          <el-table-column prop="metric" label="Metric" min-width="260" />
+          <el-table-column prop="value" label="Value" width="120" />
+          <el-table-column prop="time" label="Time" width="180" />
+        </el-table>
       </el-tab-pane>
       <el-tab-pane label="历史" name="history">
         <div class="history-bar">
@@ -124,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
@@ -151,6 +164,8 @@ const currentProm = ref('')
 const activeTab = ref('chart')
 const chartRef = ref(null)
 let chartInstance = null
+const lastResult = ref(null)
+const lastMode = ref('instant')
 const templates = ref([
   { label: 'CPU使用率', mode: 'instant', query: '100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)' },
   { label: '内存使用率', mode: 'instant', query: '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100' },
@@ -276,6 +291,8 @@ const runQuery = async () => {
         params: { query: query.value }
       })
       result.value = JSON.stringify(res.data, null, 2)
+      lastResult.value = res.data
+      lastMode.value = 'instant'
       renderInstant(res.data)
       await saveHistory('instant')
     } else {
@@ -293,6 +310,8 @@ const runQuery = async () => {
         }
       })
       result.value = JSON.stringify(res.data, null, 2)
+      lastResult.value = res.data
+      lastMode.value = 'range'
       renderRange(res.data)
       await saveHistory('range')
     }
@@ -300,6 +319,45 @@ const runQuery = async () => {
     result.value = err?.response?.data ? JSON.stringify(err.response.data, null, 2) : String(err)
   }
 }
+
+const setRange = (hours) => {
+  const end = Math.floor(Date.now() / 1000)
+  const start = end - (Number(hours) * 3600)
+  rangeStart.value = String(start)
+  rangeEnd.value = String(end)
+}
+
+const formatMetricLabels = (metric) => {
+  if (!metric) return '-'
+  const pairs = Object.entries(metric).map(([k, v]) => `${k}=${v}`)
+  return pairs.join(', ')
+}
+
+const resultRows = computed(() => {
+  const data = lastResult.value?.data?.result || []
+  if (lastMode.value === 'instant') {
+    return data.map((item) => {
+      const value = Array.isArray(item.value) ? Number(item.value[1]) : 0
+      const ts = Array.isArray(item.value) ? Number(item.value[0]) * 1000 : null
+      return {
+        metric: formatMetricLabels(item.metric),
+        value: Number.isFinite(value) ? value.toFixed(4) : value,
+        time: ts ? new Date(ts).toLocaleString() : '-'
+      }
+    })
+  }
+  return data.map((item) => {
+    const values = item.values || []
+    const last = values.length ? values[values.length - 1] : []
+    const value = Array.isArray(last) ? Number(last[1]) : 0
+    const ts = Array.isArray(last) ? Number(last[0]) * 1000 : null
+    return {
+      metric: formatMetricLabels(item.metric),
+      value: Number.isFinite(value) ? value.toFixed(4) : value,
+      time: ts ? new Date(ts).toLocaleString() : '-'
+    }
+  })
+})
 
 const applyTemplate = (tpl) => {
   mode.value = tpl.mode
@@ -448,6 +506,7 @@ onBeforeUnmount(() => {
 .card-value { font-size: 22px; font-weight: 600; margin-top: 6px; }
 .section-title { margin: 12px 0; }
 .meta-row { display: flex; gap: 12px; align-items: center; margin: 6px 0 12px; }
+.ml-2 { margin-left: 8px; }
 .meta-text { color: #606266; font-size: 12px; }
 .row-active td { background: #f0f9eb !important; }
 .query-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }

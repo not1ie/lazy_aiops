@@ -23,12 +23,18 @@
       </el-select>
     </div>
 
+    <el-row :gutter="16" class="summary-row">
+      <el-col :span="6"><el-card><div class="card-title">容器数</div><div class="card-value">{{ stats.total }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="card-title">CPU Top</div><div class="card-value">{{ stats.maxCpu }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="card-title">内存 Top(MiB)</div><div class="card-value">{{ stats.maxMem }}</div></el-card></el-col>
+    </el-row>
+
     <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
       <el-table-column prop="container" label="容器" min-width="220" />
       <el-table-column prop="image" label="镜像" min-width="200" />
       <el-table-column prop="instance" label="节点" min-width="160" />
-      <el-table-column prop="cpu" label="CPU(核)" width="120" />
-      <el-table-column prop="memory" label="内存(MiB)" width="140" />
+      <el-table-column prop="cpu" label="CPU(核)" width="120" sortable />
+      <el-table-column prop="memory" label="内存(MiB)" width="140" sortable />
     </el-table>
   </el-card>
 </template>
@@ -101,6 +107,13 @@ const filteredRows = computed(() => {
   )
 })
 
+const stats = computed(() => {
+  const total = filteredRows.value.length
+  const maxCpu = filteredRows.value.reduce((max, r) => Math.max(max, Number(r.cpu || 0)), 0).toFixed(3)
+  const maxMem = filteredRows.value.reduce((max, r) => Math.max(max, Number(r.memory || 0)), 0).toFixed(1)
+  return { total, maxCpu, maxMem }
+})
+
 onMounted(fetchMetrics)
 </script>
 
@@ -110,6 +123,9 @@ onMounted(fetchMetrics)
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
 .filter-bar { display: flex; gap: 8px; margin-top: 12px; }
+.summary-row { margin-top: 12px; }
+.card-title { color: #909399; font-size: 12px; }
+.card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
 .w-40 { width: 140px; }
 </style>

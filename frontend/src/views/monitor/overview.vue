@@ -52,6 +52,14 @@
             </el-table-column>
           </el-table>
         </el-card>
+        <el-card class="mt-12">
+          <div class="section-title">Top 节点</div>
+          <el-table :data="topNodes" size="small" style="width: 100%">
+            <el-table-column prop="instance" label="节点" min-width="140" />
+            <el-table-column prop="cpu" label="CPU%" width="90" />
+            <el-table-column prop="memory" label="内存%" width="90" />
+          </el-table>
+        </el-card>
       </el-col>
     </el-row>
   </el-card>
@@ -66,6 +74,7 @@ const realtime = ref({ cpu: 0, memory: 0, disk: 0, network: 0 })
 const alertStats = ref({ open: 0, closed: 0, ignored: 0 })
 const agentStats = ref({ online: 0, offline: 0 })
 const recentAlerts = ref([])
+const topNodes = ref([])
 
 const trendRef = ref(null)
 let trendChart = null
@@ -102,6 +111,36 @@ const fetchHistory = async () => {
   renderTrend(data)
 }
 
+const fetchProm = async (query) => {
+  const res = await axios.get('/api/v1/monitor/prometheus/query', {
+    headers: authHeaders(),
+    params: { query }
+  })
+  return res.data?.data?.result || []
+}
+
+const fetchTopNodes = async () => {
+  try {
+    const cpuQuery = 'topk(5, 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))'
+    const memQuery = 'topk(5, (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)'
+    const [cpuRes, memRes] = await Promise.all([fetchProm(cpuQuery), fetchProm(memQuery)])
+    const map = {}
+    cpuRes.forEach((item) => {
+      const inst = item.metric?.instance || '-'
+      map[inst] = map[inst] || { instance: inst, cpu: '-', memory: '-' }
+      map[inst].cpu = Number(item.value?.[1] || 0).toFixed(1)
+    })
+    memRes.forEach((item) => {
+      const inst = item.metric?.instance || '-'
+      map[inst] = map[inst] || { instance: inst, cpu: '-', memory: '-' }
+      map[inst].memory = Number(item.value?.[1] || 0).toFixed(1)
+    })
+    topNodes.value = Object.values(map)
+  } catch (e) {
+    topNodes.value = []
+  }
+}
+
 const renderTrend = (records) => {
   if (!trendRef.value) return
   if (!trendChart) trendChart = echarts.init(trendRef.value)
@@ -120,7 +159,7 @@ const renderTrend = (records) => {
 }
 
 const refreshAll = async () => {
-  await Promise.all([fetchRealtime(), fetchHistory(), fetchAlerts(), fetchAgents()])
+  await Promise.all([fetchRealtime(), fetchHistory(), fetchAlerts(), fetchAgents(), fetchTopNodes()])
 }
 
 onMounted(() => {
