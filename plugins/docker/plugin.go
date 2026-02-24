@@ -56,29 +56,38 @@ func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/hosts/:id/images/pull", h.PullImage) // 拉取镜像
 	g.DELETE("/hosts/:id/images/:image_id", h.RemoveImage)
 	g.POST("/hosts/:id/images/prune", h.PruneImages)
+	g.POST("/hosts/:id/images/build", h.BuildImage)
+	g.POST("/hosts/:id/images/load", h.LoadImage)
 
 	// Networks
 	g.GET("/hosts/:id/networks", h.ListNetworks)
 	g.GET("/hosts/:id/networks/:network_id", h.InspectNetwork)
+	g.GET("/hosts/:id/networks/usage", h.ListNetworkUsage)
 	g.DELETE("/hosts/:id/networks/:network_id", h.RemoveNetwork)
 
 	// Swarm
 	g.GET("/hosts/:id/services", h.ListServices)
+	g.POST("/hosts/:id/services", h.CreateService)
 	g.GET("/hosts/:id/services/:service_id", h.InspectService)
 	g.GET("/hosts/:id/services/:service_id/tasks", h.ListServiceTasks)
 	g.GET("/hosts/:id/services/:service_id/logs", h.ServiceLogs)
 	g.POST("/hosts/:id/services/:service_id/scale", h.ScaleService)
+	g.POST("/hosts/:id/services/:service_id/update", h.UpdateService)
 	g.POST("/hosts/:id/services/:service_id/update_image", h.UpdateServiceImage)
 	g.POST("/hosts/:id/services/:service_id/restart", h.RestartService)
+	g.DELETE("/hosts/:id/services/:service_id", h.RemoveService)
 	g.GET("/hosts/:id/stacks", h.ListStacks)
 	g.GET("/hosts/:id/stacks/:stack/services", h.ListStackServices)
 	g.DELETE("/hosts/:id/stacks/:stack", h.RemoveStack)
 	g.POST("/hosts/:id/stacks/deploy", h.DeployStack)
+	g.POST("/hosts/:id/stacks/deploy/git", h.DeployStackFromGit)
 	g.GET("/hosts/:id/nodes", h.ListNodes)
+	g.GET("/hosts/:id/events", h.ListEvents)
 
 	// Volumes
 	g.GET("/hosts/:id/volumes", h.ListVolumes)
 	g.GET("/hosts/:id/volumes/:volume", h.InspectVolume)
+	g.GET("/hosts/:id/volumes/usage", h.ListVolumeUsage)
 	g.POST("/hosts/:id/volumes", h.CreateVolume)
 	g.DELETE("/hosts/:id/volumes/:volume", h.RemoveVolume)
 

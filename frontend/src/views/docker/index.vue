@@ -60,7 +60,7 @@
     </el-dialog>
 
     <!-- 管理抽屉 -->
-    <el-drawer v-model="manageVisible" size="70%" :with-header="false">
+    <el-drawer v-model="manageVisible" size="85%" :with-header="false" :append-to-body="true">
       <div class="drawer-header">
         <div>
           <div class="drawer-title">{{ activeHost?.name || 'Docker 环境' }}</div>
@@ -137,6 +137,7 @@
                   <el-button size="small" type="primary" plain @click="openInspect(row)">详情</el-button>
                   <el-button size="small" type="info" plain @click="openExec(row)">执行命令</el-button>
                   <el-button size="small" type="success" plain @click="openTerminal(row)">终端</el-button>
+                  <el-button size="small" type="primary" plain @click="openStatsChart(row)">趋势</el-button>
                   <el-button size="small" type="success" plain @click="containerAction(row, 'start')">启动</el-button>
                   <el-button size="small" type="warning" plain @click="containerAction(row, 'stop')">停止</el-button>
                   <el-button size="small" type="primary" plain @click="containerAction(row, 'restart')">重启</el-button>
@@ -161,6 +162,8 @@
                 批量删除
               </el-button>
               <el-button type="warning" plain @click="pruneImages">清理悬挂</el-button>
+              <el-button type="success" plain @click="openBuildImage">构建镜像</el-button>
+              <el-button type="info" plain @click="openLoadImage">导入镜像</el-button>
               <el-button type="primary" icon="Download" @click="openPullImage">拉取镜像</el-button>
               <el-button icon="Refresh" @click="loadImages">刷新</el-button>
             </div>
@@ -195,6 +198,7 @@
           <div class="tab-toolbar">
             <div class="toolbar-left">
               <el-button type="danger" plain :disabled="selectedNetworks.length === 0" @click="removeSelectedNetworks">批量删除</el-button>
+              <el-button plain @click="loadNetworkUsage" :loading="networkUsageLoading">使用情况</el-button>
             </div>
             <div class="toolbar-right">
               <el-button icon="Refresh" @click="loadNetworks">刷新</el-button>
@@ -213,6 +217,47 @@
             <el-table-column prop="id" label="ID" min-width="200" />
             <el-table-column prop="driver" label="驱动" width="120" />
             <el-table-column prop="scope" label="范围" width="120" />
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="openNetworkInspect(row)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="Events" name="events">
+          <div class="tab-toolbar">
+            <div class="toolbar-left">
+              <el-select v-model="eventFilters.type" placeholder="类型" class="w-28" clearable>
+                <el-option label="container" value="container" />
+                <el-option label="image" value="image" />
+                <el-option label="volume" value="volume" />
+                <el-option label="network" value="network" />
+                <el-option label="node" value="node" />
+                <el-option label="service" value="service" />
+                <el-option label="secret" value="secret" />
+                <el-option label="config" value="config" />
+              </el-select>
+              <el-input v-model="eventFilters.action" class="w-24" placeholder="动作" clearable />
+              <el-input v-model="eventFilters.container" class="w-28" placeholder="容器" clearable />
+              <el-input v-model="eventFilters.image" class="w-28" placeholder="镜像" clearable />
+              <el-input v-model="eventFilters.volume" class="w-28" placeholder="卷" clearable />
+              <el-input v-model="eventFilters.network" class="w-28" placeholder="网络" clearable />
+              <el-input v-model="eventFilters.service" class="w-28" placeholder="服务" clearable />
+              <el-input-number v-model="eventFilters.sinceMinutes" :min="1" class="w-28" controls-position="right" />
+              <el-input-number v-model="eventFilters.limit" :min="1" class="w-24" controls-position="right" />
+            </div>
+            <div class="toolbar-right">
+              <el-button icon="Refresh" @click="loadEvents">刷新</el-button>
+            </div>
+          </div>
+          <el-table :data="events" v-loading="eventsLoading" style="width: 100%">
+            <el-table-column prop="time" label="时间" width="180" />
+            <el-table-column prop="type" label="类型" width="120" />
+            <el-table-column prop="action" label="动作" width="140" />
+            <el-table-column prop="name" label="名称" min-width="160" />
+            <el-table-column prop="id" label="ID" min-width="180" />
+            <el-table-column prop="detail" label="详情" min-width="260" />
           </el-table>
         </el-tab-pane>
 
@@ -220,6 +265,7 @@
           <div class="tab-toolbar">
             <div class="toolbar-left">
               <el-button type="danger" plain :disabled="selectedVolumes.length === 0" @click="removeSelectedVolumes">批量删除</el-button>
+              <el-button plain @click="loadVolumeUsage" :loading="volumeUsageLoading">使用情况</el-button>
             </div>
             <div class="toolbar-right">
               <el-button type="primary" icon="Plus" @click="openCreateVolume">创建卷</el-button>
@@ -384,11 +430,15 @@
               <el-button type="success" plain :disabled="selectedServices.length === 0" @click="scaleSelectedServices">
                 批量设置副本
               </el-button>
+              <el-button type="danger" plain :disabled="selectedServices.length === 0" @click="removeSelectedServices">
+                批量删除
+              </el-button>
               <el-select v-model="serviceStackFilter" placeholder="Stack" class="w-40" clearable>
                 <el-option v-for="s in serviceStacks" :key="s" :label="s" :value="s" />
               </el-select>
             </div>
             <div class="toolbar-right">
+              <el-button type="primary" icon="Plus" @click="openCreateService">创建服务</el-button>
               <el-button icon="Refresh" @click="loadServices">刷新</el-button>
             </div>
           </div>
@@ -407,10 +457,11 @@
             <el-table-column prop="Replicas" label="副本" width="120" />
             <el-table-column prop="Image" label="镜像" min-width="180" />
             <el-table-column prop="Ports" label="端口" min-width="160" />
-            <el-table-column label="操作" width="360" fixed="right">
+            <el-table-column label="操作" width="440" fixed="right">
               <template #default="{ row }">
                 <el-space size="8">
                   <el-button size="small" @click="openServiceDetail(row)">详情</el-button>
+                  <el-button size="small" type="primary" plain @click="openEditService(row)">编辑</el-button>
                   <el-button size="small" type="info" plain @click="openServiceTasks(row)">任务</el-button>
                   <el-button size="small" @click="openServiceLogs(row)">日志</el-button>
                   <el-input-number v-model="serviceScaleMap[row.ID || row.Id || row.id]" :min="0" size="small" class="w-28" controls-position="right" />
@@ -418,6 +469,7 @@
                   <el-button size="small" type="primary" plain @click="scaleService(row)">扩缩容</el-button>
                   <el-button size="small" type="warning" plain @click="updateServiceImage(row)">更新镜像</el-button>
                   <el-button size="small" type="danger" plain @click="restartService(row)">重启</el-button>
+                  <el-button size="small" type="danger" @click="removeService(row)">删除</el-button>
                 </el-space>
               </template>
             </el-table-column>
@@ -430,6 +482,7 @@
               <el-button type="danger" plain :disabled="selectedStacks.length === 0" @click="removeSelectedStacks">批量删除</el-button>
             </div>
             <div class="toolbar-right">
+              <el-button type="success" plain @click="openGitDeploy">Git 部署</el-button>
               <el-button type="primary" icon="Plus" @click="openDeployStack">部署 Stack</el-button>
               <el-button icon="Refresh" @click="loadStacks">刷新</el-button>
             </div>
@@ -489,6 +542,81 @@
       </template>
     </el-dialog>
 
+    <!-- 创建 Service 弹窗 -->
+    <el-dialog v-model="createServiceVisible" title="创建 Service" width="760px" append-to-body>
+      <el-form :model="serviceCreateForm" label-width="110px">
+        <el-form-item label="名称" required>
+          <el-input v-model="serviceCreateForm.name" placeholder="例如 web-service" />
+        </el-form-item>
+        <el-form-item label="镜像" required>
+          <el-input v-model="serviceCreateForm.image" placeholder="例如 nginx:latest" />
+        </el-form-item>
+        <el-form-item label="副本数">
+          <el-input-number v-model="serviceCreateForm.replicas" :min="0" />
+        </el-form-item>
+        <el-form-item label="端口发布">
+          <el-input v-model="serviceCreateForm.ports" type="textarea" :rows="3" placeholder="每行一条，如 8080:80 或 published=8080,target=80" />
+        </el-form-item>
+        <el-form-item label="环境变量">
+          <el-input v-model="serviceCreateForm.env" type="textarea" :rows="4" placeholder="KEY=VALUE，每行一条" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="serviceCreateForm.labels" type="textarea" :rows="3" placeholder="KEY=VALUE，每行一条" />
+        </el-form-item>
+        <el-form-item label="网络">
+          <el-input v-model="serviceCreateForm.networks" type="textarea" :rows="2" placeholder="每行一个网络名称或ID" />
+        </el-form-item>
+        <el-form-item label="约束">
+          <el-input v-model="serviceCreateForm.constraints" type="textarea" :rows="2" placeholder="如 node.role==manager" />
+        </el-form-item>
+        <el-form-item label="挂载">
+          <el-input v-model="serviceCreateForm.mounts" type="textarea" :rows="3" placeholder="每行一条 --mount 参数，如 type=bind,src=/data,dst=/data" />
+        </el-form-item>
+        <el-form-item label="命令">
+          <el-input v-model="serviceCreateForm.command" type="textarea" :rows="2" placeholder="可选，按空格分隔" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createServiceVisible = false">取消</el-button>
+        <el-button type="primary" :loading="createServiceLoading" @click="submitCreateService">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 编辑 Service 弹窗 -->
+    <el-dialog v-model="editServiceVisible" title="编辑 Service" width="760px" append-to-body>
+      <el-form :model="serviceEditForm" label-width="110px" v-loading="editServiceLoading">
+        <el-form-item label="名称">
+          <el-input v-model="serviceEditForm.name" disabled />
+        </el-form-item>
+        <el-form-item label="镜像">
+          <el-input v-model="serviceEditForm.image" placeholder="例如 nginx:latest" />
+        </el-form-item>
+        <el-form-item label="副本数">
+          <el-input-number v-model="serviceEditForm.replicas" :min="0" />
+        </el-form-item>
+        <el-form-item label="端口发布">
+          <el-input v-model="serviceEditForm.ports" type="textarea" :rows="3" placeholder="每行一条，如 8080:80 或 published=8080,target=80" />
+          <el-checkbox v-model="serviceEditForm.reset_ports">覆盖现有端口</el-checkbox>
+        </el-form-item>
+        <el-form-item label="环境变量">
+          <el-input v-model="serviceEditForm.env" type="textarea" :rows="4" placeholder="KEY=VALUE，每行一条" />
+          <el-checkbox v-model="serviceEditForm.reset_env">覆盖现有环境变量</el-checkbox>
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="serviceEditForm.labels" type="textarea" :rows="3" placeholder="KEY=VALUE，每行一条" />
+          <el-checkbox v-model="serviceEditForm.reset_labels">覆盖现有标签</el-checkbox>
+        </el-form-item>
+        <el-form-item label="网络">
+          <el-input v-model="serviceEditForm.networks" type="textarea" :rows="2" placeholder="每行一个网络名称或ID" />
+          <el-checkbox v-model="serviceEditForm.reset_networks">覆盖现有网络</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editServiceVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editServiceSaving" @click="submitEditService">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 拉取镜像弹窗 -->
     <el-dialog v-model="pullVisible" title="拉取镜像" width="640px">
       <el-form label-width="100px">
@@ -500,6 +628,44 @@
       <template #footer>
         <el-button @click="pullVisible = false">关闭</el-button>
         <el-button type="primary" :loading="pullLoading" @click="submitPull">拉取</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 构建镜像弹窗 -->
+    <el-dialog v-model="buildVisible" title="构建镜像" width="760px">
+      <el-form :model="buildForm" label-width="120px">
+        <el-form-item label="镜像标签" required>
+          <el-input v-model="buildForm.tag" placeholder="例如 myapp:latest" />
+        </el-form-item>
+        <el-form-item label="Dockerfile" required>
+          <el-input v-model="buildForm.dockerfile" type="textarea" :rows="10" placeholder="粘贴 Dockerfile 内容" />
+        </el-form-item>
+        <el-form-item label="构建上下文">
+          <el-upload :auto-upload="false" :limit="1" :on-change="handleBuildContextChange">
+            <el-button>选择 tar 包</el-button>
+          </el-upload>
+          <div class="text-xs text-gray-400 mt-1">可选，未选择时仅 Dockerfile 生效</div>
+        </el-form-item>
+        <el-form-item label="Build Args">
+          <el-input v-model="buildArgsText" type="textarea" :rows="3" placeholder="KEY=VALUE，每行一个" />
+        </el-form-item>
+      </el-form>
+      <el-input v-model="buildOutput" type="textarea" :rows="6" readonly placeholder="输出" />
+      <template #footer>
+        <el-button @click="buildVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="buildLoading" @click="submitBuildImage">开始构建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 导入镜像弹窗 -->
+    <el-dialog v-model="loadVisible" title="导入镜像" width="640px">
+      <el-upload :auto-upload="false" :limit="1" :on-change="handleLoadTarChange">
+        <el-button>选择 docker save 的 tar 包</el-button>
+      </el-upload>
+      <el-input v-model="loadOutput" type="textarea" :rows="6" readonly placeholder="输出" class="mt-3" />
+      <template #footer>
+        <el-button @click="loadVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="loadLoading" @click="submitLoadImage">导入</el-button>
       </template>
     </el-dialog>
 
@@ -566,8 +732,13 @@
       <el-input v-model="serviceLogText" type="textarea" :rows="16" readonly />
     </el-dialog>
 
+    <!-- 容器资源趋势 -->
+    <el-dialog v-model="statsChartVisible" title="容器资源趋势" width="880px">
+      <div ref="statsChartRef" style="height: 360px"></div>
+    </el-dialog>
+
     <!-- 容器详情弹窗 -->
-    <el-dialog v-model="inspectVisible" title="容器详情" width="880px">
+    <el-dialog v-model="inspectVisible" title="容器详情" width="90%" append-to-body>
       <el-skeleton v-if="inspectLoading" :rows="6" animated />
       <div v-else>
         <el-descriptions :column="2" border>
@@ -621,13 +792,13 @@
     </el-dialog>
 
     <!-- Service 详情弹窗 -->
-    <el-dialog v-model="serviceVisible" title="Service 详情" width="880px">
+    <el-dialog v-model="serviceVisible" title="Service 详情" width="90%" append-to-body>
       <el-skeleton v-if="serviceLoading" :rows="6" animated />
       <el-input v-else v-model="serviceJson" type="textarea" :rows="16" readonly />
     </el-dialog>
 
     <!-- Service 任务弹窗 -->
-    <el-dialog v-model="tasksVisible" title="Service 任务" width="880px">
+    <el-dialog v-model="tasksVisible" title="Service 任务" width="90%" append-to-body>
       <el-table :data="serviceTasks" v-loading="tasksLoading" style="width: 100%">
         <el-table-column prop="ID" label="ID" min-width="180" />
         <el-table-column prop="Name" label="名称" min-width="200" />
@@ -639,7 +810,7 @@
     </el-dialog>
 
     <!-- Stack 服务弹窗 -->
-    <el-dialog v-model="stackVisible" title="Stack 服务" width="880px">
+    <el-dialog v-model="stackVisible" title="Stack 服务" width="90%" append-to-body>
       <el-table :data="stackServices" v-loading="stackLoading" style="width: 100%">
         <el-table-column prop="Name" label="名称" min-width="220" />
         <el-table-column prop="Mode" label="模式" width="120" />
@@ -647,6 +818,45 @@
         <el-table-column prop="Image" label="镜像" min-width="180" />
         <el-table-column prop="Ports" label="端口" min-width="180" />
       </el-table>
+    </el-dialog>
+
+    <!-- Git 部署 Stack -->
+    <el-dialog v-model="gitDeployVisible" title="Git 部署 Stack" width="720px">
+      <el-form :model="gitDeployForm" label-width="120px">
+        <el-form-item label="Stack 名称" required>
+          <el-input v-model="gitDeployForm.name" placeholder="例如 my-stack" />
+        </el-form-item>
+        <el-form-item label="仓库地址" required>
+          <el-input v-model="gitDeployForm.repo" placeholder="https://github.com/org/repo.git" />
+        </el-form-item>
+        <el-form-item label="分支">
+          <el-input v-model="gitDeployForm.branch" placeholder="main" />
+        </el-form-item>
+        <el-form-item label="Compose 路径">
+          <el-input v-model="gitDeployForm.compose_path" placeholder="docker-compose.yml" />
+        </el-form-item>
+        <el-form-item label="认证方式">
+          <el-select v-model="gitDeployForm.authType" class="w-40">
+            <el-option label="无" value="none" />
+            <el-option label="Token" value="token" />
+            <el-option label="用户名/密码" value="basic" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="gitDeployForm.authType === 'token'" label="Token">
+          <el-input v-model="gitDeployForm.token" show-password />
+        </el-form-item>
+        <el-form-item v-if="gitDeployForm.authType === 'basic'" label="用户名">
+          <el-input v-model="gitDeployForm.username" />
+        </el-form-item>
+        <el-form-item v-if="gitDeployForm.authType === 'basic'" label="密码">
+          <el-input v-model="gitDeployForm.password" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <el-input v-model="gitDeployOutput" type="textarea" :rows="6" readonly placeholder="输出" />
+      <template #footer>
+        <el-button @click="gitDeployVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="gitDeployLoading" @click="submitGitDeploy">部署</el-button>
+      </template>
     </el-dialog>
 
     <!-- 创建卷 -->
@@ -675,6 +885,48 @@
         <el-button @click="copyText(volumeInspectJson)">复制</el-button>
         <el-button type="primary" @click="downloadJson('volume.json', volumeInspectJson)">导出</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 卷使用情况 -->
+    <el-dialog v-model="volumeUsageVisible" title="卷使用情况" width="720px">
+      <el-table :data="volumeUsage" v-loading="volumeUsageLoading" style="width: 100%">
+        <el-table-column prop="name" label="卷" min-width="200" />
+        <el-table-column label="容器" min-width="240">
+          <template #default="{ row }">
+            <el-tag v-for="c in row.containers" :key="c" class="mr-1 mb-1">{{ c }}</el-tag>
+            <span v-if="!row.containers || row.containers.length === 0" class="text-xs text-gray-400">无</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- 网络详情 -->
+    <el-dialog v-model="networkInspectVisible" title="网络详情" width="760px">
+      <div class="mb-3">
+        <div class="text-sm mb-2">连接的容器：</div>
+        <el-tag v-for="item in networkInspectContainers" :key="item" class="mr-2 mb-2">{{ item }}</el-tag>
+        <div v-if="networkInspectContainers.length === 0" class="text-xs text-gray-400">无容器连接</div>
+      </div>
+      <el-input v-model="networkInspectJson" type="textarea" :rows="12" readonly />
+      <template #footer>
+        <el-button @click="copyText(networkInspectJson)">复制</el-button>
+        <el-button type="primary" @click="downloadJson('network.json', networkInspectJson)">导出</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 网络使用情况 -->
+    <el-dialog v-model="networkUsageVisible" title="网络使用情况" width="720px">
+      <el-table :data="networkUsage" v-loading="networkUsageLoading" style="width: 100%">
+        <el-table-column prop="name" label="网络" min-width="200" />
+        <el-table-column prop="driver" label="驱动" width="120" />
+        <el-table-column prop="scope" label="范围" width="120" />
+        <el-table-column label="容器" min-width="240">
+          <template #default="{ row }">
+            <el-tag v-for="c in row.containers" :key="c" class="mr-1 mb-1">{{ c }}</el-tag>
+            <span v-if="!row.containers || row.containers.length === 0" class="text-xs text-gray-400">无</span>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-dialog>
 
     <!-- 创建 Secret -->
@@ -793,6 +1045,7 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
+import * as echarts from 'echarts'
 import 'xterm/css/xterm.css'
 
 const loading = ref(false)
@@ -811,6 +1064,11 @@ const containerTableRef = ref(null)
 const selectedContainers = ref([])
 const statsLoading = ref(false)
 const containerStats = ref({})
+const containerStatsHistory = ref({})
+const statsChartVisible = ref(false)
+const statsChartRef = ref(null)
+const statsChartInstance = ref(null)
+const statsChartContainerId = ref('')
 const images = ref([])
 const imagesLoading = ref(false)
 const imageTableRef = ref(null)
@@ -825,11 +1083,20 @@ const networks = ref([])
 const networksLoading = ref(false)
 const networkTableRef = ref(null)
 const selectedNetworks = ref([])
+const networkInspectVisible = ref(false)
+const networkInspectJson = ref('')
+const networkInspectContainers = ref([])
+const networkUsageVisible = ref(false)
+const networkUsageLoading = ref(false)
+const networkUsage = ref([])
 
 const volumes = ref([])
 const volumesLoading = ref(false)
 const volumeTableRef = ref(null)
 const selectedVolumes = ref([])
+const volumeUsageVisible = ref(false)
+const volumeUsageLoading = ref(false)
+const volumeUsage = ref([])
 
 const secrets = ref([])
 const secretsLoading = ref(false)
@@ -856,6 +1123,52 @@ const registryForm = reactive({
   insecure: false
 })
 
+const events = ref([])
+const eventsLoading = ref(false)
+const eventFilters = reactive({
+  type: '',
+  action: '',
+  container: '',
+  image: '',
+  volume: '',
+  network: '',
+  node: '',
+  service: '',
+  sinceMinutes: 60,
+  limit: 200
+})
+
+const buildVisible = ref(false)
+const buildLoading = ref(false)
+const buildOutput = ref('')
+const buildArgsText = ref('')
+const buildForm = reactive({
+  tag: '',
+  dockerfile: '',
+  contextTar: ''
+})
+
+const loadVisible = ref(false)
+const loadLoading = ref(false)
+const loadOutput = ref('')
+const loadForm = reactive({
+  tar: ''
+})
+
+const gitDeployVisible = ref(false)
+const gitDeployLoading = ref(false)
+const gitDeployOutput = ref('')
+const gitDeployForm = reactive({
+  name: '',
+  repo: '',
+  branch: 'main',
+  compose_path: 'docker-compose.yml',
+  authType: 'none',
+  username: '',
+  password: '',
+  token: ''
+})
+
 const terminalVisible = ref(false)
 const terminalContainerId = ref('')
 const terminalContainerName = ref('')
@@ -873,6 +1186,37 @@ const serviceTableRef = ref(null)
 const selectedServices = ref([])
 const serviceScaleMap = reactive({})
 const batchServiceScale = ref(1)
+const createServiceVisible = ref(false)
+const createServiceLoading = ref(false)
+const serviceCreateForm = reactive({
+  name: '',
+  image: '',
+  replicas: 1,
+  ports: '',
+  env: '',
+  labels: '',
+  networks: '',
+  constraints: '',
+  mounts: '',
+  command: ''
+})
+const editServiceVisible = ref(false)
+const editServiceLoading = ref(false)
+const editServiceSaving = ref(false)
+const serviceEditForm = reactive({
+  id: '',
+  name: '',
+  image: '',
+  replicas: 1,
+  ports: '',
+  env: '',
+  labels: '',
+  networks: '',
+  reset_env: true,
+  reset_labels: true,
+  reset_ports: true,
+  reset_networks: true
+})
 const stacks = ref([])
 const stacksLoading = ref(false)
 const stackTableRef = ref(null)
@@ -941,21 +1285,45 @@ const filteredServices = computed(() => {
 })
 
 const topologyTree = computed(() => {
-  const map = new Map()
+  const tree = []
+
+  const stackMap = new Map()
   services.value.forEach((s) => {
     const name = s.Name || s.name || ''
     const stack = name.includes('_') ? name.split('_')[0] : 'default'
-    const arr = map.get(stack) || []
+    const arr = stackMap.get(stack) || []
     arr.push({
       id: name,
       label: `${name} (${s.Replicas || '-'})`
     })
-    map.set(stack, arr)
+    stackMap.set(stack, arr)
   })
-  const tree = []
-  map.forEach((children, stack) => {
-    tree.push({ id: stack, label: stack, children })
-  })
+  if (stackMap.size > 0) {
+    const stacks = []
+    stackMap.forEach((children, stack) => {
+      stacks.push({ id: `stack-${stack}`, label: stack, children })
+    })
+    tree.push({ id: 'stacks-root', label: 'Stacks', children: stacks })
+  }
+
+  if (networkUsage.value.length > 0) {
+    const networks = networkUsage.value.map((n) => ({
+      id: `net-${n.id || n.name}`,
+      label: `${n.name} (${(n.containers || []).length})`,
+      children: (n.containers || []).map(c => ({ id: `net-${n.name}-${c}`, label: c }))
+    }))
+    tree.push({ id: 'networks-root', label: 'Networks', children: networks })
+  }
+
+  if (volumeUsage.value.length > 0) {
+    const volumes = volumeUsage.value.map((v) => ({
+      id: `vol-${v.name}`,
+      label: `${v.name} (${(v.containers || []).length})`,
+      children: (v.containers || []).map(c => ({ id: `vol-${v.name}-${c}`, label: c }))
+    }))
+    tree.push({ id: 'volumes-root', label: 'Volumes', children: volumes })
+  }
+
   return tree
 })
 
@@ -1062,12 +1430,17 @@ const normalizeNetworks = (items) => items.map((row) => ({
 const parseSizeToMB = (value) => {
   if (!value) return NaN
   const text = String(value).trim()
-  const match = text.match(/^([0-9.]+)\s*([KMGTP]?B)$/i)
+  const match = text.match(/^([0-9.]+)\s*([KMGTP]?i?B)$/i)
   if (!match) return NaN
   const num = Number(match[1])
   if (Number.isNaN(num)) return NaN
   const unit = match[2].toUpperCase()
   switch (unit) {
+    case 'KIB': return num / 1024
+    case 'MIB': return num
+    case 'GIB': return num * 1024
+    case 'TIB': return num * 1024 * 1024
+    case 'PIB': return num * 1024 * 1024 * 1024
     case 'KB': return num / 1024
     case 'MB': return num
     case 'GB': return num * 1024
@@ -1237,6 +1610,7 @@ const refreshManage = async () => {
   }
   if (manageTab.value === 'images') await loadImages()
   if (manageTab.value === 'networks') await loadNetworks()
+  if (manageTab.value === 'events') await loadEvents()
   if (manageTab.value === 'volumes') await loadVolumes()
   if (manageTab.value === 'secrets') await loadSecrets()
   if (manageTab.value === 'configs') await loadConfigs()
@@ -1280,12 +1654,63 @@ const loadContainerStats = async () => {
         }
         if (id) map[id] = item
         if (name) map[name] = item
+        if (id) {
+          updateStatsHistory(id, row)
+        }
       })
       containerStats.value = map
+      if (statsChartVisible.value && statsChartContainerId.value) {
+        renderStatsChart()
+      }
     }
   } finally {
     statsLoading.value = false
   }
+}
+
+const parsePercent = (value) => {
+  if (!value) return 0
+  const num = Number(String(value).replace('%', '').trim())
+  return Number.isNaN(num) ? 0 : num
+}
+
+const parseUsagePair = (value) => {
+  if (!value) return { used: 0, total: 0 }
+  const parts = String(value).split('/')
+  const used = parseSizeToMB(parts[0] || '')
+  const total = parseSizeToMB(parts[1] || '')
+  return {
+    used: Number.isNaN(used) ? 0 : used,
+    total: Number.isNaN(total) ? 0 : total
+  }
+}
+
+const parseNetPair = (value) => {
+  if (!value) return { rx: 0, tx: 0 }
+  const parts = String(value).split('/')
+  const rx = parseSizeToMB(parts[0] || '')
+  const tx = parseSizeToMB(parts[1] || '')
+  return {
+    rx: Number.isNaN(rx) ? 0 : rx,
+    tx: Number.isNaN(tx) ? 0 : tx
+  }
+}
+
+const updateStatsHistory = (id, row) => {
+  const history = containerStatsHistory.value[id] || []
+  const mem = parseUsagePair(row.MemUsage || row.Memory || '')
+  const net = parseNetPair(row.NetIO || row.Network || '')
+  history.push({
+    t: Date.now(),
+    cpu: parsePercent(row.CPUPerc || row.CPU || ''),
+    mem: mem.used,
+    netRx: net.rx,
+    netTx: net.tx
+  })
+  if (history.length > 60) {
+    history.splice(0, history.length - 60)
+  }
+  containerStatsHistory.value[id] = history
 }
 
 const getContainerStats = (row) => {
@@ -1296,6 +1721,44 @@ const getContainerStats = (row) => {
     if (containerStats.value[n]) return containerStats.value[n]
   }
   return { cpu: '-', mem: '-', net: '-' }
+}
+
+const openStatsChart = async (row) => {
+  const id = row.id
+  if (!id) return
+  statsChartContainerId.value = id
+  statsChartVisible.value = true
+  await nextTick()
+  initStatsChart()
+  renderStatsChart()
+}
+
+const initStatsChart = () => {
+  if (statsChartInstance.value || !statsChartRef.value) return
+  statsChartInstance.value = echarts.init(statsChartRef.value)
+}
+
+const renderStatsChart = () => {
+  if (!statsChartInstance.value || !statsChartContainerId.value) return
+  const history = containerStatsHistory.value[statsChartContainerId.value] || []
+  const times = history.map(h => formatTime(h.t))
+  const cpu = history.map(h => h.cpu)
+  const mem = history.map(h => h.mem)
+  const netRx = history.map(h => h.netRx)
+  const netTx = history.map(h => h.netTx)
+  statsChartInstance.value.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['CPU %', 'MEM MB', 'NET RX MB', 'NET TX MB'] },
+    grid: { left: 50, right: 20, top: 40, bottom: 40 },
+    xAxis: { type: 'category', data: times, axisLabel: { rotate: 45 } },
+    yAxis: { type: 'value' },
+    series: [
+      { name: 'CPU %', type: 'line', data: cpu, smooth: true },
+      { name: 'MEM MB', type: 'line', data: mem, smooth: true },
+      { name: 'NET RX MB', type: 'line', data: netRx, smooth: true },
+      { name: 'NET TX MB', type: 'line', data: netTx, smooth: true }
+    ]
+  })
 }
 
 const autoRefreshStats = ref(false)
@@ -1313,6 +1776,20 @@ watch(autoRefreshStats, (val) => {
   } else if (statsTimer) {
     clearInterval(statsTimer)
     statsTimer = null
+  }
+})
+
+watch(statsChartVisible, (val) => {
+  if (!val) {
+    if (statsChartInstance.value) {
+      statsChartInstance.value.dispose()
+      statsChartInstance.value = null
+    }
+  } else {
+    nextTick(() => {
+      initStatsChart()
+      renderStatsChart()
+    })
   }
 })
 
@@ -1346,6 +1823,84 @@ const loadNetworks = async () => {
   }
 }
 
+const openNetworkInspect = async (row) => {
+  if (!activeHost.value || !row?.id) return
+  networkInspectVisible.value = true
+  networkInspectJson.value = ''
+  networkInspectContainers.value = []
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/networks/${encodeURIComponent(row.id)}`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      const info = res.data.data || {}
+      const containers = info.Containers || {}
+      const names = Object.values(containers).map(c => c?.Name).filter(Boolean)
+      networkInspectContainers.value = names
+      networkInspectJson.value = JSON.stringify(info, null, 2)
+    }
+  } catch (e) {
+    networkInspectJson.value = extractErrorMessage(e)
+  }
+}
+
+const loadNetworkUsage = async () => {
+  if (!activeHost.value) return
+  networkUsageLoading.value = true
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/networks/usage`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      networkUsage.value = res.data.data || []
+      networkUsageVisible.value = true
+    }
+  } finally {
+    networkUsageLoading.value = false
+  }
+}
+
+const normalizeEventRow = (row) => {
+  const actor = row.Actor || {}
+  const attrs = actor.Attributes || {}
+  const name = attrs.name || attrs.container || attrs.image || attrs.volume || attrs.network || attrs.service || ''
+  const detail = Object.entries(attrs)
+    .slice(0, 6)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ')
+  return {
+    time: formatTime(row.time || row.Time || ''),
+    type: row.Type || '-',
+    action: row.Action || '-',
+    name,
+    id: actor.ID || '',
+    detail
+  }
+}
+
+const loadEvents = async () => {
+  if (!activeHost.value) return
+  eventsLoading.value = true
+  try {
+    const params = {
+      since: `${eventFilters.sinceMinutes}m`,
+      type: eventFilters.type || undefined,
+      event: eventFilters.action || undefined,
+      container: eventFilters.container || undefined,
+      image: eventFilters.image || undefined,
+      volume: eventFilters.volume || undefined,
+      network: eventFilters.network || undefined,
+      node: eventFilters.node || undefined,
+      service: eventFilters.service || undefined
+    }
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/events`, { params, headers: authHeaders() })
+    if (res.data.code === 0) {
+      const list = res.data.data || []
+      const normalized = list.map(normalizeEventRow).reverse()
+      const limit = eventFilters.limit || 200
+      events.value = normalized.slice(0, limit)
+    }
+  } finally {
+    eventsLoading.value = false
+  }
+}
+
 const loadVolumes = async () => {
   if (!activeHost.value) return
   volumesLoading.value = true
@@ -1358,6 +1913,20 @@ const loadVolumes = async () => {
     }
   } finally {
     volumesLoading.value = false
+  }
+}
+
+const loadVolumeUsage = async () => {
+  if (!activeHost.value) return
+  volumeUsageLoading.value = true
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/volumes/usage`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      volumeUsage.value = res.data.data || []
+      volumeUsageVisible.value = true
+    }
+  } finally {
+    volumeUsageLoading.value = false
   }
 }
 
@@ -1481,6 +2050,53 @@ const formatImageLabel = (row) => {
 const extractErrorMessage = (e) => {
   const msg = e?.response?.data?.message || e?.message || '操作失败'
   return String(msg)
+}
+
+const parseKeyValueText = (text) => {
+  const result = {}
+  String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const idx = line.indexOf('=')
+      if (idx > 0) {
+        const key = line.slice(0, idx).trim()
+        const val = line.slice(idx + 1).trim()
+        if (key) result[key] = val
+      }
+    })
+  return result
+}
+
+const parseListText = (text) => {
+  return String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+}
+
+const parseCommandText = (text) => {
+  return String(text || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+const mapToText = (obj) => {
+  return Object.entries(obj || {}).map(([k, v]) => `${k}=${v}`).join('\n')
+}
+
+const listToText = (list) => {
+  return (list || []).filter(Boolean).join('\n')
+}
+
+const parseReplicaValue = (replicas) => {
+  const rep = String(replicas || '')
+  const match = rep.match(/(\d+)\s*\/\s*(\d+)/)
+  if (match) return Number(match[2])
+  const num = Number(rep)
+  return Number.isNaN(num) ? 0 : num
 }
 
 const onContainerSelectionChange = (rows) => {
@@ -1791,6 +2407,19 @@ const openDeployStack = () => {
   deployVisible.value = true
 }
 
+const openGitDeploy = () => {
+  gitDeployForm.name = ''
+  gitDeployForm.repo = ''
+  gitDeployForm.branch = 'main'
+  gitDeployForm.compose_path = 'docker-compose.yml'
+  gitDeployForm.authType = 'none'
+  gitDeployForm.username = ''
+  gitDeployForm.password = ''
+  gitDeployForm.token = ''
+  gitDeployOutput.value = ''
+  gitDeployVisible.value = true
+}
+
 const submitDeployStack = async () => {
   if (!activeHost.value || !deployForm.name.trim() || !deployForm.compose.trim()) {
     ElMessage.warning('请填写名称和Compose')
@@ -1813,6 +2442,41 @@ const submitDeployStack = async () => {
     deployOutput.value = extractErrorMessage(e)
   } finally {
     deployLoading.value = false
+  }
+}
+
+const submitGitDeploy = async () => {
+  if (!activeHost.value || !gitDeployForm.name.trim() || !gitDeployForm.repo.trim()) {
+    ElMessage.warning('请填写名称和仓库地址')
+    return
+  }
+  gitDeployLoading.value = true
+  try {
+    const payload = {
+      name: gitDeployForm.name.trim(),
+      repo: gitDeployForm.repo.trim(),
+      branch: gitDeployForm.branch.trim(),
+      compose_path: gitDeployForm.compose_path.trim()
+    }
+    if (gitDeployForm.authType === 'token') {
+      payload.token = gitDeployForm.token
+    }
+    if (gitDeployForm.authType === 'basic') {
+      payload.username = gitDeployForm.username
+      payload.password = gitDeployForm.password
+    }
+    const res = await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/deploy/git`, payload, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      gitDeployOutput.value = res.data.data?.output || '部署完成'
+      loadStacks()
+      loadServices()
+    } else {
+      gitDeployOutput.value = res.data.message || '部署失败'
+    }
+  } catch (e) {
+    gitDeployOutput.value = extractErrorMessage(e)
+  } finally {
+    gitDeployLoading.value = false
   }
 }
 
@@ -2509,6 +3173,13 @@ const sendTerminalResize = () => {
   terminalWs.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }))
 }
 
+const handleWindowResize = () => {
+  sendTerminalResize()
+  if (statsChartInstance.value) {
+    statsChartInstance.value.resize()
+  }
+}
+
 const connectTerminal = () => {
   if (!terminalContainerId.value || !activeHost.value) return
   const token = localStorage.getItem('token') || ''
@@ -2574,6 +3245,17 @@ const downloadJson = (filename, content) => {
     ElMessage.error('导出失败')
   }
 }
+
+const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = String(reader.result || '')
+    const base64 = result.includes(',') ? result.split(',')[1] : result
+    resolve(base64)
+  }
+  reader.onerror = () => reject(new Error('读取失败'))
+  reader.readAsDataURL(file)
+})
 
 const runExec = async () => {
   if (!activeHost.value || !execContainerId.value || !execCommand.value) {
@@ -2732,6 +3414,126 @@ watch(serviceLogFollow, (val) => {
   }
 })
 
+const openCreateService = () => {
+  serviceCreateForm.name = ''
+  serviceCreateForm.image = ''
+  serviceCreateForm.replicas = 1
+  serviceCreateForm.ports = ''
+  serviceCreateForm.env = ''
+  serviceCreateForm.labels = ''
+  serviceCreateForm.networks = ''
+  serviceCreateForm.constraints = ''
+  serviceCreateForm.mounts = ''
+  serviceCreateForm.command = ''
+  createServiceVisible.value = true
+}
+
+const submitCreateService = async () => {
+  if (!activeHost.value) return
+  if (!serviceCreateForm.name || !serviceCreateForm.image) {
+    ElMessage.warning('请填写名称和镜像')
+    return
+  }
+  createServiceLoading.value = true
+  try {
+    const payload = {
+      name: serviceCreateForm.name,
+      image: serviceCreateForm.image,
+      replicas: Number(serviceCreateForm.replicas || 0),
+      ports: parseListText(serviceCreateForm.ports),
+      env: parseKeyValueText(serviceCreateForm.env),
+      labels: parseKeyValueText(serviceCreateForm.labels),
+      networks: parseListText(serviceCreateForm.networks),
+      constraints: parseListText(serviceCreateForm.constraints),
+      mounts: parseListText(serviceCreateForm.mounts),
+      command: parseCommandText(serviceCreateForm.command)
+    }
+    await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services`, payload, { headers: authHeaders() })
+    ElMessage.success('创建成功')
+    createServiceVisible.value = false
+    loadServices()
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e))
+  } finally {
+    createServiceLoading.value = false
+  }
+}
+
+const openEditService = async (row) => {
+  if (!activeHost.value) return
+  const id = row?.ID || row?.Id || row?.id
+  if (!id) return
+  editServiceVisible.value = true
+  editServiceLoading.value = true
+  serviceEditForm.id = id
+  serviceEditForm.name = row?.Name || ''
+  serviceEditForm.image = row?.Image || ''
+  serviceEditForm.replicas = parseReplicaValue(row?.Replicas)
+  serviceEditForm.ports = ''
+  serviceEditForm.env = ''
+  serviceEditForm.labels = ''
+  serviceEditForm.networks = ''
+  serviceEditForm.reset_env = true
+  serviceEditForm.reset_labels = true
+  serviceEditForm.reset_ports = true
+  serviceEditForm.reset_networks = true
+  try {
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(id)}`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      const data = res.data.data || {}
+      const spec = data.Spec || {}
+      const containerSpec = spec.TaskTemplate?.ContainerSpec || {}
+      const envList = containerSpec.Env || []
+      const labels = spec.Labels || {}
+      const networks = (spec.TaskTemplate?.Networks || []).map(n => n?.Target || n?.Name).filter(Boolean)
+      const ports = (spec.EndpointSpec?.Ports || []).map((p) => {
+        if (p?.PublishedPort) {
+          const parts = [`published=${p.PublishedPort}`, `target=${p.TargetPort}`]
+          if (p.Protocol) parts.push(`protocol=${p.Protocol}`)
+          if (p.PublishMode) parts.push(`mode=${p.PublishMode}`)
+          return parts.join(',')
+        }
+        return p?.TargetPort ? String(p.TargetPort) : ''
+      }).filter(Boolean)
+      serviceEditForm.image = containerSpec.Image || serviceEditForm.image
+      serviceEditForm.replicas = Number(spec.Mode?.Replicated?.Replicas ?? serviceEditForm.replicas)
+      serviceEditForm.env = listToText(envList)
+      serviceEditForm.labels = mapToText(labels)
+      serviceEditForm.networks = listToText(networks)
+      serviceEditForm.ports = listToText(ports)
+    }
+  } finally {
+    editServiceLoading.value = false
+  }
+}
+
+const submitEditService = async () => {
+  if (!activeHost.value || !serviceEditForm.id) return
+  editServiceSaving.value = true
+  try {
+    const payload = {
+      image: serviceEditForm.image,
+      replicas: Number(serviceEditForm.replicas || 0),
+      ports: parseListText(serviceEditForm.ports),
+      env: parseKeyValueText(serviceEditForm.env),
+      labels: parseKeyValueText(serviceEditForm.labels),
+      networks: parseListText(serviceEditForm.networks),
+      reset_env: serviceEditForm.reset_env,
+      reset_labels: serviceEditForm.reset_labels,
+      reset_ports: serviceEditForm.reset_ports,
+      reset_networks: serviceEditForm.reset_networks
+    }
+    await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(serviceEditForm.id)}/update`, payload, { headers: authHeaders() })
+    ElMessage.success('更新成功')
+    editServiceVisible.value = false
+    loadServices()
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e))
+  } finally {
+    editServiceSaving.value = false
+  }
+}
+
 const openStackServices = async (row) => {
   if (!activeHost.value || !row?.Name) return
   stackVisible.value = true
@@ -2790,10 +3592,135 @@ const restartService = async (row) => {
   } catch (e) {}
 }
 
+const removeService = async (row) => {
+  if (!activeHost.value || !row?.ID) return
+  try {
+    await ElMessageBox.confirm(`确认删除服务 ${row.Name || row.ID} 吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    loadServices()
+  } catch (e) {}
+}
+
+const removeSelectedServices = async () => {
+  if (!activeHost.value) return
+  const rows = selectedServices.value.filter(r => r.ID || r.Id || r.id)
+  if (rows.length === 0) {
+    ElMessage.warning('请选择服务')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除选中的 ${rows.length} 个服务吗？`, '提示', { type: 'warning' })
+    let ok = 0
+    for (const row of rows) {
+      const id = row.ID || row.Id || row.id
+      if (!id) continue
+      try {
+        await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(id)}`, { headers: authHeaders() })
+        ok += 1
+      } catch (e) {}
+    }
+    ElMessage.success(`已删除 ${ok} 个服务`)
+    loadServices()
+  } catch (e) {}
+}
+
 const openPullImage = () => {
   pullImage.value = ''
   pullOutput.value = ''
   pullVisible.value = true
+}
+
+const openBuildImage = () => {
+  buildForm.tag = ''
+  buildForm.dockerfile = ''
+  buildForm.contextTar = ''
+  buildArgsText.value = ''
+  buildOutput.value = ''
+  buildVisible.value = true
+}
+
+const openLoadImage = () => {
+  loadForm.tar = ''
+  loadOutput.value = ''
+  loadVisible.value = true
+}
+
+const handleBuildContextChange = async (file) => {
+  if (!file?.raw) return
+  try {
+    buildForm.contextTar = await readFileAsBase64(file.raw)
+  } catch (e) {
+    ElMessage.error('读取文件失败')
+  }
+}
+
+const handleLoadTarChange = async (file) => {
+  if (!file?.raw) return
+  try {
+    loadForm.tar = await readFileAsBase64(file.raw)
+  } catch (e) {
+    ElMessage.error('读取文件失败')
+  }
+}
+
+const submitBuildImage = async () => {
+  if (!activeHost.value || !buildForm.tag || !buildForm.dockerfile) {
+    ElMessage.warning('请填写镜像标签和 Dockerfile')
+    return
+  }
+  buildLoading.value = true
+  try {
+    const buildArgs = {}
+    buildArgsText.value.split('\n').map(v => v.trim()).filter(Boolean).forEach((line) => {
+      const idx = line.indexOf('=')
+      if (idx > 0) {
+        const k = line.slice(0, idx).trim()
+        const v = line.slice(idx + 1).trim()
+        if (k) buildArgs[k] = v
+      }
+    })
+    const payload = {
+      tag: buildForm.tag,
+      dockerfile: buildForm.dockerfile,
+      context_tar: buildForm.contextTar,
+      build_args: buildArgs
+    }
+    const res = await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/images/build`, payload, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      buildOutput.value = res.data.data?.output || '构建完成'
+      loadImages()
+      refreshManage()
+    } else {
+      buildOutput.value = res.data.message || '构建失败'
+    }
+  } catch (e) {
+    buildOutput.value = extractErrorMessage(e)
+  } finally {
+    buildLoading.value = false
+  }
+}
+
+const submitLoadImage = async () => {
+  if (!activeHost.value || !loadForm.tar) {
+    ElMessage.warning('请选择镜像 tar 包')
+    return
+  }
+  loadLoading.value = true
+  try {
+    const res = await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/images/load`, { tar: loadForm.tar }, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      loadOutput.value = res.data.data?.output || '导入完成'
+      loadImages()
+      refreshManage()
+    } else {
+      loadOutput.value = res.data.message || '导入失败'
+    }
+  } catch (e) {
+    loadOutput.value = extractErrorMessage(e)
+  } finally {
+    loadLoading.value = false
+  }
 }
 
 const submitPull = async () => {
@@ -2924,6 +3851,7 @@ watch(manageTab, (tab) => {
   }
   if (tab === 'images') loadImages()
   if (tab === 'networks') loadNetworks()
+  if (tab === 'events') loadEvents()
   if (tab === 'volumes') loadVolumes()
   if (tab === 'secrets') loadSecrets()
   if (tab === 'configs') loadConfigs()
@@ -2936,7 +3864,7 @@ watch(manageTab, (tab) => {
 
 onMounted(() => {
   fetchData()
-  window.addEventListener('resize', sendTerminalResize)
+  window.addEventListener('resize', handleWindowResize)
 })
 
 onUnmounted(() => {
@@ -2952,7 +3880,11 @@ onUnmounted(() => {
     clearInterval(serviceLogTimer)
     serviceLogTimer = null
   }
-  window.removeEventListener('resize', sendTerminalResize)
+  if (statsChartInstance.value) {
+    statsChartInstance.value.dispose()
+    statsChartInstance.value = null
+  }
+  window.removeEventListener('resize', handleWindowResize)
   closeTerminal()
   if (terminal) {
     terminal.dispose()

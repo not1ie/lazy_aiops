@@ -9,7 +9,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
+	"path"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -999,6 +1003,391 @@ func (h *DockerHandler) DeployStack(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
 }
 
+// DeployStackFromGit 从 Git 仓库部署 Stack
+func (h *DockerHandler) DeployStackFromGit(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name        string `json:"name"`
+		Repo        string `json:"repo"`
+		Branch      string `json:"branch"`
+		ComposePath string `json:"compose_path"`
+		Username    string `json:"username"`
+		Password    string `json:"password"`
+		Token       string `json:"token"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Repo) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name/repo 参数错误"})
+		return
+	}
+
+	branch := strings.TrimSpace(req.Branch)
+	if branch == "" {
+		branch = "main"
+	}
+	composePath := strings.TrimSpace(req.ComposePath)
+	if composePath == "" {
+		composePath = "docker-compose.yml"
+	}
+	composePath, err := sanitizeRepoPath(composePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	repoURL := strings.TrimSpace(req.Repo)
+	if req.Token != "" || req.Username != "" || req.Password != "" {
+		user := req.Username
+		pass := req.Password
+		if req.Token != "" && user == "" {
+			user = "oauth2"
+			pass = req.Token
+		}
+		repoURL, err = withBasicAuthURL(repoURL, user, pass)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "repo 参数错误"})
+			return
+		}
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	stackName := sanitizeStackName(req.Name)
+	repoDir := fmt.Sprintf("/tmp/lazy-aiops-repo-%d", time.Now().UnixNano())
+	composeFile := path.Join(repoDir, composePath)
+
+	cmd := fmt.Sprintf("rm -rf %s && git clone --depth=1 --branch %s %s %s",
+		shellEscape(repoDir),
+		shellEscape(branch),
+		shellEscape(repoURL),
+		shellEscape(repoDir),
+	)
+	cmd += fmt.Sprintf(" && docker stack deploy -c %s %s", shellEscape(composeFile), shellEscape(stackName))
+	cmd += fmt.Sprintf(" && rm -rf %s", shellEscape(repoDir))
+
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
+}
+
+// ListEvents 事件列表
+func (h *DockerHandler) ListEvents(c *gin.Context) {
+	id := c.Param("id")
+	since := strings.TrimSpace(c.DefaultQuery("since", "1h"))
+	until := strings.TrimSpace(c.Query("until"))
+	filterType := strings.TrimSpace(c.Query("type"))
+	filterAction := strings.TrimSpace(c.Query("event"))
+	filterContainer := strings.TrimSpace(c.Query("container"))
+	filterImage := strings.TrimSpace(c.Query("image"))
+	filterVolume := strings.TrimSpace(c.Query("volume"))
+	filterNetwork := strings.TrimSpace(c.Query("network"))
+	filterNode := strings.TrimSpace(c.Query("node"))
+	filterService := strings.TrimSpace(c.Query("service"))
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	cmd := "docker events --format '{{json .}}'"
+	if since != "" {
+		cmd += fmt.Sprintf(" --since %s", shellEscape(since))
+	}
+	if until != "" {
+		cmd += fmt.Sprintf(" --until %s", shellEscape(until))
+	}
+	if filterType != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("type="+filterType))
+	}
+	if filterAction != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("event="+filterAction))
+	}
+	if filterContainer != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("container="+filterContainer))
+	}
+	if filterImage != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("image="+filterImage))
+	}
+	if filterVolume != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("volume="+filterVolume))
+	}
+	if filterNetwork != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("network="+filterNetwork))
+	}
+	if filterNode != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("node="+filterNode))
+	}
+	if filterService != "" {
+		cmd += fmt.Sprintf(" --filter %s", shellEscape("service="+filterService))
+	}
+
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	events := parseJSONList(stdout)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": events})
+}
+
+// BuildImage 构建镜像
+func (h *DockerHandler) BuildImage(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Tag        string            `json:"tag"`
+		Dockerfile string            `json:"dockerfile"`
+		ContextTar string            `json:"context_tar"`
+		BuildArgs  map[string]string `json:"build_args"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Tag) == "" || strings.TrimSpace(req.Dockerfile) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "tag/dockerfile 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	tmpDir := fmt.Sprintf("/tmp/lazy-aiops-build-%d", time.Now().UnixNano())
+	encodedDockerfile := base64.StdEncoding.EncodeToString([]byte(req.Dockerfile))
+	cmd := fmt.Sprintf("mkdir -p %s && printf '%s' | base64 -d > %s/Dockerfile",
+		shellEscape(tmpDir),
+		encodedDockerfile,
+		shellEscape(tmpDir),
+	)
+	if strings.TrimSpace(req.ContextTar) != "" {
+		encodedCtx := req.ContextTar
+		cmd += fmt.Sprintf(" && printf '%s' | base64 -d | tar -xf - -C %s",
+			encodedCtx,
+			shellEscape(tmpDir),
+		)
+	}
+
+	buildCmd := fmt.Sprintf("docker build -t %s -f %s/Dockerfile %s",
+		shellEscape(req.Tag),
+		shellEscape(tmpDir),
+		shellEscape(tmpDir),
+	)
+	if len(req.BuildArgs) > 0 {
+		args := make([]string, 0, len(req.BuildArgs))
+		for k, v := range req.BuildArgs {
+			if strings.TrimSpace(k) == "" {
+				continue
+			}
+			args = append(args, fmt.Sprintf("--build-arg %s", shellEscape(fmt.Sprintf("%s=%s", k, v))))
+		}
+		if len(args) > 0 {
+			buildCmd = fmt.Sprintf("docker build %s -t %s -f %s/Dockerfile %s",
+				strings.Join(args, " "),
+				shellEscape(req.Tag),
+				shellEscape(tmpDir),
+				shellEscape(tmpDir),
+			)
+		}
+	}
+
+	cmd += " && " + buildCmd
+	cmd += fmt.Sprintf(" && rm -rf %s", shellEscape(tmpDir))
+
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
+}
+
+// LoadImage 导入镜像
+func (h *DockerHandler) LoadImage(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Tar string `json:"tar"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Tar) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "tar 参数错误"})
+		return
+	}
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	tmp := fmt.Sprintf("/tmp/lazy-aiops-image-%d.tar", time.Now().UnixNano())
+	cmd := fmt.Sprintf("printf '%s' | base64 -d > %s && docker load -i %s && rm -f %s",
+		req.Tar,
+		shellEscape(tmp),
+		shellEscape(tmp),
+		shellEscape(tmp),
+	)
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"output": stdout}})
+}
+
+// ListNetworkUsage 网络使用情况
+func (h *DockerHandler) ListNetworkUsage(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	netIDs, _, err := client.Execute("docker network ls -q")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	ids := strings.Fields(netIDs)
+	if len(ids) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": []map[string]interface{}{}})
+		return
+	}
+
+	cmd := fmt.Sprintf("docker network inspect %s", strings.Join(ids, " "))
+	stdout, stderr, err := client.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+
+	var items []map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout), &items); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "解析失败"})
+		return
+	}
+
+	result := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		name, _ := item["Name"].(string)
+		idVal, _ := item["Id"].(string)
+		driver, _ := item["Driver"].(string)
+		scope, _ := item["Scope"].(string)
+		containers := make([]string, 0)
+		if raw, ok := item["Containers"].(map[string]interface{}); ok {
+			for _, v := range raw {
+				if m, ok := v.(map[string]interface{}); ok {
+					if n, ok := m["Name"].(string); ok && n != "" {
+						containers = append(containers, n)
+					}
+				}
+			}
+		}
+		result = append(result, map[string]interface{}{
+			"id":         idVal,
+			"name":       name,
+			"driver":     driver,
+			"scope":      scope,
+			"containers": containers,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
+// ListVolumeUsage 卷使用情况
+func (h *DockerHandler) ListVolumeUsage(c *gin.Context) {
+	id := c.Param("id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	volStdout, _, err := client.Execute("docker volume ls --format '{{.Name}}'")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	volNames := strings.Fields(volStdout)
+	usageMap := make(map[string][]string)
+	for _, v := range volNames {
+		usageMap[v] = []string{}
+	}
+
+	contStdout, _, err := client.Execute("docker ps -aq")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	contIDs := strings.Fields(contStdout)
+	if len(contIDs) > 0 {
+		inspectCmd := fmt.Sprintf("docker inspect %s", strings.Join(contIDs, " "))
+		inspectOut, stderr, err := client.Execute(inspectCmd)
+		if err != nil {
+			msg := strings.TrimSpace(stderr)
+			if msg == "" {
+				msg = err.Error()
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+			return
+		}
+		var containers []map[string]interface{}
+		if err := json.Unmarshal([]byte(inspectOut), &containers); err == nil {
+			for _, item := range containers {
+				name, _ := item["Name"].(string)
+				name = strings.TrimPrefix(name, "/")
+				mounts, _ := item["Mounts"].([]interface{})
+				for _, m := range mounts {
+					mv, ok := m.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					if typ, _ := mv["Type"].(string); typ != "volume" {
+						continue
+					}
+					volName, _ := mv["Name"].(string)
+					if volName == "" {
+						continue
+					}
+					usageMap[volName] = append(usageMap[volName], name)
+				}
+			}
+		}
+	}
+
+	result := make([]map[string]interface{}, 0, len(usageMap))
+	for name, containers := range usageMap {
+		result = append(result, map[string]interface{}{
+			"name":       name,
+			"containers": containers,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
 // ================= Registry Management =================
 
 // ListRegistries 仓库列表
@@ -1237,6 +1626,273 @@ func (h *DockerHandler) ListServices(c *gin.Context) {
 	}
 	services := parseJSONList(stdout)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": services})
+}
+
+type serviceInspect struct {
+	Spec serviceSpec `json:"Spec"`
+}
+
+type serviceSpec struct {
+	Labels       map[string]string `json:"Labels"`
+	Mode         serviceMode       `json:"Mode"`
+	TaskTemplate serviceTask       `json:"TaskTemplate"`
+	EndpointSpec serviceEndpoint   `json:"EndpointSpec"`
+}
+
+type serviceMode struct {
+	Replicated serviceReplicated `json:"Replicated"`
+}
+
+type serviceReplicated struct {
+	Replicas uint64 `json:"Replicas"`
+}
+
+type serviceTask struct {
+	ContainerSpec serviceContainerSpec `json:"ContainerSpec"`
+	Networks      []serviceNetwork     `json:"Networks"`
+}
+
+type serviceContainerSpec struct {
+	Env    []string          `json:"Env"`
+	Labels map[string]string `json:"Labels"`
+	Image  string            `json:"Image"`
+}
+
+type serviceNetwork struct {
+	Target string `json:"Target"`
+}
+
+type serviceEndpoint struct {
+	Ports []servicePort `json:"Ports"`
+}
+
+type servicePort struct {
+	PublishedPort int    `json:"PublishedPort"`
+	TargetPort    int    `json:"TargetPort"`
+	Protocol      string `json:"Protocol"`
+	PublishMode   string `json:"PublishMode"`
+}
+
+func parseEnvKeys(env []string) []string {
+	keys := make([]string, 0, len(env))
+	for _, item := range env {
+		parts := strings.SplitN(item, "=", 2)
+		key := strings.TrimSpace(parts[0])
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// CreateService 创建 Swarm 服务
+func (h *DockerHandler) CreateService(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name        string            `json:"name" binding:"required"`
+		Image       string            `json:"image" binding:"required"`
+		Replicas    *int              `json:"replicas"`
+		Ports       []string          `json:"ports"`
+		Env         map[string]string `json:"env"`
+		Labels      map[string]string `json:"labels"`
+		Networks    []string          `json:"networks"`
+		Constraints []string          `json:"constraints"`
+		Mounts      []string          `json:"mounts"`
+		Command     []string          `json:"command"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	var cmdBuilder strings.Builder
+	cmdBuilder.WriteString("docker service create")
+	cmdBuilder.WriteString(" --name " + shellEscape(req.Name))
+	if req.Replicas != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --replicas %d", *req.Replicas))
+	}
+	for _, p := range req.Ports {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			cmdBuilder.WriteString(" --publish " + shellEscape(p))
+		}
+	}
+	for k, v := range req.Env {
+		cmdBuilder.WriteString(" --env " + shellEscape(fmt.Sprintf("%s=%s", k, v)))
+	}
+	for k, v := range req.Labels {
+		cmdBuilder.WriteString(" --label " + shellEscape(fmt.Sprintf("%s=%s", k, v)))
+	}
+	for _, n := range req.Networks {
+		n = strings.TrimSpace(n)
+		if n != "" {
+			cmdBuilder.WriteString(" --network " + shellEscape(n))
+		}
+	}
+	for _, cst := range req.Constraints {
+		cst = strings.TrimSpace(cst)
+		if cst != "" {
+			cmdBuilder.WriteString(" --constraint " + shellEscape(cst))
+		}
+	}
+	for _, m := range req.Mounts {
+		m = strings.TrimSpace(m)
+		if m != "" {
+			cmdBuilder.WriteString(" --mount " + shellEscape(m))
+		}
+	}
+	cmdBuilder.WriteString(" " + shellEscape(req.Image))
+	for _, arg := range req.Command {
+		arg = strings.TrimSpace(arg)
+		if arg != "" {
+			cmdBuilder.WriteString(" " + shellEscape(arg))
+		}
+	}
+
+	stdout, stderr, err := client.Execute(cmdBuilder.String())
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "创建成功", "service_id": strings.TrimSpace(stdout)})
+}
+
+// UpdateService 更新 Swarm 服务
+func (h *DockerHandler) UpdateService(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	var req struct {
+		Image         string            `json:"image"`
+		Replicas      *int              `json:"replicas"`
+		Env           map[string]string `json:"env"`
+		Labels        map[string]string `json:"labels"`
+		Ports         []string          `json:"ports"`
+		Networks      []string          `json:"networks"`
+		ResetEnv      bool              `json:"reset_env"`
+		ResetLabels   bool              `json:"reset_labels"`
+		ResetPorts    bool              `json:"reset_ports"`
+		ResetNetworks bool              `json:"reset_networks"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	var current serviceInspect
+	if req.ResetEnv || req.ResetLabels || req.ResetPorts || req.ResetNetworks {
+		stdout, stderr, err := client.Execute(fmt.Sprintf("docker service inspect %s --format '{{json .}}'", serviceID))
+		if err != nil {
+			msg := strings.TrimSpace(stderr)
+			if msg == "" {
+				msg = err.Error()
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+			return
+		}
+		_ = json.Unmarshal([]byte(stdout), &current)
+	}
+
+	var cmdBuilder strings.Builder
+	cmdBuilder.WriteString("docker service update")
+	if req.Image != "" {
+		cmdBuilder.WriteString(" --image " + shellEscape(req.Image))
+	}
+	if req.Replicas != nil {
+		cmdBuilder.WriteString(fmt.Sprintf(" --replicas %d", *req.Replicas))
+	}
+	if req.ResetEnv {
+		for _, key := range parseEnvKeys(current.Spec.TaskTemplate.ContainerSpec.Env) {
+			cmdBuilder.WriteString(" --env-rm " + shellEscape(key))
+		}
+	}
+	for k, v := range req.Env {
+		cmdBuilder.WriteString(" --env-add " + shellEscape(fmt.Sprintf("%s=%s", k, v)))
+	}
+	if req.ResetLabels {
+		for key := range current.Spec.Labels {
+			cmdBuilder.WriteString(" --label-rm " + shellEscape(key))
+		}
+	}
+	for k, v := range req.Labels {
+		cmdBuilder.WriteString(" --label-add " + shellEscape(fmt.Sprintf("%s=%s", k, v)))
+	}
+	if req.ResetPorts {
+		for _, p := range current.Spec.EndpointSpec.Ports {
+			if p.PublishedPort > 0 {
+				cmdBuilder.WriteString(" --publish-rm " + shellEscape(strconv.Itoa(p.PublishedPort)))
+			} else if p.TargetPort > 0 {
+				cmdBuilder.WriteString(" --publish-rm " + shellEscape(strconv.Itoa(p.TargetPort)))
+			}
+		}
+	}
+	for _, p := range req.Ports {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			cmdBuilder.WriteString(" --publish-add " + shellEscape(p))
+		}
+	}
+	if req.ResetNetworks {
+		for _, n := range current.Spec.TaskTemplate.Networks {
+			if n.Target != "" {
+				cmdBuilder.WriteString(" --network-rm " + shellEscape(n.Target))
+			}
+		}
+	}
+	for _, n := range req.Networks {
+		n = strings.TrimSpace(n)
+		if n != "" {
+			cmdBuilder.WriteString(" --network-add " + shellEscape(n))
+		}
+	}
+
+	cmdBuilder.WriteString(" " + shellEscape(serviceID))
+	_, stderr, err := client.Execute(cmdBuilder.String())
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
+}
+
+// RemoveService 删除 Swarm 服务
+func (h *DockerHandler) RemoveService(c *gin.Context) {
+	id := c.Param("id")
+	serviceID := c.Param("service_id")
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	_, stderr, err := client.Execute(fmt.Sprintf("docker service rm %s", serviceID))
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
 // InspectService 服务详情
@@ -1518,6 +2174,39 @@ func sanitizeStackName(name string) string {
 		return "stack"
 	}
 	return clean
+}
+
+func sanitizeRepoPath(p string) (string, error) {
+	clean := filepath.Clean(strings.TrimSpace(p))
+	if clean == "." || clean == "" {
+		return "docker-compose.yml", nil
+	}
+	if filepath.IsAbs(clean) {
+		return "", errors.New("compose_path 不能为绝对路径")
+	}
+	if strings.HasPrefix(clean, "..") {
+		return "", errors.New("compose_path 非法")
+	}
+	return clean, nil
+}
+
+func withBasicAuthURL(raw, user, pass string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw, err
+	}
+	if u.Scheme == "" {
+		return raw, errors.New("repo URL 无效")
+	}
+	u.User = url.UserPassword(user, pass)
+	return u.String(), nil
+}
+
+func shellEscape(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func isAllowedShell(shell string) bool {
