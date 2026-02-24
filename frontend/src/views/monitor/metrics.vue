@@ -208,29 +208,45 @@ const fetchRealtime = async () => {
       realtime.value = res.data.data
     }
   } catch (e) {
-    // fallback to Prometheus below
+    // ignore, fallback to Prometheus below
   }
 
-  const allZero = ['cpu', 'memory', 'disk', 'network']
-    .every(key => Number(realtime.value?.[key] || 0) === 0)
-
-  if (allZero) {
-    try {
-      const [cpu, memory, disk, network] = await Promise.all([
-        fetchPromValue('avg(100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))'),
-        fetchPromValue('avg((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)'),
-        fetchPromValue('avg(100 - (node_filesystem_free_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100)'),
-        fetchPromValue('sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])) / 1024 / 1024')
-      ])
-      realtime.value = {
-        cpu: toFixedSafe(cpu, 2),
-        memory: toFixedSafe(memory, 2),
-        disk: toFixedSafe(disk, 2),
-        network: toFixedSafe(network, 2)
-      }
-    } catch (e) {
-      // keep fallback values
+  const fallbackMap = {
+    cpu: {
+      query: 'avg(100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))',
+      digits: 2
+    },
+    memory: {
+      query: 'avg((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)',
+      digits: 2
+    },
+    disk: {
+      query: 'avg(100 - (node_filesystem_free_bytes{fstype!=\"tmpfs\"} / node_filesystem_size_bytes{fstype!=\"tmpfs\"}) * 100)',
+      digits: 2
+    },
+    network: {
+      query: 'sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])) / 1024 / 1024',
+      digits: 2
     }
+  }
+
+  const updates = {}
+  for (const [key, cfg] of Object.entries(fallbackMap)) {
+    const current = Number(realtime.value?.[key] || 0)
+    if (current === 0) {
+      try {
+        const val = await fetchPromValue(cfg.query)
+        if (Number(val) !== 0) {
+          updates[key] = toFixedSafe(val, cfg.digits)
+        }
+      } catch (e) {
+        // ignore per-metric failure
+      }
+    }
+  }
+
+  if (Object.keys(updates).length) {
+    realtime.value = { ...realtime.value, ...updates }
   }
   lastUpdated.value = new Date().toLocaleString()
 }
