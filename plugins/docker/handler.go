@@ -1711,6 +1711,7 @@ func (h *DockerHandler) RemoveNetwork(c *gin.Context) {
 // ListServices Swarm 服务列表
 func (h *DockerHandler) ListServices(c *gin.Context) {
 	id := c.Param("id")
+	includeDetail := c.Query("detail") == "1"
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
@@ -1722,6 +1723,46 @@ func (h *DockerHandler) ListServices(c *gin.Context) {
 		return
 	}
 	services := parseJSONList(stdout)
+	if includeDetail && len(services) > 0 {
+		ids := make([]string, 0, len(services))
+		for _, item := range services {
+			if idVal, ok := item["ID"].(string); ok && idVal != "" {
+				ids = append(ids, idVal)
+			}
+		}
+		if len(ids) > 0 {
+			var cmdBuilder strings.Builder
+			cmdBuilder.WriteString("docker service inspect")
+			for _, sid := range ids {
+				cmdBuilder.WriteString(" " + shellEscape(sid))
+			}
+			cmdBuilder.WriteString(" --format '{{json .}}'")
+			detailOut, detailErr, detailExecErr := client.Execute(cmdBuilder.String())
+			if detailExecErr == nil {
+				details := parseJSONList(detailOut)
+				detailMap := make(map[string]map[string]interface{}, len(details))
+				for _, d := range details {
+					if sid, ok := d["ID"].(string); ok && sid != "" {
+						detailMap[sid] = d
+					}
+				}
+				for _, s := range services {
+					if sid, ok := s["ID"].(string); ok {
+						if d, ok := detailMap[sid]; ok {
+							if updateStatus, ok := d["UpdateStatus"]; ok {
+								s["UpdateStatus"] = updateStatus
+							}
+							if rollbackStatus, ok := d["RollbackStatus"]; ok {
+								s["RollbackStatus"] = rollbackStatus
+							}
+						}
+					}
+				}
+			} else {
+				_ = detailErr
+			}
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": services})
 }
 

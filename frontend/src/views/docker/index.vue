@@ -467,6 +467,30 @@
             <el-table-column prop="Replicas" label="副本" width="120" />
             <el-table-column prop="Image" label="镜像" min-width="180" />
             <el-table-column prop="Ports" label="端口" min-width="160" />
+            <el-table-column label="更新状态" min-width="140">
+              <template #default="{ row }">
+                <el-tooltip v-if="row.UpdateStatus?.Message" :content="row.UpdateStatus.Message" placement="top">
+                  <el-tag :type="formatServiceStatusTag(row.UpdateStatus).type">
+                    {{ formatServiceStatusTag(row.UpdateStatus).text }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tag v-else :type="formatServiceStatusTag(row.UpdateStatus).type">
+                  {{ formatServiceStatusTag(row.UpdateStatus).text }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="回滚状态" min-width="140">
+              <template #default="{ row }">
+                <el-tooltip v-if="row.RollbackStatus?.Message" :content="row.RollbackStatus.Message" placement="top">
+                  <el-tag :type="formatServiceStatusTag(row.RollbackStatus).type">
+                    {{ formatServiceStatusTag(row.RollbackStatus).text }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tag v-else :type="formatServiceStatusTag(row.RollbackStatus).type">
+                  {{ formatServiceStatusTag(row.RollbackStatus).text }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="440" fixed="right">
               <template #default="{ row }">
                 <el-space size="8">
@@ -1012,6 +1036,22 @@
           <el-descriptions-item label="Cap Add">{{ inspectCapAdd?.join(', ') || '-' }}</el-descriptions-item>
           <el-descriptions-item label="DNS">{{ inspectDns?.join(', ') || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Extra Hosts">{{ inspectExtraHosts?.join(', ') || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">资源限制</el-divider>
+        <el-descriptions :column="3" border>
+          <el-descriptions-item label="CPU Limit">{{ inspectResources?.cpu || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="CPU Shares">{{ inspectResources?.cpuShares ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="CPU Quota">{{ inspectResources?.cpuQuota ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="CPU Period">{{ inspectResources?.cpuPeriod ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Cpuset">{{ inspectResources?.cpuset || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Memory Limit">{{ inspectResources?.memory || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Memory Reservation">{{ inspectResources?.memoryReservation || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Memory Swap">{{ inspectResources?.memorySwap || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Pids Limit">{{ inspectResources?.pidsLimit ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="OOM Kill Disable">{{ inspectResources?.oomKillDisable ? 'true' : 'false' }}</el-descriptions-item>
+          <el-descriptions-item label="BlkIO Weight">{{ inspectResources?.blkioWeight ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="Log Driver">{{ inspectResources?.logDriver || '-' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-divider v-if="inspectHealth" content-position="left">Health</el-divider>
@@ -1648,6 +1688,7 @@ const inspectCapAdd = ref([])
 const inspectDns = ref([])
 const inspectExtraHosts = ref([])
 const inspectHealth = ref(null)
+const inspectResources = ref(null)
 
 const execVisible = ref(false)
 const execLoading = ref(false)
@@ -2442,7 +2483,10 @@ const loadServices = async () => {
   if (!activeHost.value) return
   servicesLoading.value = true
   try {
-    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services`, { headers: authHeaders() })
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services`, {
+      params: { detail: 1 },
+      headers: authHeaders()
+    })
     if (res.data.code === 0) {
       const list = res.data.data || []
       services.value = list.map((row) => {
@@ -2661,6 +2705,18 @@ const formatStatusInfo = (status) => {
     startedAt: formatTime(status.StartedAt || status.startedAt || ''),
     completedAt: formatTime(status.CompletedAt || status.completedAt || '')
   }
+}
+
+const formatServiceStatusTag = (status) => {
+  if (!status) return { type: 'info', text: '-' }
+  const state = String(status.State || status.state || '').toLowerCase()
+  if (!state) return { type: 'info', text: '-' }
+  if (state.includes('update') || state.includes('updat')) return { type: 'warning', text: status.State }
+  if (state.includes('rollback')) return { type: 'warning', text: status.State }
+  if (state.includes('pause') || state.includes('paused')) return { type: 'danger', text: status.State }
+  if (state.includes('complete') || state.includes('finished')) return { type: 'success', text: status.State }
+  if (state.includes('fail')) return { type: 'danger', text: status.State }
+  return { type: 'info', text: status.State }
 }
 
 const listToCommandText = (list) => {
@@ -3850,6 +3906,7 @@ const openInspect = async (row) => {
   inspectDns.value = []
   inspectExtraHosts.value = []
   inspectHealth.value = null
+  inspectResources.value = null
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(id)}`, { headers: authHeaders() })
     if (res.data.code === 0) {
@@ -3900,6 +3957,20 @@ const openInspect = async (row) => {
       inspectDns.value = hostConfig.Dns || []
       inspectExtraHosts.value = hostConfig.ExtraHosts || []
       inspectHealth.value = state.Health || null
+      inspectResources.value = {
+        cpu: hostConfig.NanoCpus ? nanoToCpu(hostConfig.NanoCpus) : '',
+        cpuShares: hostConfig.CpuShares ?? '',
+        cpuQuota: hostConfig.CpuQuota ?? '',
+        cpuPeriod: hostConfig.CpuPeriod ?? '',
+        cpuset: hostConfig.CpusetCpus || '',
+        memory: hostConfig.Memory ? bytesToMem(hostConfig.Memory) : '',
+        memoryReservation: hostConfig.MemoryReservation ? bytesToMem(hostConfig.MemoryReservation) : '',
+        memorySwap: hostConfig.MemorySwap ? bytesToMem(hostConfig.MemorySwap) : '',
+        pidsLimit: hostConfig.PidsLimit ?? '',
+        oomKillDisable: !!hostConfig.OomKillDisable,
+        blkioWeight: hostConfig.BlkioWeight ?? '',
+        logDriver: hostConfig.LogConfig?.Type || ''
+      }
     }
   } finally {
     inspectLoading.value = false
