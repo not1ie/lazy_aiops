@@ -13,13 +13,17 @@
           <el-option label="全部" value="" />
           <el-option v-for="ns in namespaces" :key="ns.name" :label="ns.name" :value="ns.name" />
         </el-select>
+        <el-input v-model="keyword" placeholder="搜索名称/StorageClass/Claim" class="w-52" clearable />
         <el-button icon="Refresh" @click="fetchData">刷新</el-button>
       </div>
     </div>
 
     <el-tabs v-model="activeTab">
       <el-tab-pane label="StorageClass" name="sc">
-        <el-table :data="storageClasses" stripe style="width: 100%">
+        <el-row :gutter="16" class="summary-row">
+          <el-col :span="6"><el-card><div class="card-title">StorageClass</div><div class="card-value">{{ storageStats.sc }}</div></el-card></el-col>
+        </el-row>
+        <el-table :data="filteredStorageClasses" stripe style="width: 100%">
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="provisioner" label="Provisioner" min-width="220" />
           <el-table-column prop="reclaim_policy" label="回收策略" width="120" />
@@ -31,12 +35,29 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" min-width="180" />
+          <el-table-column label="创建时间" min-width="180">
+            <template #default="scope">
+              <div>{{ formatTime(scope.row.created_at) }}</div>
+              <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
 
       <el-tab-pane label="PersistentVolume" name="pv">
-        <el-table :data="pvs" stripe style="width: 100%">
+        <el-row :gutter="16" class="summary-row">
+          <el-col :span="6"><el-card><div class="card-title">PV 总数</div><div class="card-value">{{ storageStats.pv }}</div></el-card></el-col>
+          <el-col :span="6"><el-card><div class="card-title">Bound</div><div class="card-value">{{ storageStats.pvBound }}</div></el-card></el-col>
+        </el-row>
+        <div class="tab-filters">
+          <el-select v-model="pvStatusFilter" placeholder="状态" class="w-40" clearable>
+            <el-option label="Bound" value="Bound" />
+            <el-option label="Available" value="Available" />
+            <el-option label="Released" value="Released" />
+            <el-option label="Failed" value="Failed" />
+          </el-select>
+        </div>
+        <el-table :data="filteredPvs" stripe style="width: 100%">
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="capacity" label="容量" width="120" />
           <el-table-column label="访问模式" min-width="160">
@@ -47,12 +68,28 @@
           <el-table-column prop="status" label="状态" width="120" />
           <el-table-column prop="storage_class" label="StorageClass" min-width="160" />
           <el-table-column prop="claim" label="Claim" min-width="180" />
-          <el-table-column prop="created_at" label="创建时间" min-width="180" />
+          <el-table-column label="创建时间" min-width="180">
+            <template #default="scope">
+              <div>{{ formatTime(scope.row.created_at) }}</div>
+              <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
 
       <el-tab-pane label="PersistentVolumeClaim" name="pvc">
-        <el-table :data="pvcs" stripe style="width: 100%">
+        <el-row :gutter="16" class="summary-row">
+          <el-col :span="6"><el-card><div class="card-title">PVC 总数</div><div class="card-value">{{ storageStats.pvc }}</div></el-card></el-col>
+          <el-col :span="6"><el-card><div class="card-title">Bound</div><div class="card-value">{{ storageStats.pvcBound }}</div></el-card></el-col>
+        </el-row>
+        <div class="tab-filters">
+          <el-select v-model="pvcStatusFilter" placeholder="状态" class="w-40" clearable>
+            <el-option label="Bound" value="Bound" />
+            <el-option label="Pending" value="Pending" />
+            <el-option label="Lost" value="Lost" />
+          </el-select>
+        </div>
+        <el-table :data="filteredPvcs" stripe style="width: 100%">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="capacity" label="容量" width="120" />
@@ -64,7 +101,12 @@
           <el-table-column prop="status" label="状态" width="120" />
           <el-table-column prop="storage_class" label="StorageClass" min-width="160" />
           <el-table-column prop="volume_name" label="Volume" min-width="180" />
-          <el-table-column prop="created_at" label="创建时间" min-width="180" />
+          <el-table-column label="创建时间" min-width="180">
+            <template #default="scope">
+              <div>{{ formatTime(scope.row.created_at) }}</div>
+              <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
     </el-tabs>
@@ -72,7 +114,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 
 const clusters = ref([])
@@ -83,6 +125,9 @@ const activeTab = ref('sc')
 const storageClasses = ref([])
 const pvs = ref([])
 const pvcs = ref([])
+const keyword = ref('')
+const pvStatusFilter = ref('')
+const pvcStatusFilter = ref('')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -123,6 +168,65 @@ const handleClusterChange = async () => {
   await fetchData()
 }
 
+const filteredStorageClasses = computed(() => {
+  const key = keyword.value.trim().toLowerCase()
+  return storageClasses.value.filter((s) => {
+    if (!key) return true
+    const hay = `${s.name || ''} ${s.provisioner || ''}`.toLowerCase()
+    return hay.includes(key)
+  })
+})
+
+const filteredPvs = computed(() => {
+  const key = keyword.value.trim().toLowerCase()
+  return pvs.value.filter((p) => {
+    if (pvStatusFilter.value && p.status !== pvStatusFilter.value) return false
+    if (!key) return true
+    const hay = `${p.name || ''} ${p.storage_class || ''} ${p.claim || ''}`.toLowerCase()
+    return hay.includes(key)
+  })
+})
+
+const filteredPvcs = computed(() => {
+  const key = keyword.value.trim().toLowerCase()
+  return pvcs.value.filter((p) => {
+    if (pvcStatusFilter.value && p.status !== pvcStatusFilter.value) return false
+    if (!key) return true
+    const hay = `${p.name || ''} ${p.storage_class || ''} ${p.volume_name || ''}`.toLowerCase()
+    return hay.includes(key)
+  })
+})
+
+const storageStats = computed(() => {
+  const sc = filteredStorageClasses.value.length
+  const pv = filteredPvs.value.length
+  const pvc = filteredPvcs.value.length
+  const pvBound = filteredPvs.value.filter(p => p.status === 'Bound').length
+  const pvcBound = filteredPvcs.value.filter(p => p.status === 'Bound').length
+  return { sc, pv, pvc, pvBound, pvcBound }
+})
+
+const formatTime = (value) => {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value)
+  const pad = (v) => String(v).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+const formatSince = (value) => {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '-'
+  const diff = Date.now() - d.getTime()
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h}h`
+  const days = Math.floor(h / 24)
+  return `${days}d`
+}
+
 onMounted(async () => {
   await fetchClusters()
   await fetchNamespaces()
@@ -134,7 +238,12 @@ onMounted(async () => {
 .page-card { max-width: 1180px; margin: 0 auto; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
-.page-actions { display: flex; gap: 8px; }
+.page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.summary-row { margin-bottom: 12px; }
+.card-title { color: #909399; font-size: 12px; }
+.card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
+.tab-filters { margin-bottom: 10px; display: flex; gap: 8px; }
 .w-52 { width: 220px; }
+.w-40 { width: 160px; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
 </style>
