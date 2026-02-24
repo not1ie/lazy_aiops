@@ -497,6 +497,7 @@
                   <el-button size="small" @click="openServiceDetail(row)">详情</el-button>
                   <el-button size="small" type="primary" plain @click="openEditService(row)">编辑</el-button>
                   <el-button size="small" type="info" plain @click="openServiceTasks(row)">任务</el-button>
+                  <el-button size="small" type="danger" plain @click="openServiceTasks(row, true)">错误</el-button>
                   <el-button size="small" @click="openServiceLogs(row)">日志</el-button>
                   <el-input-number v-model="serviceScaleMap[row.ID || row.Id || row.id]" :min="0" size="small" class="w-28" controls-position="right" />
                   <el-button size="small" type="success" plain @click="applyServiceScale(row)">应用</el-button>
@@ -1126,14 +1127,26 @@
         </el-descriptions>
 
         <el-divider v-if="inspectHealth" content-position="left">Health</el-divider>
-        <el-descriptions v-if="inspectHealth" :column="3" border>
+        <el-descriptions v-if="inspectHealth" :column="4" border>
           <el-descriptions-item label="状态">{{ inspectHealth?.Status || '-' }}</el-descriptions-item>
           <el-descriptions-item label="失败次数">{{ inspectHealth?.FailingStreak ?? '-' }}</el-descriptions-item>
           <el-descriptions-item label="日志数">{{ inspectHealth?.Log?.length ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="失败率">{{ healthStats ? `${Math.round(healthStats.failureRate * 100)}%` : '-' }}</el-descriptions-item>
+          <el-descriptions-item label="最近检查">{{ healthStats?.lastEnd || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="最近退出码">{{ healthStats?.lastExit ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="平均耗时">{{ healthStats?.avgDuration || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="最长耗时">{{ healthStats?.maxDuration || '-' }}</el-descriptions-item>
         </el-descriptions>
-        <el-table v-if="inspectHealth?.Log?.length" :data="inspectHealth.Log.slice(-5)" style="width: 100%">
-          <el-table-column prop="Start" label="Start" min-width="180" />
-          <el-table-column prop="End" label="End" min-width="180" />
+        <div v-if="healthExitStats.length" class="mt-2">
+          <span class="text-xs text-gray-500 mr-2">Exit Code 分布</span>
+          <el-tag v-for="item in healthExitStats" :key="item.code" class="mr-2" :type="item.code === 0 ? 'success' : 'danger'">
+            {{ item.code }}: {{ item.count }}
+          </el-tag>
+        </div>
+        <el-table v-if="healthLogRows.length" :data="healthLogRows.slice(-10)" style="width: 100%">
+          <el-table-column prop="startText" label="Start" min-width="180" />
+          <el-table-column prop="endText" label="End" min-width="180" />
+          <el-table-column prop="duration" label="Duration" width="120" />
           <el-table-column prop="ExitCode" label="Exit" width="80" />
           <el-table-column prop="Output" label="Output" min-width="200" />
         </el-table>
@@ -1272,7 +1285,16 @@
 
     <!-- Service 任务弹窗 -->
     <el-dialog v-model="tasksVisible" title="Service 任务" width="90%" append-to-body>
-      <el-table :data="serviceTasks" v-loading="tasksLoading" style="width: 100%">
+      <div class="tab-toolbar">
+        <div class="toolbar-left">
+          <el-switch v-model="serviceTaskFilterError" active-text="仅错误" />
+          <span class="text-xs text-gray-500 ml-2">显示 {{ filteredServiceTasks.length }}/{{ serviceTasks.length }}</span>
+        </div>
+        <div class="toolbar-right">
+          <el-button icon="Refresh" @click="reloadServiceTasks">刷新</el-button>
+        </div>
+      </div>
+      <el-table :data="filteredServiceTasks" v-loading="tasksLoading" style="width: 100%">
         <el-table-column prop="ID" label="ID" min-width="180" />
         <el-table-column prop="Name" label="名称" min-width="200" />
         <el-table-column prop="Node" label="节点" width="160" />
@@ -1284,20 +1306,32 @@
 
     <!-- Stack 服务弹窗 -->
     <el-dialog v-model="stackVisible" title="Stack 服务" width="90%" append-to-body>
-      <el-descriptions v-if="stackSummary" :column="3" border>
+      <el-descriptions v-if="stackSummary" :column="4" border>
         <el-descriptions-item label="服务数">{{ stackSummary.total }}</el-descriptions-item>
         <el-descriptions-item label="运行中">{{ stackSummary.running }}</el-descriptions-item>
         <el-descriptions-item label="期望副本">{{ stackSummary.desired }}</el-descriptions-item>
+        <el-descriptions-item label="副本异常">
+          <el-tag :type="stackSummary.warning > 0 ? 'danger' : 'success'">{{ stackSummary.warning }}</el-tag>
+        </el-descriptions-item>
       </el-descriptions>
       <el-descriptions v-if="stackMeta" :column="2" border class="mt-2">
         <el-descriptions-item label="Networks">{{ stackMeta.networks?.join(', ') || '-' }}</el-descriptions-item>
         <el-descriptions-item label="Images">{{ stackMeta.images?.join(', ') || '-' }}</el-descriptions-item>
         <el-descriptions-item label="Labels">{{ stackMeta.labels?.join(', ') || '-' }}</el-descriptions-item>
       </el-descriptions>
-      <el-table :data="stackServices" v-loading="stackLoading" style="width: 100%">
+      <el-table :data="stackServiceRows" v-loading="stackLoading" style="width: 100%">
         <el-table-column prop="Name" label="名称" min-width="220" />
         <el-table-column prop="Mode" label="模式" width="120" />
         <el-table-column prop="Replicas" label="副本" width="120" />
+        <el-table-column prop="running" label="运行中" width="100" />
+        <el-table-column prop="desired" label="期望" width="100" />
+        <el-table-column label="差异" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.delta < 0" type="danger">{{ row.delta }}</el-tag>
+            <el-tag v-else-if="row.delta > 0" type="warning">+{{ row.delta }}</el-tag>
+            <el-tag v-else type="success">0</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="Image" label="镜像" min-width="180" />
         <el-table-column prop="Ports" label="端口" min-width="180" />
       </el-table>
@@ -1799,6 +1833,7 @@ const inspectLogDriver = ref('')
 const inspectLogOpts = ref([])
 const inspectExposedPorts = ref([])
 const inspectBinds = ref([])
+const serviceTaskFilterError = ref(false)
 
 const execVisible = ref(false)
 const execLoading = ref(false)
@@ -1814,6 +1849,7 @@ const serviceInspectData = ref(null)
 const tasksVisible = ref(false)
 const tasksLoading = ref(false)
 const serviceTasks = ref([])
+const serviceTasksTargetId = ref('')
 const serviceLogVisible = ref(false)
 const serviceLogLoading = ref(false)
 const serviceLogText = ref('')
@@ -1869,6 +1905,76 @@ const filteredServices = computed(() => {
     })
   }
   return rows
+})
+
+const filteredServiceTasks = computed(() => {
+  if (!serviceTaskFilterError.value) return serviceTasks.value
+  return (serviceTasks.value || []).filter(task => isTaskError(task))
+})
+
+const stackServiceRows = computed(() => {
+  return (stackServices.value || []).map((row) => {
+    const stats = parseReplicaStats(row.Replicas)
+    return {
+      ...row,
+      running: stats.running,
+      desired: stats.desired,
+      delta: stats.delta
+    }
+  })
+})
+
+const healthLogRows = computed(() => {
+  const logs = inspectHealth.value?.Log || []
+  return logs.map((row) => {
+    const durationMs = calcDurationMs(row.Start, row.End)
+    return {
+      ...row,
+      startText: formatTime(row.Start),
+      endText: formatTime(row.End),
+      durationMs,
+      duration: formatMs(durationMs)
+    }
+  })
+})
+
+const healthExitStats = computed(() => {
+  const logs = inspectHealth.value?.Log || []
+  const map = new Map()
+  logs.forEach((row) => {
+    const code = Number.isFinite(row.ExitCode) ? row.ExitCode : Number(row.ExitCode || 0)
+    const key = Number.isNaN(code) ? 0 : code
+    map.set(key, (map.get(key) || 0) + 1)
+  })
+  return Array.from(map.entries())
+    .map(([code, count]) => ({ code, count }))
+    .sort((a, b) => a.code - b.code)
+})
+
+const healthStats = computed(() => {
+  const logs = inspectHealth.value?.Log || []
+  if (!logs.length) return null
+  let failures = 0
+  const durations = []
+  logs.forEach((row) => {
+    if (Number(row.ExitCode) !== 0) failures += 1
+    const durationMs = calcDurationMs(row.Start, row.End)
+    if (durationMs !== null) durations.push(durationMs)
+  })
+  const total = logs.length
+  const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
+  const max = durations.length ? Math.max(...durations) : null
+  const last = logs[logs.length - 1]
+  return {
+    total,
+    failures,
+    failureRate: total ? failures / total : 0,
+    avgDuration: formatMs(avg),
+    maxDuration: formatMs(max),
+    lastExit: last?.ExitCode ?? '-',
+    lastEnd: formatTime(last?.End),
+    lastStart: formatTime(last?.Start)
+  }
 })
 
 const topologyTree = computed(() => {
@@ -2745,6 +2851,13 @@ const extractTaskState = (state) => {
   return text.split(' ')[0].toLowerCase()
 }
 
+const isTaskError = (task) => {
+  if (!task) return false
+  if (task.Error || task.error) return true
+  const state = extractTaskState(task.CurrentState || task.currentstate)
+  return state === 'failed' || state === 'rejected'
+}
+
 const summarizeServiceTasks = (tasks) => {
   const summary = {
     total: tasks.length,
@@ -2943,6 +3056,24 @@ const parseReplicaValue = (replicas) => {
   return Number.isNaN(num) ? 0 : num
 }
 
+const parseReplicaStats = (replicas) => {
+  const rep = String(replicas || '')
+  const match = rep.match(/(\d+)\s*\/\s*(\d+)/)
+  if (match) {
+    const running = Number(match[1])
+    const desired = Number(match[2])
+    const safeRunning = Number.isNaN(running) ? 0 : running
+    const safeDesired = Number.isNaN(desired) ? 0 : desired
+    return {
+      running: safeRunning,
+      desired: safeDesired,
+      delta: safeRunning - safeDesired
+    }
+  }
+  const desired = parseReplicaValue(rep)
+  return { running: 0, desired, delta: 0 - desired }
+}
+
 const formatDuration = (value) => {
   if (value === undefined || value === null || value === '') return ''
   if (typeof value === 'string') return value
@@ -2952,6 +3083,23 @@ const formatDuration = (value) => {
     return `${Math.round(value)}ns`
   }
   return String(value)
+}
+
+const calcDurationMs = (start, end) => {
+  const s = new Date(start || '').getTime()
+  const e = new Date(end || '').getTime()
+  if (Number.isNaN(s) || Number.isNaN(e)) return null
+  return Math.max(0, e - s)
+}
+
+const formatMs = (ms) => {
+  if (ms === null || ms === undefined) return '-'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const seconds = ms / 1000
+  if (seconds < 60) return `${seconds.toFixed(2)}s`
+  const min = Math.floor(seconds / 60)
+  const sec = (seconds % 60).toFixed(1)
+  return `${min}m${sec}s`
 }
 
 const nanoToCpu = (nano) => {
@@ -4429,19 +4577,30 @@ const openServiceDetail = async (row) => {
   }
 }
 
-const openServiceTasks = async (row) => {
-  if (!activeHost.value || !row?.ID) return
-  tasksVisible.value = true
+const loadServiceTasks = async () => {
+  if (!activeHost.value || !serviceTasksTargetId.value) return
   tasksLoading.value = true
   serviceTasks.value = []
   try {
-    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/tasks`, { headers: authHeaders() })
+    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(serviceTasksTargetId.value)}/tasks`, { headers: authHeaders() })
     if (res.data.code === 0) {
       serviceTasks.value = res.data.data || []
     }
   } finally {
     tasksLoading.value = false
   }
+}
+
+const reloadServiceTasks = async () => {
+  await loadServiceTasks()
+}
+
+const openServiceTasks = async (row, onlyErrors = false) => {
+  if (!activeHost.value || !row?.ID) return
+  serviceTaskFilterError.value = !!onlyErrors
+  serviceTasksTargetId.value = row.ID
+  tasksVisible.value = true
+  await loadServiceTasks()
 }
 
 const openServiceLogs = (row) => {
