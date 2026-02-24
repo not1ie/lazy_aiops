@@ -416,22 +416,28 @@ func (h *DockerHandler) InspectContainer(c *gin.Context) {
 func (h *DockerHandler) CreateContainer(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
-		Name          string            `json:"name"`
-		Image         string            `json:"image" binding:"required"`
-		Ports         []string          `json:"ports"` // Format: "8080:80"
-		Env           map[string]string `json:"env"`
-		Labels        map[string]string `json:"labels"`
-		Networks      []string          `json:"networks"`
-		Mounts        []string          `json:"mounts"`
-		Entrypoint    string            `json:"entrypoint"`
-		Command       []string          `json:"command"`
-		Privileged    bool              `json:"privileged"`
-		CapAdd        []string          `json:"cap_add"`
-		NetworkMode   string            `json:"network_mode"`
-		DNS           []string          `json:"dns"`
-		ExtraHosts    []string          `json:"extra_hosts"`
-		RestartPolicy string            `json:"restart_policy"`
-		AutoRemove    bool              `json:"auto_remove"`
+		Name              string            `json:"name"`
+		Image             string            `json:"image" binding:"required"`
+		Ports             []string          `json:"ports"` // Format: "8080:80"
+		Env               map[string]string `json:"env"`
+		Labels            map[string]string `json:"labels"`
+		Networks          []string          `json:"networks"`
+		Mounts            []string          `json:"mounts"`
+		Entrypoint        string            `json:"entrypoint"`
+		Command           []string          `json:"command"`
+		Privileged        bool              `json:"privileged"`
+		CapAdd            []string          `json:"cap_add"`
+		NetworkMode       string            `json:"network_mode"`
+		DNS               []string          `json:"dns"`
+		ExtraHosts        []string          `json:"extra_hosts"`
+		HealthDisable     bool              `json:"health_disable"`
+		HealthCmd         string            `json:"health_cmd"`
+		HealthInterval    string            `json:"health_interval"`
+		HealthTimeout     string            `json:"health_timeout"`
+		HealthRetries     *int              `json:"health_retries"`
+		HealthStartPeriod string            `json:"health_start_period"`
+		RestartPolicy     string            `json:"restart_policy"`
+		AutoRemove        bool              `json:"auto_remove"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
@@ -497,6 +503,26 @@ func (h *DockerHandler) CreateContainer(c *gin.Context) {
 		host = strings.TrimSpace(host)
 		if host != "" {
 			cmdBuilder.WriteString(fmt.Sprintf(" --add-host %s", shellEscape(host)))
+		}
+	}
+
+	if req.HealthDisable {
+		cmdBuilder.WriteString(" --no-healthcheck")
+	} else {
+		if strings.TrimSpace(req.HealthCmd) != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --health-cmd %s", shellEscape(req.HealthCmd)))
+		}
+		if strings.TrimSpace(req.HealthInterval) != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --health-interval %s", shellEscape(req.HealthInterval)))
+		}
+		if strings.TrimSpace(req.HealthTimeout) != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --health-timeout %s", shellEscape(req.HealthTimeout)))
+		}
+		if req.HealthRetries != nil && *req.HealthRetries >= 0 {
+			cmdBuilder.WriteString(fmt.Sprintf(" --health-retries %d", *req.HealthRetries))
+		}
+		if strings.TrimSpace(req.HealthStartPeriod) != "" {
+			cmdBuilder.WriteString(fmt.Sprintf(" --health-start-period %s", shellEscape(req.HealthStartPeriod)))
 		}
 	}
 
@@ -1725,9 +1751,12 @@ type serviceTask struct {
 }
 
 type serviceContainerSpec struct {
-	Env    []string          `json:"Env"`
-	Labels map[string]string `json:"Labels"`
-	Image  string            `json:"Image"`
+	Env     []string          `json:"Env"`
+	Labels  map[string]string `json:"Labels"`
+	Image   string            `json:"Image"`
+	Mounts  []serviceMount    `json:"Mounts"`
+	Args    []string          `json:"Args"`
+	Command []string          `json:"Command"`
 }
 
 type serviceNetwork struct {
@@ -1735,7 +1764,23 @@ type serviceNetwork struct {
 }
 
 type servicePlacement struct {
-	Constraints []string `json:"Constraints"`
+	Constraints []string               `json:"Constraints"`
+	Preferences []servicePlacementPref `json:"Preferences"`
+}
+
+type servicePlacementPref struct {
+	Spread servicePlacementSpread `json:"Spread"`
+}
+
+type servicePlacementSpread struct {
+	SpreadDescriptor string `json:"SpreadDescriptor"`
+}
+
+type serviceMount struct {
+	Type     string `json:"Type"`
+	Source   string `json:"Source"`
+	Target   string `json:"Target"`
+	ReadOnly bool   `json:"ReadOnly"`
 }
 
 type serviceEndpoint struct {
@@ -1931,11 +1976,17 @@ func (h *DockerHandler) UpdateService(c *gin.Context) {
 		Ports                 []string          `json:"ports"`
 		Networks              []string          `json:"networks"`
 		Constraints           []string          `json:"constraints"`
+		PlacementPrefs        []string          `json:"placement_prefs"`
+		Mounts                []string          `json:"mounts"`
+		Command               []string          `json:"command"`
 		ResetEnv              bool              `json:"reset_env"`
 		ResetLabels           bool              `json:"reset_labels"`
 		ResetPorts            bool              `json:"reset_ports"`
 		ResetNetworks         bool              `json:"reset_networks"`
 		ResetConstraints      bool              `json:"reset_constraints"`
+		ResetPlacementPrefs   bool              `json:"reset_placement_prefs"`
+		ResetMounts           bool              `json:"reset_mounts"`
+		ResetCommand          bool              `json:"reset_command"`
 		RestartCondition      string            `json:"restart_condition"`
 		UpdateParallelism     *int              `json:"update_parallelism"`
 		UpdateDelay           string            `json:"update_delay"`
@@ -1962,7 +2013,7 @@ func (h *DockerHandler) UpdateService(c *gin.Context) {
 	}
 
 	var current serviceInspect
-	if req.ResetEnv || req.ResetLabels || req.ResetPorts || req.ResetNetworks || req.ResetConstraints {
+	if req.ResetEnv || req.ResetLabels || req.ResetPorts || req.ResetNetworks || req.ResetConstraints || req.ResetPlacementPrefs || req.ResetMounts || req.ResetCommand {
 		stdout, stderr, err := client.Execute(fmt.Sprintf("docker service inspect %s --format '{{json .}}'", serviceID))
 		if err != nil {
 			msg := strings.TrimSpace(stderr)
@@ -2047,6 +2098,41 @@ func (h *DockerHandler) UpdateService(c *gin.Context) {
 		cst = strings.TrimSpace(cst)
 		if cst != "" {
 			cmdBuilder.WriteString(" --constraint-add " + shellEscape(cst))
+		}
+	}
+	if req.ResetPlacementPrefs {
+		for _, pref := range current.Spec.TaskTemplate.Placement.Preferences {
+			desc := strings.TrimSpace(pref.Spread.SpreadDescriptor)
+			if desc != "" {
+				cmdBuilder.WriteString(" --placement-pref-rm " + shellEscape(fmt.Sprintf("spread=%s", desc)))
+			}
+		}
+	}
+	for _, pref := range req.PlacementPrefs {
+		pref = strings.TrimSpace(pref)
+		if pref != "" {
+			cmdBuilder.WriteString(" --placement-pref-add " + shellEscape(pref))
+		}
+	}
+	if req.ResetMounts {
+		for _, m := range current.Spec.TaskTemplate.ContainerSpec.Mounts {
+			target := strings.TrimSpace(m.Target)
+			if target != "" {
+				cmdBuilder.WriteString(" --mount-rm " + shellEscape(target))
+			}
+		}
+	}
+	for _, m := range req.Mounts {
+		m = strings.TrimSpace(m)
+		if m != "" {
+			cmdBuilder.WriteString(" --mount-add " + shellEscape(m))
+		}
+	}
+	if req.ResetCommand {
+		if len(req.Command) == 0 {
+			cmdBuilder.WriteString(" --args " + shellEscape(""))
+		} else {
+			cmdBuilder.WriteString(" --args " + shellEscape(strings.Join(req.Command, " ")))
 		}
 	}
 	if req.RestartCondition != "" {

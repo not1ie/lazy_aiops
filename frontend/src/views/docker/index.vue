@@ -573,6 +573,25 @@
         <el-form-item label="Extra Hosts">
           <el-input v-model="createForm.extra_hosts" type="textarea" :rows="2" placeholder="每行一个，如 example.com:1.2.3.4" />
         </el-form-item>
+        <el-divider content-position="left">健康检查</el-divider>
+        <el-form-item label="禁用检查">
+          <el-switch v-model="createForm.health_disable" />
+        </el-form-item>
+        <el-form-item label="Health Cmd">
+          <el-input v-model="createForm.health_cmd" :disabled="createForm.health_disable" placeholder="如 curl -f http://localhost/health || exit 1" />
+        </el-form-item>
+        <el-form-item label="Interval">
+          <el-input v-model="createForm.health_interval" :disabled="createForm.health_disable" placeholder="如 30s" />
+        </el-form-item>
+        <el-form-item label="Timeout">
+          <el-input v-model="createForm.health_timeout" :disabled="createForm.health_disable" placeholder="如 5s" />
+        </el-form-item>
+        <el-form-item label="Retries">
+          <el-input v-model="createForm.health_retries" :disabled="createForm.health_disable" placeholder="如 3" />
+        </el-form-item>
+        <el-form-item label="Start Period">
+          <el-input v-model="createForm.health_start_period" :disabled="createForm.health_disable" placeholder="如 10s" />
+        </el-form-item>
         <el-form-item label="重启策略">
           <el-select v-model="createForm.restart_policy" placeholder="不设置">
             <el-option label="不设置" value="" />
@@ -755,6 +774,18 @@
         <el-form-item label="约束">
           <el-input v-model="serviceEditForm.constraints" type="textarea" :rows="2" placeholder="如 node.role==manager" />
           <el-checkbox v-model="serviceEditForm.reset_constraints">覆盖现有约束</el-checkbox>
+        </el-form-item>
+        <el-form-item label="Placement Pref">
+          <el-input v-model="serviceEditForm.placement_prefs" type="textarea" :rows="2" placeholder="每行一条，如 spread=node.labels.zone" />
+          <el-checkbox v-model="serviceEditForm.reset_placement_prefs">覆盖现有 Placement</el-checkbox>
+        </el-form-item>
+        <el-form-item label="挂载">
+          <el-input v-model="serviceEditForm.mounts" type="textarea" :rows="3" placeholder="每行一条 --mount 参数" />
+          <el-checkbox v-model="serviceEditForm.reset_mounts">覆盖现有挂载</el-checkbox>
+        </el-form-item>
+        <el-form-item label="命令">
+          <el-input v-model="serviceEditForm.command" type="textarea" :rows="2" placeholder="可选，按空格分隔" />
+          <el-checkbox v-model="serviceEditForm.reset_command">覆盖现有命令</el-checkbox>
         </el-form-item>
         <el-form-item label="每节点上限">
           <el-input v-model="serviceEditForm.max_replicas_per_node" :disabled="serviceEditIsGlobal" placeholder="如 1" />
@@ -1005,7 +1036,47 @@
     <!-- Service 详情弹窗 -->
     <el-dialog v-model="serviceVisible" title="Service 详情" width="90%" append-to-body>
       <el-skeleton v-if="serviceLoading" :rows="6" animated />
-      <el-input v-else v-model="serviceJson" type="textarea" :rows="16" readonly />
+      <div v-else>
+        <el-descriptions :column="4" border>
+          <el-descriptions-item label="任务总数">{{ serviceSummary?.tasks?.total ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="运行中">
+            <el-tag type="success">{{ serviceSummary?.tasks?.running ?? 0 }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="失败">
+            <el-tag type="danger">{{ serviceSummary?.tasks?.failed ?? 0 }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="关闭">
+            <el-tag type="info">{{ serviceSummary?.tasks?.shutdown ?? 0 }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="Rejected">{{ serviceSummary?.tasks?.rejected ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="Pending">{{ serviceSummary?.tasks?.pending ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="Starting">{{ serviceSummary?.tasks?.starting ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="Preparing">{{ serviceSummary?.tasks?.preparing ?? 0 }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">更新/回滚</el-divider>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="更新状态">{{ serviceSummary?.update?.state || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="更新信息">{{ serviceSummary?.update?.message || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{ serviceSummary?.update?.startedAt || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="完成时间">{{ serviceSummary?.update?.completedAt || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚状态">{{ serviceSummary?.rollback?.state || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚信息">{{ serviceSummary?.rollback?.message || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚开始">{{ serviceSummary?.rollback?.startedAt || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="回滚完成">{{ serviceSummary?.rollback?.completedAt || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">任务错误</el-divider>
+        <el-table v-if="serviceSummary?.tasks?.errors?.length" :data="serviceSummary?.tasks?.errors?.slice(0, 10) || []" style="width: 100%">
+          <el-table-column prop="id" label="ID" min-width="180" />
+          <el-table-column prop="name" label="名称" min-width="200" />
+          <el-table-column prop="error" label="错误" min-width="240" />
+        </el-table>
+        <div v-else class="text-xs text-gray-400">暂无错误</div>
+
+        <el-divider content-position="left">JSON</el-divider>
+        <el-input v-model="serviceJson" type="textarea" :rows="16" readonly />
+      </div>
     </el-dialog>
 
     <!-- Service 任务弹窗 -->
@@ -1448,6 +1519,12 @@ const serviceEditForm = reactive({
   networks: '',
   constraints: '',
   reset_constraints: true,
+  placement_prefs: '',
+  reset_placement_prefs: true,
+  mounts: '',
+  reset_mounts: true,
+  command: '',
+  reset_command: false,
   max_replicas_per_node: '',
   reset_env: true,
   reset_labels: true,
@@ -1503,6 +1580,7 @@ const execContainerId = ref('')
 const serviceVisible = ref(false)
 const serviceLoading = ref(false)
 const serviceJson = ref('')
+const serviceSummary = ref(null)
 const tasksVisible = ref(false)
 const tasksLoading = ref(false)
 const serviceTasks = ref([])
@@ -1611,6 +1689,12 @@ const createForm = reactive({
   network_mode: '',
   dns: '',
   extra_hosts: '',
+  health_disable: false,
+  health_cmd: '',
+  health_interval: '',
+  health_timeout: '',
+  health_retries: '',
+  health_start_period: '',
   restart_policy: '',
   auto_remove: false
 })
@@ -2358,6 +2442,95 @@ const parseCommandText = (text) => {
     .trim()
     .split(/\s+/)
     .filter(Boolean)
+}
+
+const isValidIPv4 = (value) => {
+  const parts = String(value || '').trim().split('.')
+  if (parts.length !== 4) return false
+  return parts.every((p) => {
+    if (!/^\d+$/.test(p)) return false
+    const n = Number(p)
+    return n >= 0 && n <= 255
+  })
+}
+
+const isValidIPv6 = (value) => {
+  const text = String(value || '').trim()
+  if (!text.includes(':')) return false
+  return /^[0-9a-fA-F:]+$/.test(text)
+}
+
+const isValidIp = (value) => isValidIPv4(value) || isValidIPv6(value)
+
+const isValidHostname = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return false
+  return /^[a-zA-Z0-9.-]+$/.test(text)
+}
+
+const formatServiceMount = (mount) => {
+  if (!mount) return ''
+  const parts = []
+  if (mount.Type) parts.push(`type=${mount.Type}`)
+  if (mount.Source) parts.push(`src=${mount.Source}`)
+  if (mount.Target) parts.push(`dst=${mount.Target}`)
+  if (mount.ReadOnly) parts.push('readonly')
+  return parts.join(',')
+}
+
+const extractTaskState = (state) => {
+  const text = String(state || '').trim()
+  if (!text) return 'unknown'
+  return text.split(' ')[0].toLowerCase()
+}
+
+const summarizeServiceTasks = (tasks) => {
+  const summary = {
+    total: tasks.length,
+    running: 0,
+    failed: 0,
+    shutdown: 0,
+    rejected: 0,
+    pending: 0,
+    starting: 0,
+    preparing: 0,
+    assigned: 0,
+    accepted: 0,
+    ready: 0,
+    unknown: 0,
+    errors: []
+  }
+  tasks.forEach((t) => {
+    const state = extractTaskState(t.CurrentState || t.currentstate)
+    if (summary[state] === undefined) {
+      summary.unknown += 1
+    } else {
+      summary[state] += 1
+    }
+    const err = t.Error || t.error
+    if (err) {
+      summary.errors.push({
+        id: t.ID || t.Id || t.id || '',
+        name: t.Name || t.name || '',
+        error: err
+      })
+    }
+  })
+  return summary
+}
+
+const formatStatusInfo = (status) => {
+  if (!status) return null
+  return {
+    state: status.State || status.state || '-',
+    message: status.Message || status.message || '-',
+    startedAt: formatTime(status.StartedAt || status.startedAt || ''),
+    completedAt: formatTime(status.CompletedAt || status.completedAt || '')
+  }
+}
+
+const listToCommandText = (list) => {
+  return (list || []).filter(Boolean).join(' ')
 }
 
 const serviceCreateIsGlobal = computed(() => String(serviceCreateForm.mode || '').toLowerCase() === 'global')
@@ -3411,6 +3584,12 @@ const openCreateContainer = () => {
   createForm.network_mode = ''
   createForm.dns = ''
   createForm.extra_hosts = ''
+  createForm.health_disable = false
+  createForm.health_cmd = ''
+  createForm.health_interval = ''
+  createForm.health_timeout = ''
+  createForm.health_retries = ''
+  createForm.health_start_period = ''
   createForm.restart_policy = ''
   createForm.auto_remove = false
   createVisible.value = true
@@ -3419,6 +3598,34 @@ const openCreateContainer = () => {
 const submitCreate = async () => {
   if (!activeHost.value || !createForm.image) {
     ElMessage.warning('请填写镜像')
+    return
+  }
+  const dnsList = parseListText(createForm.dns)
+  const invalidDns = dnsList.filter(item => !isValidIp(item))
+  if (invalidDns.length > 0) {
+    ElMessage.warning(`DNS 格式错误: ${invalidDns.join(', ')}`)
+    return
+  }
+  const extraHosts = parseListText(createForm.extra_hosts)
+  const invalidHosts = extraHosts.filter((item) => {
+    const idx = item.indexOf(':')
+    if (idx <= 0) return true
+    const host = item.slice(0, idx).trim()
+    const ip = item.slice(idx + 1).trim()
+    return !isValidHostname(host) || !isValidIp(ip)
+  })
+  if (invalidHosts.length > 0) {
+    ElMessage.warning(`Extra Hosts 格式错误: ${invalidHosts.join(', ')}`)
+    return
+  }
+  const hasHealthConfig = !!createForm.health_cmd || !!createForm.health_interval || !!createForm.health_timeout ||
+    !!createForm.health_retries || !!createForm.health_start_period
+  if (!createForm.health_disable && hasHealthConfig && !createForm.health_cmd) {
+    ElMessage.warning('配置健康检查时必须填写 Health Cmd')
+    return
+  }
+  if (createForm.health_retries && Number.isNaN(Number(createForm.health_retries))) {
+    ElMessage.warning('Health Retries 必须是数字')
     return
   }
   createLoading.value = true
@@ -3440,8 +3647,14 @@ const submitCreate = async () => {
       privileged: !!createForm.privileged,
       cap_add: parseListText(createForm.cap_add),
       network_mode: String(createForm.network_mode || '').trim(),
-      dns: parseListText(createForm.dns),
-      extra_hosts: parseListText(createForm.extra_hosts),
+      dns: dnsList,
+      extra_hosts: extraHosts,
+      health_disable: !!createForm.health_disable,
+      health_cmd: String(createForm.health_cmd || '').trim(),
+      health_interval: String(createForm.health_interval || '').trim(),
+      health_timeout: String(createForm.health_timeout || '').trim(),
+      health_retries: createForm.health_retries ? Number(createForm.health_retries) : undefined,
+      health_start_period: String(createForm.health_start_period || '').trim(),
       restart_policy: createForm.restart_policy,
       auto_remove: createForm.auto_remove
     }
@@ -3743,10 +3956,24 @@ const openServiceDetail = async (row) => {
   serviceVisible.value = true
   serviceLoading.value = true
   serviceJson.value = ''
+  serviceSummary.value = null
   try {
-    const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}`, { headers: authHeaders() })
-    if (res.data.code === 0) {
-      serviceJson.value = JSON.stringify(res.data.data, null, 2)
+    const [inspectRes, taskRes] = await Promise.allSettled([
+      axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}`, { headers: authHeaders() }),
+      axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/tasks`, { headers: authHeaders() })
+    ])
+    if (inspectRes.status === 'fulfilled' && inspectRes.value.data.code === 0) {
+      const data = inspectRes.value.data.data || {}
+      serviceJson.value = JSON.stringify(data, null, 2)
+      const updateInfo = formatStatusInfo(data.UpdateStatus)
+      const rollbackInfo = formatStatusInfo(data.RollbackStatus)
+      const tasks = taskRes.status === 'fulfilled' && taskRes.value.data.code === 0 ? (taskRes.value.data.data || []) : []
+      const taskSummary = summarizeServiceTasks(tasks)
+      serviceSummary.value = {
+        update: updateInfo,
+        rollback: rollbackInfo,
+        tasks: taskSummary
+      }
     }
   } finally {
     serviceLoading.value = false
@@ -3922,12 +4149,18 @@ const openEditService = async (row) => {
   serviceEditForm.labels = ''
   serviceEditForm.networks = ''
   serviceEditForm.constraints = ''
+  serviceEditForm.placement_prefs = ''
+  serviceEditForm.mounts = ''
+  serviceEditForm.command = ''
   serviceEditForm.max_replicas_per_node = ''
   serviceEditForm.reset_env = true
   serviceEditForm.reset_labels = true
   serviceEditForm.reset_ports = true
   serviceEditForm.reset_networks = true
   serviceEditForm.reset_constraints = true
+  serviceEditForm.reset_placement_prefs = true
+  serviceEditForm.reset_mounts = true
+  serviceEditForm.reset_command = false
   try {
     const res = await axios.get(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(id)}`, { headers: authHeaders() })
     if (res.data.code === 0) {
@@ -3935,9 +4168,15 @@ const openEditService = async (row) => {
       const spec = data.Spec || {}
       const containerSpec = spec.TaskTemplate?.ContainerSpec || {}
       const envList = containerSpec.Env || []
+      const mounts = (containerSpec.Mounts || []).map(formatServiceMount).filter(Boolean)
+      const args = containerSpec.Args || containerSpec.Command || []
       const labels = spec.Labels || {}
       const networks = (spec.TaskTemplate?.Networks || []).map(n => n?.Target || n?.Name).filter(Boolean)
       const constraints = spec.TaskTemplate?.Placement?.Constraints || []
+      const placementPrefs = (spec.TaskTemplate?.Placement?.Preferences || []).map(p => {
+        const spread = p?.Spread?.SpreadDescriptor
+        return spread ? `spread=${spread}` : ''
+      }).filter(Boolean)
       const mode = spec.Mode?.Global ? 'global' : 'replicated'
       const endpointMode = spec.EndpointSpec?.Mode || ''
       const restartCondition = spec.TaskTemplate?.RestartPolicy?.Condition || ''
@@ -3965,6 +4204,9 @@ const openEditService = async (row) => {
       serviceEditForm.labels = mapToText(labels)
       serviceEditForm.networks = listToText(networks)
       serviceEditForm.constraints = listToText(constraints)
+      serviceEditForm.placement_prefs = listToText(placementPrefs)
+      serviceEditForm.mounts = listToText(mounts)
+      serviceEditForm.command = listToCommandText(args)
       serviceEditForm.ports = listToText(ports)
       serviceEditForm.restart_condition = restartCondition
       serviceEditForm.update_parallelism = updateConfig.Parallelism ? String(updateConfig.Parallelism) : ''
@@ -3999,12 +4241,18 @@ const submitEditService = async () => {
       env: parseKeyValueText(serviceEditForm.env),
       labels: parseKeyValueText(serviceEditForm.labels),
       networks: parseListText(serviceEditForm.networks),
-      constraints: parseListText(serviceEditForm.constraints),
+      constraints: serviceEditForm.reset_constraints ? parseListText(serviceEditForm.constraints) : [],
+      placement_prefs: serviceEditForm.reset_placement_prefs ? parseListText(serviceEditForm.placement_prefs) : [],
+      mounts: serviceEditForm.reset_mounts ? parseListText(serviceEditForm.mounts) : [],
+      command: serviceEditForm.reset_command ? parseCommandText(serviceEditForm.command) : [],
       reset_env: serviceEditForm.reset_env,
       reset_labels: serviceEditForm.reset_labels,
       reset_ports: serviceEditForm.reset_ports,
       reset_networks: serviceEditForm.reset_networks,
       reset_constraints: serviceEditForm.reset_constraints,
+      reset_placement_prefs: serviceEditForm.reset_placement_prefs,
+      reset_mounts: serviceEditForm.reset_mounts,
+      reset_command: serviceEditForm.reset_command,
       restart_condition: serviceEditForm.restart_condition,
       update_parallelism: serviceEditForm.update_parallelism ? Number(serviceEditForm.update_parallelism) : undefined,
       update_delay: serviceEditForm.update_delay,
