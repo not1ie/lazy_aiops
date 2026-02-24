@@ -1960,7 +1960,6 @@ func (h *DockerHandler) CreateService(c *gin.Context) {
 		LimitMemory           string            `json:"limit_memory"`
 		ReserveCPU            string            `json:"reserve_cpu"`
 		ReserveMemory         string            `json:"reserve_memory"`
-		MaxReplicasPerNode    *int              `json:"max_replicas_per_node"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
