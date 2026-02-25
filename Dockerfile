@@ -1,5 +1,10 @@
+# 可通过 --build-arg 覆盖镜像源（例如私有镜像仓库）
+ARG NODE_IMAGE=node:20-bookworm
+ARG GO_IMAGE=golang:1.21-bookworm
+ARG RUNTIME_IMAGE=debian:bookworm-slim
+
 # === Stage 1: Build Frontend (Vue3) ===
-FROM node:18 AS frontend-builder
+FROM ${NODE_IMAGE} AS frontend-builder
 WORKDIR /app
 # 换源加速
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
@@ -10,7 +15,7 @@ COPY frontend/ .
 RUN npm run build
 
 # === Stage 2: Build Backend (Go) ===
-FROM golang:1.21-bookworm AS builder
+FROM ${GO_IMAGE} AS builder
 
 # 接收构建参数
 ARG GOPROXY=https://goproxy.cn,direct
@@ -37,7 +42,7 @@ COPY . .
 RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o app_server ./cmd/server && ls -l app_server
 
 # === Stage 3: Runtime Image ===
-FROM debian:bookworm-slim
+FROM ${RUNTIME_IMAGE}
 
 WORKDIR /app
 
