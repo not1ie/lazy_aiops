@@ -60,6 +60,7 @@
             <span>监控告警</span>
           </template>
           <el-menu-item v-if="can('monitor')" index="/monitor/overview">监控概览</el-menu-item>
+          <el-menu-item v-if="can('monitor')" index="/monitor/hosts">主机监控</el-menu-item>
           <el-menu-item v-if="can('monitor')" index="/monitor/metrics">指标采集</el-menu-item>
           <el-menu-item v-if="can('monitor')" index="/monitor/containers">容器监控</el-menu-item>
           <el-menu-item v-if="can('monitor')" index="/monitor/pods">Pod监控</el-menu-item>
