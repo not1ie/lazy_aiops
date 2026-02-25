@@ -150,6 +150,12 @@ const routes = [
 
       // Monitoring / Alert
       {
+        path: 'monitor/hosts',
+        name: 'MonitorHosts',
+        component: () => import('@/views/monitor/hosts.vue'),
+        meta: { title: '主机监控', icon: 'Monitor' }
+      },
+      {
         path: 'monitor/overview',
         name: 'MonitorOverview',
         component: () => import('@/views/monitor/overview.vue'),

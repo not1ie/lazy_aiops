@@ -19,6 +19,9 @@
     </el-alert>
 
     <div class="filter-bar">
+      <el-select v-model="instanceFilter" placeholder="选择主机" class="w-52" clearable>
+        <el-option v-for="inst in instances" :key="inst" :label="inst" :value="inst" />
+      </el-select>
       <el-input v-model="keyword" placeholder="搜索容器/镜像/节点" class="w-52" clearable />
       <el-select v-model="topN" class="w-40">
         <el-option label="Top 20" :value="20" />
@@ -79,6 +82,8 @@ const loading = ref(false)
 const keyword = ref('')
 const topN = ref(50)
 const lastRefresh = ref('')
+const instanceFilter = ref('')
+const instances = ref([])
 const rangeHours = ref(1)
 const rangeOptions = [
   { label: '1h', value: 1 },
@@ -98,15 +103,17 @@ const rangeLabel = computed(() => {
   return found ? found.label : `${rangeHours.value}h`
 })
 
+const instanceClause = () => instanceFilter.value ? `,instance="${instanceFilter.value}"` : ''
+
 const cpuQuery = (n) => `topk(${n},
   sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
-    rate(container_cpu_usage_seconds_total{image!=""}[5m])
+    rate(container_cpu_usage_seconds_total{image!=""${instanceClause()}}[5m])
   )
 )`
 
 const memQuery = (n) => `topk(${n},
   sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
-    container_memory_working_set_bytes{image!=""}
+    container_memory_working_set_bytes{image!=""${instanceClause()}}
   )
 )`
 
@@ -153,6 +160,18 @@ const pickImage = (m) => (
 const pickInstance = (m) => (
   m.instance || '-'
 )
+
+const fetchInstances = async () => {
+  try {
+    const res = await fetchProm('count by(instance) (container_cpu_usage_seconds_total{image!=""})')
+    instances.value = Array.from(new Set(res.map(item => item.metric?.instance).filter(Boolean)))
+    if (!instanceFilter.value && instances.value.length) {
+      instanceFilter.value = instances.value[0]
+    }
+  } catch (err) {
+    ElMessage.error('获取容器主机列表失败')
+  }
+}
 
 const fetchMetrics = async () => {
   loading.value = true
@@ -267,11 +286,17 @@ const fetchCharts = async () => {
 
 const filteredRows = computed(() => {
   const key = keyword.value.trim().toLowerCase()
-  if (!key) return rows.value
+  const inst = instanceFilter.value
+  if (!key) {
+    return inst ? rows.value.filter(r => r.instance === inst) : rows.value
+  }
   return rows.value.filter(r =>
-    (r.container || '').toLowerCase().includes(key) ||
-    (r.image || '').toLowerCase().includes(key) ||
-    (r.instance || '').toLowerCase().includes(key)
+    (!inst || r.instance === inst) &&
+    (
+      (r.container || '').toLowerCase().includes(key) ||
+      (r.image || '').toLowerCase().includes(key) ||
+      (r.instance || '').toLowerCase().includes(key)
+    )
   )
 })
 
@@ -283,8 +308,13 @@ const stats = computed(() => {
 })
 
 watch(rangeHours, fetchCharts)
+watch(instanceFilter, () => {
+  fetchMetrics()
+  fetchCharts()
+})
 
 onMounted(() => {
+  fetchInstances()
   fetchMetrics()
   fetchCharts()
 })
