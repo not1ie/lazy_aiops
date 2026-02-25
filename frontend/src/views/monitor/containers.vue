@@ -33,6 +33,31 @@
       <el-col :span="6"><el-card><div class="card-title">内存 Top(MiB)</div><div class="card-value">{{ stats.maxMem }}</div></el-card></el-col>
     </el-row>
 
+    <el-card class="panel-card" v-loading="chartLoading">
+      <div class="panel-header">
+        <div>
+          <h3>趋势看板</h3>
+          <p class="panel-desc">Top 容器 CPU/内存趋势（近 {{ rangeLabel }}）。</p>
+        </div>
+        <div class="panel-actions">
+          <el-radio-group v-model="rangeHours" size="small">
+            <el-radio-button v-for="opt in rangeOptions" :key="opt.value" :label="opt.value">
+              {{ opt.label }}
+            </el-radio-button>
+          </el-radio-group>
+          <el-button size="small" @click="fetchCharts">刷新趋势</el-button>
+        </div>
+      </div>
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <div ref="cpuChartRef" class="chart-box"></div>
+        </el-col>
+        <el-col :span="12">
+          <div ref="memChartRef" class="chart-box"></div>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
       <el-table-column prop="container" label="容器" min-width="220" />
       <el-table-column prop="image" label="镜像" min-width="200" />
@@ -44,16 +69,34 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import * as echarts from 'echarts'
 
 const rows = ref([])
 const loading = ref(false)
 const keyword = ref('')
 const topN = ref(50)
 const lastRefresh = ref('')
+const rangeHours = ref(1)
+const rangeOptions = [
+  { label: '1h', value: 1 },
+  { label: '6h', value: 6 },
+  { label: '24h', value: 24 },
+  { label: '7d', value: 168 }
+]
+const chartLoading = ref(false)
+const cpuChartRef = ref(null)
+const memChartRef = ref(null)
+let cpuChart = null
+let memChart = null
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const rangeLabel = computed(() => {
+  const found = rangeOptions.find(opt => opt.value === rangeHours.value)
+  return found ? found.label : `${rangeHours.value}h`
+})
 
 const cpuQuery = (n) => `topk(${n},
   sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
@@ -78,29 +121,50 @@ const fetchProm = async (query) => {
   return res.data?.data?.result || []
 }
 
+const fetchPromRange = async (query, start, end, step) => {
+  const res = await axios.get('/api/v1/monitor/prometheus/query_range', {
+    headers: authHeaders(),
+    params: {
+      query: query.replace(/\s+/g, ' ').trim(),
+      start,
+      end,
+      step
+    }
+  })
+  if (res.data?.status && res.data.status !== 'success') {
+    throw new Error(res.data?.error || 'Prometheus 查询失败')
+  }
+  return res.data?.data?.result || []
+}
+
+const pickContainer = (m) => (
+  m.container ||
+  m.name ||
+  m.container_label_com_docker_swarm_service_name ||
+  m.container_label_com_docker_swarm_task_name ||
+  m.container_label_com_docker_container_name ||
+  '-'
+)
+
+const pickImage = (m) => (
+  m.image || '-'
+)
+
+const pickInstance = (m) => (
+  m.instance || '-'
+)
+
 const fetchMetrics = async () => {
   loading.value = true
   try {
     const [cpuRes, memRes] = await Promise.all([fetchProm(cpuQuery(topN.value)), fetchProm(memQuery(topN.value))])
     const map = {}
-    const pickContainer = (m) => (
-      m.container ||
-      m.name ||
-      m.container_label_com_docker_swarm_service_name ||
-      m.container_label_com_docker_swarm_task_name ||
-      m.container_label_com_docker_container_name ||
-      '-'
-    )
-
-    const pickImage = (m) => (
-      m.image || '-'
-    )
 
     cpuRes.forEach((item) => {
       const m = item.metric || {}
       const container = pickContainer(m)
       const image = pickImage(m)
-      const instance = m.instance || '-'
+      const instance = pickInstance(m)
       const key = `${container}|${instance}|${image}`
       map[key] = map[key] || {
         container,
@@ -115,7 +179,7 @@ const fetchMetrics = async () => {
       const m = item.metric || {}
       const container = pickContainer(m)
       const image = pickImage(m)
-      const instance = m.instance || '-'
+      const instance = pickInstance(m)
       const key = `${container}|${instance}|${image}`
       map[key] = map[key] || {
         container,
@@ -138,6 +202,69 @@ const fetchMetrics = async () => {
   }
 }
 
+const buildSeries = (result, transform) => {
+  return result.map((item) => {
+    const m = item.metric || {}
+    const name = pickContainer(m)
+    const values = (item.values || []).map(v => transform(Number(v[1])))
+    return { name, type: 'line', showSymbol: false, data: values }
+  })
+}
+
+const ensureCharts = () => {
+  if (cpuChartRef.value && !cpuChart) {
+    cpuChart = echarts.init(cpuChartRef.value)
+  }
+  if (memChartRef.value && !memChart) {
+    memChart = echarts.init(memChartRef.value)
+  }
+}
+
+const renderChart = (chart, title, labels, series, unit) => {
+  if (!chart) return
+  chart.setOption({
+    title: { text: title, left: 'left', textStyle: { fontSize: 12 } },
+    tooltip: { trigger: 'axis', valueFormatter: (val) => `${Number(val).toFixed(2)} ${unit}` },
+    legend: { top: 24, type: 'scroll' },
+    grid: { left: 50, right: 20, top: 60, bottom: 30 },
+    xAxis: { type: 'category', data: labels, axisLabel: { showMaxLabel: true } },
+    yAxis: { type: 'value', axisLabel: { formatter: (v) => `${v}` } },
+    series
+  })
+}
+
+const calcStep = (hours) => {
+  if (hours <= 1) return 30
+  if (hours <= 6) return 60
+  if (hours <= 24) return 120
+  return 300
+}
+
+const fetchCharts = async () => {
+  chartLoading.value = true
+  try {
+    ensureCharts()
+    const end = Math.floor(Date.now() / 1000)
+    const start = end - (rangeHours.value * 3600)
+    const step = calcStep(rangeHours.value)
+    const [cpuSeries, memSeries] = await Promise.all([
+      fetchPromRange(cpuQuery(5), start, end, step),
+      fetchPromRange(memQuery(5), start, end, step)
+    ])
+    const labels = (cpuSeries[0]?.values || memSeries[0]?.values || []).map(v =>
+      new Date(Number(v[0]) * 1000).toLocaleTimeString()
+    )
+    const cpuLines = buildSeries(cpuSeries, (v) => v)
+    const memLines = buildSeries(memSeries, (v) => v / 1024 / 1024)
+    renderChart(cpuChart, 'CPU Top 5 (核)', labels, cpuLines, '核')
+    renderChart(memChart, '内存 Top 5 (MiB)', labels, memLines, 'MiB')
+  } catch (err) {
+    ElMessage.error('趋势图加载失败')
+  } finally {
+    chartLoading.value = false
+  }
+}
+
 const filteredRows = computed(() => {
   const key = keyword.value.trim().toLowerCase()
   if (!key) return rows.value
@@ -155,7 +282,19 @@ const stats = computed(() => {
   return { total, maxCpu, maxMem }
 })
 
-onMounted(fetchMetrics)
+watch(rangeHours, fetchCharts)
+
+onMounted(() => {
+  fetchMetrics()
+  fetchCharts()
+})
+
+onBeforeUnmount(() => {
+  if (cpuChart) cpuChart.dispose()
+  if (memChart) memChart.dispose()
+  cpuChart = null
+  memChart = null
+})
 </script>
 
 <style scoped>
@@ -165,6 +304,11 @@ onMounted(fetchMetrics)
 .page-actions { display: flex; gap: 8px; }
 .filter-bar { display: flex; gap: 8px; margin-top: 12px; }
 .summary-row { margin-top: 12px; }
+.panel-card { margin-top: 16px; }
+.panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+.panel-desc { color: #909399; font-size: 12px; margin: 4px 0 0; }
+.panel-actions { display: flex; align-items: center; gap: 8px; }
+.chart-box { width: 100%; height: 280px; }
 .meta-row { display: flex; align-items: center; margin-top: 8px; color: #606266; font-size: 12px; }
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
