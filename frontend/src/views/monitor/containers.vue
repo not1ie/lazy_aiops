@@ -36,6 +36,26 @@
       <el-col :span="6"><el-card><div class="card-title">内存 Top(MiB)</div><div class="card-value">{{ stats.maxMem }}</div></el-card></el-col>
     </el-row>
 
+    <el-card class="panel-card">
+      <div class="panel-header">
+        <div>
+          <h3>Top 排行</h3>
+          <p class="panel-desc">当前 Top 容器 CPU / 内存排行。</p>
+        </div>
+        <div class="panel-actions">
+          <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
+        </div>
+      </div>
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <div ref="topCpuChartRef" class="chart-box"></div>
+        </el-col>
+        <el-col :span="12">
+          <div ref="topMemChartRef" class="chart-box"></div>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <el-card class="panel-card" v-loading="chartLoading">
       <div class="panel-header">
         <div>
@@ -94,8 +114,12 @@ const rangeOptions = [
 const chartLoading = ref(false)
 const cpuChartRef = ref(null)
 const memChartRef = ref(null)
+const topCpuChartRef = ref(null)
+const topMemChartRef = ref(null)
 let cpuChart = null
 let memChart = null
+let topCpuChart = null
+let topMemChart = null
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const rangeLabel = computed(() => {
@@ -231,12 +255,10 @@ const buildSeries = (result, transform) => {
 }
 
 const ensureCharts = () => {
-  if (cpuChartRef.value && !cpuChart) {
-    cpuChart = echarts.init(cpuChartRef.value)
-  }
-  if (memChartRef.value && !memChart) {
-    memChart = echarts.init(memChartRef.value)
-  }
+  if (cpuChartRef.value && !cpuChart) cpuChart = echarts.init(cpuChartRef.value)
+  if (memChartRef.value && !memChart) memChart = echarts.init(memChartRef.value)
+  if (topCpuChartRef.value && !topCpuChart) topCpuChart = echarts.init(topCpuChartRef.value)
+  if (topMemChartRef.value && !topMemChart) topMemChart = echarts.init(topMemChartRef.value)
 }
 
 const renderChart = (chart, title, labels, series, unit) => {
@@ -250,6 +272,33 @@ const renderChart = (chart, title, labels, series, unit) => {
     yAxis: { type: 'value', axisLabel: { formatter: (v) => `${v}` } },
     series
   })
+}
+
+const renderBarChart = (chart, title, items, valueKey, unit) => {
+  if (!chart) return
+  const labels = items.map(item => item.container)
+  const data = items.map(item => Number(item[valueKey] || 0))
+  chart.setOption({
+    title: { text: title, left: 'left', textStyle: { fontSize: 12 } },
+    tooltip: { trigger: 'axis', valueFormatter: (val) => `${Number(val).toFixed(2)} ${unit}` },
+    grid: { left: 120, right: 20, top: 40, bottom: 20 },
+    xAxis: { type: 'value' },
+    yAxis: { type: 'category', data: labels, axisLabel: { width: 180, overflow: 'truncate' } },
+    series: [{ type: 'bar', data }]
+  })
+}
+
+const renderTopCharts = () => {
+  ensureCharts()
+  if (!topCpuChart || !topMemChart) return
+  const topCpu = [...filteredRows.value]
+    .sort((a, b) => Number(b.cpu || 0) - Number(a.cpu || 0))
+    .slice(0, 10)
+  const topMem = [...filteredRows.value]
+    .sort((a, b) => Number(b.memory || 0) - Number(a.memory || 0))
+    .slice(0, 10)
+  renderBarChart(topCpuChart, 'CPU Top 10 (核)', topCpu, 'cpu', '核')
+  renderBarChart(topMemChart, '内存 Top 10 (MiB)', topMem, 'memory', 'MiB')
 }
 
 const calcStep = (hours) => {
@@ -312,18 +361,26 @@ watch(instanceFilter, () => {
   fetchMetrics()
   fetchCharts()
 })
+watch(filteredRows, () => {
+  renderTopCharts()
+})
 
 onMounted(() => {
   fetchInstances()
   fetchMetrics()
   fetchCharts()
+  renderTopCharts()
 })
 
 onBeforeUnmount(() => {
   if (cpuChart) cpuChart.dispose()
   if (memChart) memChart.dispose()
+  if (topCpuChart) topCpuChart.dispose()
+  if (topMemChart) topMemChart.dispose()
   cpuChart = null
   memChart = null
+  topCpuChart = null
+  topMemChart = null
 })
 </script>
 
@@ -338,7 +395,7 @@ onBeforeUnmount(() => {
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
 .panel-desc { color: #909399; font-size: 12px; margin: 4px 0 0; }
 .panel-actions { display: flex; align-items: center; gap: 8px; }
-.chart-box { width: 100%; height: 280px; }
+.chart-box { width: 100%; height: 260px; }
 .meta-row { display: flex; align-items: center; margin-top: 8px; color: #606266; font-size: 12px; }
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }

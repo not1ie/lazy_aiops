@@ -24,10 +24,41 @@
 
     <el-row :gutter="16" class="summary-row">
       <el-col :span="6"><el-card><div class="card-title">主机数</div><div class="card-value">{{ summary.total }}</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="card-title">CPU 平均</div><div class="card-value">{{ summary.avgCpu }}%</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="card-title">内存 平均</div><div class="card-value">{{ summary.avgMem }}%</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="card-title">磁盘 平均</div><div class="card-value">{{ summary.avgDisk }}%</div></el-card></el-col>
+      <el-col :span="6">
+        <el-card>
+          <div class="card-title">CPU 平均</div>
+          <el-progress type="dashboard" :percentage="Number(summary.avgCpu)" :color="progressColor(Number(summary.avgCpu))" />
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card>
+          <div class="card-title">内存 平均</div>
+          <el-progress type="dashboard" :percentage="Number(summary.avgMem)" :color="progressColor(Number(summary.avgMem))" />
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card>
+          <div class="card-title">磁盘 平均</div>
+          <el-progress type="dashboard" :percentage="Number(summary.avgDisk)" :color="progressColor(Number(summary.avgDisk))" />
+        </el-card>
+      </el-col>
     </el-row>
+
+    <el-card class="panel-card">
+      <div class="panel-header">
+        <div>
+          <h3>主机排行</h3>
+          <p class="panel-desc">当前 CPU / 内存 Top 主机。</p>
+        </div>
+        <div class="panel-actions">
+          <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
+        </div>
+      </div>
+      <el-row :gutter="16">
+        <el-col :span="12"><div ref="topCpuChartRef" class="chart-box"></div></el-col>
+        <el-col :span="12"><div ref="topMemChartRef" class="chart-box"></div></el-col>
+      </el-row>
+    </el-card>
 
     <el-card class="panel-card" v-loading="chartLoading">
       <div class="panel-header">
@@ -49,7 +80,7 @@
       </el-row>
     </el-card>
 
-    <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
+    <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px" @row-click="selectInstance">
       <el-table-column prop="instance" label="主机" min-width="200" />
       <el-table-column prop="cpu" label="CPU(%)" width="120" sortable />
       <el-table-column prop="memory" label="内存(%)" width="120" sortable />
@@ -86,10 +117,14 @@ const cpuChartRef = ref(null)
 const memChartRef = ref(null)
 const diskChartRef = ref(null)
 const netChartRef = ref(null)
+const topCpuChartRef = ref(null)
+const topMemChartRef = ref(null)
 let cpuChart = null
 let memChart = null
 let diskChart = null
 let netChart = null
+let topCpuChart = null
+let topMemChart = null
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -154,6 +189,8 @@ const ensureCharts = () => {
   if (memChartRef.value && !memChart) memChart = echarts.init(memChartRef.value)
   if (diskChartRef.value && !diskChart) diskChart = echarts.init(diskChartRef.value)
   if (netChartRef.value && !netChart) netChart = echarts.init(netChartRef.value)
+  if (topCpuChartRef.value && !topCpuChart) topCpuChart = echarts.init(topCpuChartRef.value)
+  if (topMemChartRef.value && !topMemChart) topMemChart = echarts.init(topMemChartRef.value)
 }
 
 const renderChart = (chart, title, labels, series, unit) => {
@@ -167,6 +204,29 @@ const renderChart = (chart, title, labels, series, unit) => {
     yAxis: { type: 'value' },
     series
   })
+}
+
+const renderBarChart = (chart, title, items, valueKey, unit) => {
+  if (!chart) return
+  const labels = items.map(item => item.instance)
+  const data = items.map(item => Number(item[valueKey] || 0))
+  chart.setOption({
+    title: { text: title, left: 'left', textStyle: { fontSize: 12 } },
+    tooltip: { trigger: 'axis', valueFormatter: (val) => `${Number(val).toFixed(2)} ${unit}` },
+    grid: { left: 120, right: 20, top: 40, bottom: 20 },
+    xAxis: { type: 'value' },
+    yAxis: { type: 'category', data: labels, axisLabel: { width: 180, overflow: 'truncate' } },
+    series: [{ type: 'bar', data }]
+  })
+}
+
+const renderTopCharts = () => {
+  ensureCharts()
+  if (!topCpuChart || !topMemChart) return
+  const topCpu = [...filteredRows.value].sort((a, b) => Number(b.cpu || 0) - Number(a.cpu || 0)).slice(0, 10)
+  const topMem = [...filteredRows.value].sort((a, b) => Number(b.memory || 0) - Number(a.memory || 0)).slice(0, 10)
+  renderBarChart(topCpuChart, 'CPU Top 10 (%)', topCpu, 'cpu', '%')
+  renderBarChart(topMemChart, '内存 Top 10 (%)', topMem, 'memory', '%')
 }
 
 const calcStep = (hours) => {
@@ -221,6 +281,7 @@ const fetchTable = async () => {
       return hours > 24 ? `${(hours / 24).toFixed(1)}d` : `${hours.toFixed(1)}h`
     })
     rows.value = Object.values(map)
+    renderTopCharts()
   } catch (err) {
     ElMessage.error('主机指标获取失败')
   } finally {
@@ -267,6 +328,16 @@ const refreshAll = async () => {
   await fetchCharts()
 }
 
+const selectInstance = (row) => {
+  if (row?.instance) instanceFilter.value = row.instance
+}
+
+const progressColor = (val) => {
+  if (val >= 80) return '#F56C6C'
+  if (val >= 60) return '#E6A23C'
+  return '#67C23A'
+}
+
 const filteredRows = computed(() => {
   const key = keyword.value.trim().toLowerCase()
   return rows.value.filter(r => {
@@ -293,6 +364,7 @@ const summary = computed(() => {
 
 watch(rangeHours, fetchCharts)
 watch(instanceFilter, fetchCharts)
+watch(filteredRows, renderTopCharts)
 
 onMounted(refreshAll)
 
@@ -301,10 +373,14 @@ onBeforeUnmount(() => {
   if (memChart) memChart.dispose()
   if (diskChart) diskChart.dispose()
   if (netChart) netChart.dispose()
+  if (topCpuChart) topCpuChart.dispose()
+  if (topMemChart) topMemChart.dispose()
   cpuChart = null
   memChart = null
   diskChart = null
   netChart = null
+  topCpuChart = null
+  topMemChart = null
 })
 </script>
 
