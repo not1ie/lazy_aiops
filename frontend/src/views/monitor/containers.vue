@@ -56,62 +56,14 @@ const lastRefresh = ref('')
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const cpuQuery = (n) => `topk(${n},
-  sum by (container, instance, image) (
-    rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m])
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(rate(container_cpu_usage_seconds_total{name!=""}[5m]),
-      "container", "$1", "name", "(.*)"
-    )
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(rate(container_cpu_usage_seconds_total{container_label_com_docker_container_name!=""}[5m]),
-      "container", "$1", "container_label_com_docker_container_name", "(.*)"
-    )
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name!=""}[5m]),
-      "container", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
-    )
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_task_name!=""}[5m]),
-      "container", "$1", "container_label_com_docker_swarm_task_name", "(.*)"
-    )
+  sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
+    rate(container_cpu_usage_seconds_total{image!=""}[5m])
   )
 )`
 
 const memQuery = (n) => `topk(${n},
-  sum by (container, instance, image) (
-    container_memory_working_set_bytes{container!="",container!="POD"}
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(container_memory_working_set_bytes{name!=""}
-      , "container", "$1", "name", "(.*)"
-    )
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(container_memory_working_set_bytes{container_label_com_docker_container_name!=""}
-      , "container", "$1", "container_label_com_docker_container_name", "(.*)"
-    )
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(container_memory_working_set_bytes{container_label_com_docker_swarm_service_name!=""}
-      , "container", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
-    )
-  )
-  or
-  sum by (container, instance, image) (
-    label_replace(container_memory_working_set_bytes{container_label_com_docker_swarm_task_name!=""}
-      , "container", "$1", "container_label_com_docker_swarm_task_name", "(.*)"
-    )
+  sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
+    container_memory_working_set_bytes{image!=""}
   )
 )`
 
@@ -131,13 +83,29 @@ const fetchMetrics = async () => {
   try {
     const [cpuRes, memRes] = await Promise.all([fetchProm(cpuQuery(topN.value)), fetchProm(memQuery(topN.value))])
     const map = {}
+    const pickContainer = (m) => (
+      m.container ||
+      m.name ||
+      m.container_label_com_docker_swarm_service_name ||
+      m.container_label_com_docker_swarm_task_name ||
+      m.container_label_com_docker_container_name ||
+      '-'
+    )
+
+    const pickImage = (m) => (
+      m.image || '-'
+    )
+
     cpuRes.forEach((item) => {
       const m = item.metric || {}
-      const key = `${m.container || ''}|${m.instance || ''}|${m.image || ''}`
+      const container = pickContainer(m)
+      const image = pickImage(m)
+      const instance = m.instance || '-'
+      const key = `${container}|${instance}|${image}`
       map[key] = map[key] || {
-        container: m.container || '-',
-        image: m.image || '-',
-        instance: m.instance || '-',
+        container,
+        image,
+        instance,
         cpu: 0,
         memory: 0
       }
@@ -145,11 +113,14 @@ const fetchMetrics = async () => {
     })
     memRes.forEach((item) => {
       const m = item.metric || {}
-      const key = `${m.container || ''}|${m.instance || ''}|${m.image || ''}`
+      const container = pickContainer(m)
+      const image = pickImage(m)
+      const instance = m.instance || '-'
+      const key = `${container}|${instance}|${image}`
       map[key] = map[key] || {
-        container: m.container || '-',
-        image: m.image || '-',
-        instance: m.instance || '-',
+        container,
+        image,
+        instance,
         cpu: 0,
         memory: 0
       }

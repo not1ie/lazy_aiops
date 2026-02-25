@@ -60,56 +60,14 @@ const lastRefresh = ref('')
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const cpuQuery = (n) => `topk(${n},
-  sum by (pod, namespace, instance) (
-    rate(container_cpu_usage_seconds_total{pod!="",container!="POD"}[5m])
-  )
-  or
-  sum by (pod, namespace, instance) (
-    label_replace(rate(container_cpu_usage_seconds_total{name!=""}[5m]),
-      "pod", "$1", "name", "(.*)"
-    )
-  )
-  or
-  sum by (pod, namespace, instance) (
-    label_replace(rate(container_cpu_usage_seconds_total{container_label_com_docker_container_name!=""}[5m]),
-      "pod", "$1", "container_label_com_docker_container_name", "(.*)"
-    )
-  )
-  or
-  sum by (pod, namespace, instance) (
-    label_replace(
-      label_replace(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name!=""}[5m]),
-        "pod", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
-      ),
-      "namespace", "$1", "container_label_com_docker_stack_namespace", "(.*)"
-    )
+  sum by (pod, namespace, instance, name, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_stack_namespace) (
+    rate(container_cpu_usage_seconds_total{image!=""}[5m])
   )
 )`
 
 const memQuery = (n) => `topk(${n},
-  sum by (pod, namespace, instance) (
-    container_memory_working_set_bytes{pod!="",container!="POD"}
-  )
-  or
-  sum by (pod, namespace, instance) (
-    label_replace(container_memory_working_set_bytes{name!=""}
-      , "pod", "$1", "name", "(.*)"
-    )
-  )
-  or
-  sum by (pod, namespace, instance) (
-    label_replace(container_memory_working_set_bytes{container_label_com_docker_container_name!=""}
-      , "pod", "$1", "container_label_com_docker_container_name", "(.*)"
-    )
-  )
-  or
-  sum by (pod, namespace, instance) (
-    label_replace(
-      label_replace(container_memory_working_set_bytes{container_label_com_docker_swarm_service_name!=""}
-        , "pod", "$1", "container_label_com_docker_swarm_service_name", "(.*)"
-      ),
-      "namespace", "$1", "container_label_com_docker_stack_namespace", "(.*)"
-    )
+  sum by (pod, namespace, instance, name, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_stack_namespace) (
+    container_memory_working_set_bytes{image!=""}
   )
 )`
 
@@ -129,13 +87,23 @@ const fetchMetrics = async () => {
   try {
     const [cpuRes, memRes] = await Promise.all([fetchProm(cpuQuery(topN.value)), fetchProm(memQuery(topN.value))])
     const map = {}
+    const pickNamespace = (m) => (
+      m.namespace || m.container_label_com_docker_stack_namespace || '-'
+    )
+    const pickPod = (m) => (
+      m.pod || m.container || m.name || m.container_label_com_docker_swarm_service_name || m.container_label_com_docker_container_name || '-'
+    )
+
     cpuRes.forEach((item) => {
       const m = item.metric || {}
-      const key = `${m.namespace || ''}|${m.pod || ''}|${m.instance || ''}`
+      const namespace = pickNamespace(m)
+      const pod = pickPod(m)
+      const instance = m.instance || '-'
+      const key = `${namespace}|${pod}|${instance}`
       map[key] = map[key] || {
-        namespace: m.namespace || '-',
-        pod: m.pod || '-',
-        instance: m.instance || '-',
+        namespace,
+        pod,
+        instance,
         cpu: 0,
         memory: 0
       }
@@ -143,11 +111,14 @@ const fetchMetrics = async () => {
     })
     memRes.forEach((item) => {
       const m = item.metric || {}
-      const key = `${m.namespace || ''}|${m.pod || ''}|${m.instance || ''}`
+      const namespace = pickNamespace(m)
+      const pod = pickPod(m)
+      const instance = m.instance || '-'
+      const key = `${namespace}|${pod}|${instance}`
       map[key] = map[key] || {
-        namespace: m.namespace || '-',
-        pod: m.pod || '-',
-        instance: m.instance || '-',
+        namespace,
+        pod,
+        instance,
         cpu: 0,
         memory: 0
       }
