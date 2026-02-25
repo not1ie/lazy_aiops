@@ -11,8 +11,14 @@
     </div>
 
     <div class="filter-bar">
+      <el-select v-model="companyFilter" placeholder="公司" class="w-40" clearable>
+        <el-option v-for="item in companies" :key="item" :label="item" :value="item" />
+      </el-select>
+      <el-select v-model="envFilter" placeholder="环境" class="w-40" clearable>
+        <el-option v-for="item in envs" :key="item" :label="item" :value="item" />
+      </el-select>
       <el-select v-model="instanceFilter" placeholder="选择主机" class="w-52" clearable>
-        <el-option v-for="inst in instances" :key="inst" :label="inst" :value="inst" />
+        <el-option v-for="inst in filteredInstances" :key="inst" :label="inst" :value="inst" />
       </el-select>
       <el-input v-model="keyword" placeholder="搜索主机/IP" class="w-52" clearable />
       <el-radio-group v-model="rangeHours" size="small">
@@ -20,6 +26,32 @@
           {{ opt.label }}
         </el-radio-button>
       </el-radio-group>
+    </div>
+
+    <div class="layout-bar">
+      <div class="layout-title">面板布局</div>
+      <div class="layout-items">
+        <div
+          v-for="(panel, idx) in panels"
+          :key="panel.id"
+          class="layout-item"
+          draggable="true"
+          @dragstart="onDragStart(idx)"
+          @dragover.prevent
+          @drop="onDrop(idx)"
+        >
+          <span class="drag-handle">≡</span>
+          <el-checkbox v-model="panel.visible">{{ panel.title }}</el-checkbox>
+        </div>
+      </div>
+      <div class="layout-actions">
+        <el-input v-model="layoutName" placeholder="模板名称" class="w-40" />
+        <el-button size="small" @click="saveLayout">保存模板</el-button>
+        <el-select v-model="selectedLayout" placeholder="加载模板" class="w-40" clearable @change="applyLayout">
+          <el-option v-for="item in layouts" :key="item.name" :label="item.name" :value="item.name" />
+        </el-select>
+        <el-button size="small" type="danger" plain @click="deleteLayout" :disabled="!selectedLayout">删除模板</el-button>
+      </div>
     </div>
 
     <el-row :gutter="16" class="summary-row">
@@ -44,41 +76,43 @@
       </el-col>
     </el-row>
 
-    <el-card class="panel-card">
-      <div class="panel-header">
-        <div>
-          <h3>主机排行</h3>
-          <p class="panel-desc">当前 CPU / 内存 Top 主机。</p>
+    <template v-for="panel in panels" :key="panel.id">
+      <el-card v-if="panel.id === 'top' && panel.visible" class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h3>主机排行</h3>
+            <p class="panel-desc">当前 CPU / 内存 Top 主机。</p>
+          </div>
+          <div class="panel-actions">
+            <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
+          </div>
         </div>
-        <div class="panel-actions">
-          <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
-        </div>
-      </div>
-      <el-row :gutter="16">
-        <el-col :span="12"><div ref="topCpuChartRef" class="chart-box"></div></el-col>
-        <el-col :span="12"><div ref="topMemChartRef" class="chart-box"></div></el-col>
-      </el-row>
-    </el-card>
+        <el-row :gutter="16">
+          <el-col :span="12"><div ref="topCpuChartRef" class="chart-box"></div></el-col>
+          <el-col :span="12"><div ref="topMemChartRef" class="chart-box"></div></el-col>
+        </el-row>
+      </el-card>
 
-    <el-card class="panel-card" v-loading="chartLoading">
-      <div class="panel-header">
-        <div>
-          <h3>主机趋势</h3>
-          <p class="panel-desc">CPU / 内存 / 磁盘 / 网络（近 {{ rangeLabel }}）。</p>
+      <el-card v-if="panel.id === 'trend' && panel.visible" class="panel-card" v-loading="chartLoading">
+        <div class="panel-header">
+          <div>
+            <h3>主机趋势</h3>
+            <p class="panel-desc">CPU / 内存 / 磁盘 / 网络（近 {{ rangeLabel }}）。</p>
+          </div>
+          <div class="panel-actions">
+            <el-button size="small" @click="fetchCharts">刷新趋势</el-button>
+          </div>
         </div>
-        <div class="panel-actions">
-          <el-button size="small" @click="fetchCharts">刷新趋势</el-button>
-        </div>
-      </div>
-      <el-row :gutter="16">
-        <el-col :span="12"><div ref="cpuChartRef" class="chart-box"></div></el-col>
-        <el-col :span="12"><div ref="memChartRef" class="chart-box"></div></el-col>
-      </el-row>
-      <el-row :gutter="16" class="chart-row">
-        <el-col :span="12"><div ref="diskChartRef" class="chart-box"></div></el-col>
-        <el-col :span="12"><div ref="netChartRef" class="chart-box"></div></el-col>
-      </el-row>
-    </el-card>
+        <el-row :gutter="16">
+          <el-col :span="12"><div ref="cpuChartRef" class="chart-box"></div></el-col>
+          <el-col :span="12"><div ref="memChartRef" class="chart-box"></div></el-col>
+        </el-row>
+        <el-row :gutter="16" class="chart-row">
+          <el-col :span="12"><div ref="diskChartRef" class="chart-box"></div></el-col>
+          <el-col :span="12"><div ref="netChartRef" class="chart-box"></div></el-col>
+        </el-row>
+      </el-card>
+    </template>
 
     <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px" @row-click="selectInstance">
       <el-table-column prop="instance" label="主机" min-width="200" />
@@ -103,6 +137,11 @@ const chartLoading = ref(false)
 const keyword = ref('')
 const instanceFilter = ref('')
 const instances = ref([])
+const instanceMeta = ref([])
+const companies = ref([])
+const envs = ref([])
+const companyFilter = ref('')
+const envFilter = ref('')
 const rows = ref([])
 
 const rangeHours = ref(1)
@@ -125,6 +164,14 @@ let diskChart = null
 let netChart = null
 let topCpuChart = null
 let topMemChart = null
+const panels = ref([
+  { id: 'top', title: '主机排行', visible: true },
+  { id: 'trend', title: '主机趋势', visible: true }
+])
+const dragIndex = ref(null)
+const layoutName = ref('')
+const selectedLayout = ref('')
+const layouts = ref([])
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -166,23 +213,41 @@ const fetchPromRange = async (query, start, end, step) => {
   return res.data?.data?.result || []
 }
 
-const queryCpu = (instance) =>
-  `100 - (avg by(instance) (irate(node_cpu_seconds_total{${buildSelector('mode="idle"', instance)}}[5m])) * 100)`
+const queryCpu = (instance) => instance
+  ? `100 - (avg by(instance) (irate(node_cpu_seconds_total{${buildSelector('mode="idle"', instance)}}[5m])) * 100)`
+  : `avg(100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))`
 
-const queryMem = (instance) =>
-  `100 * (1 - (node_memory_MemAvailable_bytes{${buildSelector('', instance)}} / node_memory_MemTotal_bytes{${buildSelector('', instance)}}))`
+const queryMem = (instance) => instance
+  ? `100 * (1 - (node_memory_MemAvailable_bytes{${buildSelector('', instance)}} / node_memory_MemTotal_bytes{${buildSelector('', instance)}}))`
+  : `avg(100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)))`
 
-const queryDisk = (instance) =>
-  `max by(instance) (100 - (node_filesystem_free_bytes{${buildSelector('fstype!="tmpfs"', instance)}} / node_filesystem_size_bytes{${buildSelector('fstype!="tmpfs"', instance)}}) * 100)`
+const queryDisk = (instance) => instance
+  ? `max by(instance) (100 - (node_filesystem_free_bytes{${buildSelector('fstype!="tmpfs"', instance)}} / node_filesystem_size_bytes{${buildSelector('fstype!="tmpfs"', instance)}}) * 100)`
+  : `avg(100 - (node_filesystem_free_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100)`
 
-const queryNet = (instance) =>
-  `sum by(instance) (rate(node_network_receive_bytes_total{${buildSelector('', instance)}}[5m]) + rate(node_network_transmit_bytes_total{${buildSelector('', instance)}}[5m])) / 1024 / 1024`
+const queryNet = (instance) => instance
+  ? `sum by(instance) (rate(node_network_receive_bytes_total{${buildSelector('', instance)}}[5m]) + rate(node_network_transmit_bytes_total{${buildSelector('', instance)}}[5m])) / 1024 / 1024`
+  : `sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])) / 1024 / 1024`
 
-const queryLoad = (instance) =>
-  `node_load1{${buildSelector('', instance)}}`
+const queryLoad = (instance) => instance
+  ? `node_load1{${buildSelector('', instance)}}`
+  : `avg(node_load1)`
 
-const queryUptime = (instance) =>
-  `node_time_seconds{${buildSelector('', instance)}} - node_boot_time_seconds{${buildSelector('', instance)}}`
+const queryUptime = (instance) => instance
+  ? `node_time_seconds{${buildSelector('', instance)}} - node_boot_time_seconds{${buildSelector('', instance)}}`
+  : `avg(node_time_seconds - node_boot_time_seconds)`
+
+const filteredInstances = computed(() => {
+  if (!companyFilter.value && !envFilter.value) return instances.value
+  const metaMap = new Map(instanceMeta.value.map(item => [item.instance, item]))
+  return instances.value.filter(inst => {
+    const meta = metaMap.get(inst)
+    if (!meta) return false
+    if (companyFilter.value && meta.com !== companyFilter.value) return false
+    if (envFilter.value && meta.env !== envFilter.value) return false
+    return true
+  })
+})
 
 const ensureCharts = () => {
   if (cpuChartRef.value && !cpuChart) cpuChart = echarts.init(cpuChartRef.value)
@@ -229,6 +294,80 @@ const renderTopCharts = () => {
   renderBarChart(topMemChart, '内存 Top 10 (%)', topMem, 'memory', '%')
 }
 
+const onDragStart = (idx) => {
+  dragIndex.value = idx
+}
+
+const onDrop = (idx) => {
+  if (dragIndex.value === null || dragIndex.value === idx) return
+  const next = [...panels.value]
+  const [moved] = next.splice(dragIndex.value, 1)
+  next.splice(idx, 0, moved)
+  panels.value = next
+  dragIndex.value = null
+  persistLayouts()
+}
+
+const layoutStorageKey = 'lazy_aiops_monitor_hosts_layouts'
+
+const persistLayouts = () => {
+  localStorage.setItem(layoutStorageKey, JSON.stringify(layouts.value))
+}
+
+const loadLayouts = () => {
+  try {
+    const raw = localStorage.getItem(layoutStorageKey)
+    layouts.value = raw ? JSON.parse(raw) : []
+  } catch (e) {
+    layouts.value = []
+  }
+}
+
+const saveLayout = () => {
+  const name = layoutName.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入模板名称')
+    return
+  }
+  const payload = {
+    name,
+    panels: panels.value,
+    filters: {
+      company: companyFilter.value,
+      env: envFilter.value,
+      instance: instanceFilter.value,
+      rangeHours: rangeHours.value
+    }
+  }
+  const next = layouts.value.filter(item => item.name !== name)
+  next.push(payload)
+  layouts.value = next
+  persistLayouts()
+  selectedLayout.value = name
+  ElMessage.success('模板已保存')
+}
+
+const applyLayout = () => {
+  const selected = layouts.value.find(item => item.name === selectedLayout.value)
+  if (!selected) return
+  panels.value = selected.panels || panels.value
+  const filters = selected.filters || {}
+  companyFilter.value = filters.company || ''
+  envFilter.value = filters.env || ''
+  instanceFilter.value = filters.instance || ''
+  rangeHours.value = filters.rangeHours || 1
+  fetchTable()
+  fetchCharts()
+}
+
+const deleteLayout = () => {
+  if (!selectedLayout.value) return
+  layouts.value = layouts.value.filter(item => item.name !== selectedLayout.value)
+  persistLayouts()
+  selectedLayout.value = ''
+  ElMessage.success('模板已删除')
+}
+
 const calcStep = (hours) => {
   if (hours <= 1) return 30
   if (hours <= 6) return 60
@@ -238,11 +377,27 @@ const calcStep = (hours) => {
 
 const fetchInstances = async () => {
   try {
-    let res = await fetchProm('node_uname_info')
+    let res = await fetchProm('up{job=~"node.*"}')
     if (!res.length) {
       res = await fetchProm('up{job=~"node.*"}')
     }
-    instances.value = Array.from(new Set(res.map(item => item.metric?.instance).filter(Boolean)))
+    const instSet = new Set()
+    const comSet = new Set()
+    const envSet = new Set()
+    const metaMap = new Map()
+    res.forEach(item => {
+      const m = item.metric || {}
+      if (m.instance) {
+        instSet.add(m.instance)
+        metaMap.set(m.instance, { instance: m.instance, com: m.com || '', env: m.env || '' })
+      }
+      if (m.com) comSet.add(m.com)
+      if (m.env) envSet.add(m.env)
+    })
+    instances.value = Array.from(instSet)
+    companies.value = Array.from(comSet)
+    envs.value = Array.from(envSet)
+    instanceMeta.value = Array.from(metaMap.values())
     if (!instanceFilter.value && instances.value.length) {
       instanceFilter.value = instances.value[0]
     }
@@ -340,8 +495,14 @@ const progressColor = (val) => {
 
 const filteredRows = computed(() => {
   const key = keyword.value.trim().toLowerCase()
+  const metaMap = new Map(instanceMeta.value.map(item => [item.instance, item]))
   return rows.value.filter(r => {
     if (instanceFilter.value && r.instance !== instanceFilter.value) return false
+    if (companyFilter.value || envFilter.value) {
+      const meta = metaMap.get(r.instance)
+      if (companyFilter.value && meta?.com !== companyFilter.value) return false
+      if (envFilter.value && meta?.env !== envFilter.value) return false
+    }
     if (!key) return true
     return (r.instance || '').toLowerCase().includes(key)
   })
@@ -365,8 +526,18 @@ const summary = computed(() => {
 watch(rangeHours, fetchCharts)
 watch(instanceFilter, fetchCharts)
 watch(filteredRows, renderTopCharts)
+watch([companyFilter, envFilter], () => {
+  if (instanceFilter.value && !filteredInstances.value.includes(instanceFilter.value)) {
+    instanceFilter.value = filteredInstances.value[0] || ''
+  }
+  fetchTable()
+  fetchCharts()
+})
 
-onMounted(refreshAll)
+onMounted(() => {
+  loadLayouts()
+  refreshAll()
+})
 
 onBeforeUnmount(() => {
   if (cpuChart) cpuChart.dispose()
@@ -390,6 +561,12 @@ onBeforeUnmount(() => {
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
 .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.layout-bar { margin-bottom: 12px; padding: 8px 12px; background: #f7f9fc; border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.layout-title { font-weight: 600; color: #606266; }
+.layout-items { display: flex; gap: 8px; flex-wrap: wrap; }
+.layout-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px dashed #dcdfe6; border-radius: 4px; background: #fff; cursor: grab; }
+.drag-handle { font-weight: 700; color: #909399; }
+.layout-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .summary-row { margin-top: 8px; }
 .panel-card { margin-top: 16px; }
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
@@ -400,4 +577,5 @@ onBeforeUnmount(() => {
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
+.w-40 { width: 140px; }
 </style>

@@ -19,8 +19,17 @@
     </el-alert>
 
     <div class="filter-bar">
-      <el-select v-model="instanceFilter" placeholder="选择主机" class="w-52" clearable>
-        <el-option v-for="inst in instances" :key="inst" :label="inst" :value="inst" />
+      <el-select v-model="companyFilter" placeholder="公司" class="w-40" clearable>
+        <el-option v-for="item in companies" :key="item" :label="item" :value="item" />
+      </el-select>
+      <el-select v-model="envFilter" placeholder="环境" class="w-40" clearable>
+        <el-option v-for="item in envs" :key="item" :label="item" :value="item" />
+      </el-select>
+      <el-select v-model="stackFilter" placeholder="Stack/命名空间" class="w-52" clearable>
+        <el-option v-for="item in stacks" :key="item" :label="item" :value="item" />
+      </el-select>
+      <el-select v-model="instanceFilter" placeholder="主机" class="w-52" clearable>
+        <el-option v-for="inst in filteredInstanceOptions" :key="inst" :label="inst" :value="inst" />
       </el-select>
       <el-input v-model="keyword" placeholder="搜索容器/镜像/节点" class="w-52" clearable />
       <el-select v-model="topN" class="w-40">
@@ -30,56 +39,84 @@
       </el-select>
     </div>
 
+    <div class="layout-bar">
+      <div class="layout-title">面板布局</div>
+      <div class="layout-items">
+        <div
+          v-for="(panel, idx) in panels"
+          :key="panel.id"
+          class="layout-item"
+          draggable="true"
+          @dragstart="onDragStart(idx)"
+          @dragover.prevent
+          @drop="onDrop(idx)"
+        >
+          <span class="drag-handle">≡</span>
+          <el-checkbox v-model="panel.visible">{{ panel.title }}</el-checkbox>
+        </div>
+      </div>
+      <div class="layout-actions">
+        <el-input v-model="layoutName" placeholder="模板名称" class="w-40" />
+        <el-button size="small" @click="saveLayout">保存模板</el-button>
+        <el-select v-model="selectedLayout" placeholder="加载模板" class="w-40" clearable @change="applyLayout">
+          <el-option v-for="item in layouts" :key="item.name" :label="item.name" :value="item.name" />
+        </el-select>
+        <el-button size="small" type="danger" plain @click="deleteLayout" :disabled="!selectedLayout">删除模板</el-button>
+      </div>
+    </div>
+
     <el-row :gutter="16" class="summary-row">
       <el-col :span="6"><el-card><div class="card-title">容器数</div><div class="card-value">{{ stats.total }}</div></el-card></el-col>
       <el-col :span="6"><el-card><div class="card-title">CPU Top</div><div class="card-value">{{ stats.maxCpu }}</div></el-card></el-col>
       <el-col :span="6"><el-card><div class="card-title">内存 Top(MiB)</div><div class="card-value">{{ stats.maxMem }}</div></el-card></el-col>
     </el-row>
 
-    <el-card class="panel-card">
-      <div class="panel-header">
-        <div>
-          <h3>Top 排行</h3>
-          <p class="panel-desc">当前 Top 容器 CPU / 内存排行。</p>
+    <template v-for="panel in panels" :key="panel.id">
+      <el-card v-if="panel.id === 'top' && panel.visible" class="panel-card">
+        <div class="panel-header">
+          <div>
+            <h3>Top 排行</h3>
+            <p class="panel-desc">当前 Top 容器 CPU / 内存排行。</p>
+          </div>
+          <div class="panel-actions">
+            <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
+          </div>
         </div>
-        <div class="panel-actions">
-          <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
-        </div>
-      </div>
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <div ref="topCpuChartRef" class="chart-box"></div>
-        </el-col>
-        <el-col :span="12">
-          <div ref="topMemChartRef" class="chart-box"></div>
-        </el-col>
-      </el-row>
-    </el-card>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <div ref="topCpuChartRef" class="chart-box"></div>
+          </el-col>
+          <el-col :span="12">
+            <div ref="topMemChartRef" class="chart-box"></div>
+          </el-col>
+        </el-row>
+      </el-card>
 
-    <el-card class="panel-card" v-loading="chartLoading">
-      <div class="panel-header">
-        <div>
-          <h3>趋势看板</h3>
-          <p class="panel-desc">Top 容器 CPU/内存趋势（近 {{ rangeLabel }}）。</p>
+      <el-card v-if="panel.id === 'trend' && panel.visible" class="panel-card" v-loading="chartLoading">
+        <div class="panel-header">
+          <div>
+            <h3>趋势看板</h3>
+            <p class="panel-desc">Top 容器 CPU/内存趋势（近 {{ rangeLabel }}）。</p>
+          </div>
+          <div class="panel-actions">
+            <el-radio-group v-model="rangeHours" size="small">
+              <el-radio-button v-for="opt in rangeOptions" :key="opt.value" :label="opt.value">
+                {{ opt.label }}
+              </el-radio-button>
+            </el-radio-group>
+            <el-button size="small" @click="fetchCharts">刷新趋势</el-button>
+          </div>
         </div>
-        <div class="panel-actions">
-          <el-radio-group v-model="rangeHours" size="small">
-            <el-radio-button v-for="opt in rangeOptions" :key="opt.value" :label="opt.value">
-              {{ opt.label }}
-            </el-radio-button>
-          </el-radio-group>
-          <el-button size="small" @click="fetchCharts">刷新趋势</el-button>
-        </div>
-      </div>
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <div ref="cpuChartRef" class="chart-box"></div>
-        </el-col>
-        <el-col :span="12">
-          <div ref="memChartRef" class="chart-box"></div>
-        </el-col>
-      </el-row>
-    </el-card>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <div ref="cpuChartRef" class="chart-box"></div>
+          </el-col>
+          <el-col :span="12">
+            <div ref="memChartRef" class="chart-box"></div>
+          </el-col>
+        </el-row>
+      </el-card>
+    </template>
 
     <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
       <el-table-column prop="container" label="容器" min-width="220" />
@@ -104,6 +141,13 @@ const topN = ref(50)
 const lastRefresh = ref('')
 const instanceFilter = ref('')
 const instances = ref([])
+const filterMeta = ref([])
+const companyFilter = ref('')
+const envFilter = ref('')
+const stackFilter = ref('')
+const companies = ref([])
+const envs = ref([])
+const stacks = ref([])
 const rangeHours = ref(1)
 const rangeOptions = [
   { label: '1h', value: 1 },
@@ -120,6 +164,14 @@ let cpuChart = null
 let memChart = null
 let topCpuChart = null
 let topMemChart = null
+const panels = ref([
+  { id: 'top', title: 'Top 排行', visible: true },
+  { id: 'trend', title: '趋势看板', visible: true }
+])
+const dragIndex = ref(null)
+const layoutName = ref('')
+const selectedLayout = ref('')
+const layouts = ref([])
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const rangeLabel = computed(() => {
@@ -127,17 +179,37 @@ const rangeLabel = computed(() => {
   return found ? found.label : `${rangeHours.value}h`
 })
 
-const instanceClause = () => instanceFilter.value ? `,instance="${instanceFilter.value}"` : ''
+const selectorParts = () => {
+  const parts = ['image!=""']
+  if (companyFilter.value) parts.push(`com="${companyFilter.value}"`)
+  if (envFilter.value) parts.push(`env="${envFilter.value}"`)
+  if (stackFilter.value) parts.push(`container_label_com_docker_stack_namespace="${stackFilter.value}"`)
+  if (instanceFilter.value) parts.push(`instance="${instanceFilter.value}"`)
+  return parts.join(',')
+}
+
+const filteredInstanceOptions = computed(() => {
+  if (!companyFilter.value && !envFilter.value && !stackFilter.value) return instances.value
+  const metaMap = new Map(filterMeta.value.map(item => [item.instance, item]))
+  return instances.value.filter(inst => {
+    const meta = metaMap.get(inst)
+    if (!meta) return false
+    if (companyFilter.value && meta.com !== companyFilter.value) return false
+    if (envFilter.value && meta.env !== envFilter.value) return false
+    if (stackFilter.value && meta.stack !== stackFilter.value) return false
+    return true
+  })
+})
 
 const cpuQuery = (n) => `topk(${n},
   sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
-    rate(container_cpu_usage_seconds_total{image!=""${instanceClause()}}[5m])
+    rate(container_cpu_usage_seconds_total{${selectorParts()}}[5m])
   )
 )`
 
 const memQuery = (n) => `topk(${n},
   sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
-    container_memory_working_set_bytes{image!=""${instanceClause()}}
+    container_memory_working_set_bytes{${selectorParts()}}
   )
 )`
 
@@ -185,15 +257,39 @@ const pickInstance = (m) => (
   m.instance || '-'
 )
 
-const fetchInstances = async () => {
+const fetchFilterOptions = async () => {
   try {
-    const res = await fetchProm('count by(instance) (container_cpu_usage_seconds_total{image!=""})')
-    instances.value = Array.from(new Set(res.map(item => item.metric?.instance).filter(Boolean)))
+    const res = await fetchProm('count by(com, env, instance, container_label_com_docker_stack_namespace) (container_cpu_usage_seconds_total{image!=""})')
+    const instSet = new Set()
+    const comSet = new Set()
+    const envSet = new Set()
+    const stackSet = new Set()
+    const metaMap = new Map()
+    res.forEach(item => {
+      const m = item.metric || {}
+      if (m.instance) instSet.add(m.instance)
+      if (m.com) comSet.add(m.com)
+      if (m.env) envSet.add(m.env)
+      if (m.container_label_com_docker_stack_namespace) stackSet.add(m.container_label_com_docker_stack_namespace)
+      if (m.instance) {
+        metaMap.set(m.instance, {
+          instance: m.instance,
+          com: m.com || '',
+          env: m.env || '',
+          stack: m.container_label_com_docker_stack_namespace || ''
+        })
+      }
+    })
+    instances.value = Array.from(instSet)
+    companies.value = Array.from(comSet)
+    envs.value = Array.from(envSet)
+    stacks.value = Array.from(stackSet)
+    filterMeta.value = Array.from(metaMap.values())
     if (!instanceFilter.value && instances.value.length) {
       instanceFilter.value = instances.value[0]
     }
   } catch (err) {
-    ElMessage.error('获取容器主机列表失败')
+    ElMessage.error('获取过滤项失败')
   }
 }
 
@@ -243,6 +339,84 @@ const fetchMetrics = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const onDragStart = (idx) => {
+  dragIndex.value = idx
+}
+
+const onDrop = (idx) => {
+  if (dragIndex.value === null || dragIndex.value === idx) return
+  const next = [...panels.value]
+  const [moved] = next.splice(dragIndex.value, 1)
+  next.splice(idx, 0, moved)
+  panels.value = next
+  dragIndex.value = null
+  persistLayouts()
+}
+
+const layoutStorageKey = 'lazy_aiops_monitor_containers_layouts'
+
+const persistLayouts = () => {
+  localStorage.setItem(layoutStorageKey, JSON.stringify(layouts.value))
+}
+
+const loadLayouts = () => {
+  try {
+    const raw = localStorage.getItem(layoutStorageKey)
+    layouts.value = raw ? JSON.parse(raw) : []
+  } catch (e) {
+    layouts.value = []
+  }
+}
+
+const saveLayout = () => {
+  const name = layoutName.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入模板名称')
+    return
+  }
+  const payload = {
+    name,
+    panels: panels.value,
+    filters: {
+      company: companyFilter.value,
+      env: envFilter.value,
+      stack: stackFilter.value,
+      instance: instanceFilter.value,
+      topN: topN.value,
+      rangeHours: rangeHours.value
+    }
+  }
+  const next = layouts.value.filter(item => item.name !== name)
+  next.push(payload)
+  layouts.value = next
+  persistLayouts()
+  selectedLayout.value = name
+  ElMessage.success('模板已保存')
+}
+
+const applyLayout = () => {
+  const selected = layouts.value.find(item => item.name === selectedLayout.value)
+  if (!selected) return
+  panels.value = selected.panels || panels.value
+  const filters = selected.filters || {}
+  companyFilter.value = filters.company || ''
+  envFilter.value = filters.env || ''
+  stackFilter.value = filters.stack || ''
+  instanceFilter.value = filters.instance || ''
+  topN.value = filters.topN || 50
+  rangeHours.value = filters.rangeHours || 1
+  fetchMetrics()
+  fetchCharts()
+}
+
+const deleteLayout = () => {
+  if (!selectedLayout.value) return
+  layouts.value = layouts.value.filter(item => item.name !== selectedLayout.value)
+  persistLayouts()
+  selectedLayout.value = ''
+  ElMessage.success('模板已删除')
 }
 
 const buildSeries = (result, transform) => {
@@ -361,12 +535,20 @@ watch(instanceFilter, () => {
   fetchMetrics()
   fetchCharts()
 })
+watch([companyFilter, envFilter, stackFilter], () => {
+  if (instanceFilter.value && !filteredInstanceOptions.value.includes(instanceFilter.value)) {
+    instanceFilter.value = filteredInstanceOptions.value[0] || ''
+  }
+  fetchMetrics()
+  fetchCharts()
+})
 watch(filteredRows, () => {
   renderTopCharts()
 })
 
 onMounted(() => {
-  fetchInstances()
+  loadLayouts()
+  fetchFilterOptions()
   fetchMetrics()
   fetchCharts()
   renderTopCharts()
@@ -389,7 +571,13 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.filter-bar { display: flex; gap: 8px; margin-top: 12px; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.layout-bar { margin-top: 12px; padding: 8px 12px; background: #f7f9fc; border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.layout-title { font-weight: 600; color: #606266; }
+.layout-items { display: flex; gap: 8px; flex-wrap: wrap; }
+.layout-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px dashed #dcdfe6; border-radius: 4px; background: #fff; cursor: grab; }
+.drag-handle { font-weight: 700; color: #909399; }
+.layout-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .summary-row { margin-top: 12px; }
 .panel-card { margin-top: 16px; }
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
