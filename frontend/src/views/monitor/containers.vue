@@ -355,13 +355,14 @@ const onDrop = (idx) => {
   persistLayouts()
 }
 
+const layoutScope = 'containers'
 const layoutStorageKey = 'lazy_aiops_monitor_containers_layouts'
 
 const persistLayouts = () => {
   localStorage.setItem(layoutStorageKey, JSON.stringify(layouts.value))
 }
 
-const loadLayouts = () => {
+const loadLocalLayouts = () => {
   try {
     const raw = localStorage.getItem(layoutStorageKey)
     layouts.value = raw ? JSON.parse(raw) : []
@@ -370,7 +371,30 @@ const loadLayouts = () => {
   }
 }
 
-const saveLayout = () => {
+const fetchLayouts = async () => {
+  try {
+    const res = await axios.get('/api/v1/monitor/dashboards', {
+      headers: authHeaders(),
+      params: { scope: layoutScope }
+    })
+    if (res.data?.code === 0) {
+      layouts.value = (res.data.data || []).map(item => ({
+        id: item.id,
+        name: item.name,
+        payload: item.payload,
+        created_by: item.created_by,
+        updated_at: item.updated_at
+      }))
+      persistLayouts()
+      return
+    }
+  } catch (err) {
+    // fallback to local
+  }
+  loadLocalLayouts()
+}
+
+const saveLayout = async () => {
   const name = layoutName.value.trim()
   if (!name) {
     ElMessage.warning('请输入模板名称')
@@ -388,19 +412,44 @@ const saveLayout = () => {
       rangeHours: rangeHours.value
     }
   }
-  const next = layouts.value.filter(item => item.name !== name)
-  next.push(payload)
-  layouts.value = next
-  persistLayouts()
-  selectedLayout.value = name
-  ElMessage.success('模板已保存')
+  const existing = layouts.value.find(item => item.name === name)
+  const data = {
+    name,
+    scope: layoutScope,
+    payload: JSON.stringify(payload)
+  }
+  try {
+    if (existing?.id) {
+      await axios.put(`/api/v1/monitor/dashboards/${existing.id}`, data, { headers: authHeaders() })
+    } else {
+      await axios.post('/api/v1/monitor/dashboards', data, { headers: authHeaders() })
+    }
+    await fetchLayouts()
+    selectedLayout.value = name
+    ElMessage.success('模板已保存')
+  } catch (err) {
+    const next = layouts.value.filter(item => item.name !== name)
+    next.push({ name, payload })
+    layouts.value = next
+    persistLayouts()
+    selectedLayout.value = name
+    ElMessage.success('模板已保存(本地)')
+  }
 }
 
 const applyLayout = () => {
   const selected = layouts.value.find(item => item.name === selectedLayout.value)
   if (!selected) return
-  panels.value = selected.panels || panels.value
-  const filters = selected.filters || {}
+  let rawPayload = selected.payload || selected
+  if (typeof rawPayload === 'string') {
+    try {
+      rawPayload = JSON.parse(rawPayload)
+    } catch (e) {
+      rawPayload = selected
+    }
+  }
+  panels.value = rawPayload.panels || panels.value
+  const filters = rawPayload.filters || {}
   companyFilter.value = filters.company || ''
   envFilter.value = filters.env || ''
   stackFilter.value = filters.stack || ''
@@ -411,12 +460,22 @@ const applyLayout = () => {
   fetchCharts()
 }
 
-const deleteLayout = () => {
+const deleteLayout = async () => {
   if (!selectedLayout.value) return
-  layouts.value = layouts.value.filter(item => item.name !== selectedLayout.value)
-  persistLayouts()
-  selectedLayout.value = ''
-  ElMessage.success('模板已删除')
+  const selected = layouts.value.find(item => item.name === selectedLayout.value)
+  try {
+    if (selected?.id) {
+      await axios.delete(`/api/v1/monitor/dashboards/${selected.id}`, { headers: authHeaders() })
+    }
+    await fetchLayouts()
+    selectedLayout.value = ''
+    ElMessage.success('模板已删除')
+  } catch (err) {
+    layouts.value = layouts.value.filter(item => item.name !== selectedLayout.value)
+    persistLayouts()
+    selectedLayout.value = ''
+    ElMessage.success('模板已删除(本地)')
+  }
 }
 
 const buildSeries = (result, transform) => {
@@ -547,7 +606,7 @@ watch(filteredRows, () => {
 })
 
 onMounted(() => {
-  loadLayouts()
+  fetchLayouts()
   fetchFilterOptions()
   fetchMetrics()
   fetchCharts()
