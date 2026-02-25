@@ -502,6 +502,98 @@ func (h *MonitorHandler) UpdatePromHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
 }
 
+// ListDashboards 监控大盘模板
+func (h *MonitorHandler) ListDashboards(c *gin.Context) {
+	scope := c.Query("scope")
+	query := h.db.Order("updated_at DESC")
+	if scope != "" {
+		query = query.Where("scope = ?", scope)
+	}
+	var items []DashboardTemplate
+	if err := query.Find(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+}
+
+// SaveDashboard 创建/覆盖模板
+func (h *MonitorHandler) SaveDashboard(c *gin.Context) {
+	var req struct {
+		Name    string `json:"name" binding:"required"`
+		Scope   string `json:"scope" binding:"required"`
+		Payload string `json:"payload" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	user := c.GetString("username")
+	var item DashboardTemplate
+	err := h.db.Where("name = ? AND scope = ? AND created_by = ?", req.Name, req.Scope, user).First(&item).Error
+	if err == nil {
+		updates := map[string]interface{}{
+			"payload": req.Payload,
+		}
+		if err := h.db.Model(&DashboardTemplate{}).Where("id = ?", item.ID).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
+		return
+	}
+	item = DashboardTemplate{
+		Name:      req.Name,
+		Scope:     req.Scope,
+		Payload:   req.Payload,
+		CreatedBy: user,
+	}
+	if err := h.db.Create(&item).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
+}
+
+// UpdateDashboard 更新模板
+func (h *MonitorHandler) UpdateDashboard(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Name    string `json:"name"`
+		Payload string `json:"payload"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	updates := map[string]interface{}{}
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
+	if req.Payload != "" {
+		updates["payload"] = req.Payload
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "无可更新字段"})
+		return
+	}
+	if err := h.db.Model(&DashboardTemplate{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
+}
+
+// DeleteDashboard 删除模板
+func (h *MonitorHandler) DeleteDashboard(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&DashboardTemplate{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
 func (h *MonitorHandler) proxyGet(c *gin.Context, url string) {
 	resp, err := h.httpClient.Get(url)
 	if err != nil {

@@ -100,6 +100,15 @@ type PromQueryHistory struct {
 	Favorite  bool   `gorm:"default:false" json:"favorite"`
 }
 
+// DashboardTemplate 监控大盘模板
+type DashboardTemplate struct {
+	BaseModel
+	Name      string `gorm:"size:128" json:"name"`
+	Scope     string `gorm:"size:32;index" json:"scope"` // hosts/containers/pods
+	Payload   string `gorm:"type:text" json:"payload"`
+	CreatedBy string `gorm:"size:64" json:"created_by"`
+}
+
 // AgentHeartbeat 采集器心跳
 type AgentHeartbeat struct {
 	BaseModel
