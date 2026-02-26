@@ -17,9 +17,11 @@ type NotifyPlugin struct {
 	cfg  map[string]interface{}
 }
 
-func (p *NotifyPlugin) Name() string        { return "notify" }
-func (p *NotifyPlugin) Version() string     { return "1.0.0" }
-func (p *NotifyPlugin) Description() string { return "通知中心 - 飞书/钉钉/企微/邮件/Webhook" }
+func (p *NotifyPlugin) Name() string    { return "notify" }
+func (p *NotifyPlugin) Version() string { return "1.0.0" }
+func (p *NotifyPlugin) Description() string {
+	return "通知中心 - 飞书/钉钉/企微/邮件/Webhook"
+}
 
 func (p *NotifyPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -68,5 +70,7 @@ func (p *NotifyPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	{
 		templates.GET("", h.ListTemplates)
 		templates.POST("", h.CreateTemplate)
+		templates.PUT("/:id", h.UpdateTemplate)
+		templates.DELETE("/:id", h.DeleteTemplate)
 	}
 }

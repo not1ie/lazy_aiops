@@ -289,3 +289,32 @@ func (h *NotifyHandler) CreateTemplate(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": template})
 }
+
+// UpdateTemplate 更新模板
+func (h *NotifyHandler) UpdateTemplate(c *gin.Context) {
+	id := c.Param("id")
+	var template NotifyTemplate
+	if err := h.db.First(&template, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "模板不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&template); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&template).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": template})
+}
+
+// DeleteTemplate 删除模板
+func (h *NotifyHandler) DeleteTemplate(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&NotifyTemplate{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}

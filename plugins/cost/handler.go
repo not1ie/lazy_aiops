@@ -2,6 +2,7 @@ package cost
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +40,6 @@ func (h *CostHandler) CreateAccount(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
 }
-
 
 // UpdateAccount 更新账号
 func (h *CostHandler) UpdateAccount(c *gin.Context) {
@@ -118,9 +118,13 @@ func (h *CostHandler) GetCostSummary(c *gin.Context) {
 		ProductName string  `json:"product_name"`
 		Amount      float64 `json:"amount"`
 	}
-	h.db.Model(&CostRecord{}).
+	byProductQuery := h.db.Model(&CostRecord{}).
 		Select("product_code, product_name, SUM(amount) as amount").
-		Where("billing_date BETWEEN ? AND ?", startDate, endDate).
+		Where("billing_date BETWEEN ? AND ?", startDate, endDate)
+	if accountID != "" {
+		byProductQuery = byProductQuery.Where("account_id = ?", accountID)
+	}
+	byProductQuery.
 		Group("product_code, product_name").
 		Order("amount DESC").
 		Find(&productCosts)
@@ -130,9 +134,13 @@ func (h *CostHandler) GetCostSummary(c *gin.Context) {
 		Date   string  `json:"date"`
 		Amount float64 `json:"amount"`
 	}
-	h.db.Model(&CostRecord{}).
+	dailyQuery := h.db.Model(&CostRecord{}).
 		Select("DATE(billing_date) as date, SUM(amount) as amount").
-		Where("billing_date BETWEEN ? AND ?", startDate, endDate).
+		Where("billing_date BETWEEN ? AND ?", startDate, endDate)
+	if accountID != "" {
+		dailyQuery = dailyQuery.Where("account_id = ?", accountID)
+	}
+	dailyQuery.
 		Group("DATE(billing_date)").
 		Order("date").
 		Find(&dailyCosts)
@@ -140,15 +148,14 @@ func (h *CostHandler) GetCostSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": gin.H{
-			"total":        totalCost,
-			"by_product":   productCosts,
-			"daily_trend":  dailyCosts,
-			"start_date":   startDate,
-			"end_date":     endDate,
+			"total":       totalCost,
+			"by_product":  productCosts,
+			"daily_trend": dailyCosts,
+			"start_date":  startDate,
+			"end_date":    endDate,
 		},
 	})
 }
-
 
 // ListCostRecords 费用记录列表
 func (h *CostHandler) ListCostRecords(c *gin.Context) {
@@ -178,7 +185,7 @@ func (h *CostHandler) ListCostRecords(c *gin.Context) {
 // ListBudgets 预算列表
 func (h *CostHandler) ListBudgets(c *gin.Context) {
 	var budgets []CostBudget
-	if err := h.db.Find(&budgets).Error; err != nil {
+	if err := h.db.Order("created_at DESC").Find(&budgets).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -246,13 +253,13 @@ func (h *CostHandler) GetBudgetStatus(c *gin.Context) {
 		}
 
 		results = append(results, map[string]interface{}{
-			"budget_id":    budget.ID,
-			"budget_name":  budget.Name,
+			"budget_id":     budget.ID,
+			"budget_name":   budget.Name,
 			"budget_amount": budget.Amount,
-			"current_cost": currentCost,
-			"percentage":   percentage,
-			"alert_at":     budget.AlertAt,
-			"is_alert":     percentage >= budget.AlertAt,
+			"current_cost":  currentCost,
+			"percentage":    percentage,
+			"alert_at":      budget.AlertAt,
+			"is_alert":      percentage >= budget.AlertAt,
 		})
 	}
 
@@ -317,6 +324,13 @@ func (h *CostHandler) AnalyzeOptimization(c *gin.Context) {
 // GetCostTrend 费用趋势
 func (h *CostHandler) GetCostTrend(c *gin.Context) {
 	months := 6
+	if v := c.Query("months"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 1 && parsed <= 24 {
+			months = parsed
+		}
+	}
+	accountID := c.Query("account_id")
+
 	var trends []struct {
 		Month  string  `json:"month"`
 		Amount float64 `json:"amount"`
@@ -329,9 +343,11 @@ func (h *CostHandler) GetCostTrend(c *gin.Context) {
 		endDate := date.AddDate(0, 1, -1).Format("2006-01-02")
 
 		var amount float64
-		h.db.Model(&CostRecord{}).
-			Where("billing_date BETWEEN ? AND ?", startDate, endDate).
-			Select("COALESCE(SUM(amount), 0)").Scan(&amount)
+		query := h.db.Model(&CostRecord{}).Where("billing_date BETWEEN ? AND ?", startDate, endDate)
+		if accountID != "" {
+			query = query.Where("account_id = ?", accountID)
+		}
+		query.Select("COALESCE(SUM(amount), 0)").Scan(&amount)
 
 		trends = append(trends, struct {
 			Month  string  `json:"month"`
@@ -345,7 +361,20 @@ func (h *CostHandler) GetCostTrend(c *gin.Context) {
 // GetTopResources 费用TOP资源
 func (h *CostHandler) GetTopResources(c *gin.Context) {
 	limit := 20
-	startDate := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+	if v := c.Query("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 200 {
+			limit = parsed
+		}
+	}
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+	accountID := c.Query("account_id")
+	if startDate == "" {
+		startDate = time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+	}
+	if endDate == "" {
+		endDate = time.Now().Format("2006-01-02")
+	}
 
 	var resources []struct {
 		ResourceID   string  `json:"resource_id"`
@@ -354,9 +383,13 @@ func (h *CostHandler) GetTopResources(c *gin.Context) {
 		Amount       float64 `json:"amount"`
 	}
 
-	h.db.Model(&CostRecord{}).
+	query := h.db.Model(&CostRecord{}).
 		Select("resource_id, resource_name, product_name, SUM(amount) as amount").
-		Where("billing_date >= ?", startDate).
+		Where("billing_date BETWEEN ? AND ?", startDate, endDate)
+	if accountID != "" {
+		query = query.Where("account_id = ?", accountID)
+	}
+	query.
 		Group("resource_id, resource_name, product_name").
 		Order("amount DESC").
 		Limit(limit).
