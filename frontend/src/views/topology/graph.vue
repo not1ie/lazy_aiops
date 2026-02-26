@@ -1,20 +1,476 @@
 <template>
   <el-card class="page-card">
     <div class="page-header">
-      <h2>{ title }</h2>
-      <p class="page-desc">{ desc }</p>
+      <div>
+        <h2>服务拓扑</h2>
+        <p class="page-desc">维护服务节点与依赖关系，支持导入导出。</p>
+      </div>
+      <div class="page-actions">
+        <el-button icon="Upload" @click="openImportDialog">导入</el-button>
+        <el-button icon="Download" @click="exportTopology">导出</el-button>
+        <el-button icon="Refresh" @click="refreshAll">刷新</el-button>
+      </div>
     </div>
-    <el-empty description="页面骨架已建立，等待对接接口与交互。" />
+
+    <el-row :gutter="12" class="mb-12">
+      <el-col :span="6"><el-card><div class="k">节点数</div><div class="v">{{ nodes.length }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="k">依赖边</div><div class="v">{{ edges.length }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="k">视图数</div><div class="v">{{ views.length }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="k">异常节点</div><div class="v danger">{{ unhealthyCount }}</div></el-card></el-col>
+    </el-row>
+
+    <el-row :gutter="12">
+      <el-col :md="14" :sm="24">
+        <el-card>
+          <template #header>
+            <div class="section-header">
+              <span>节点清单</span>
+              <div>
+                <el-button size="small" type="primary" icon="Plus" @click="openNodeDialog()">新增节点</el-button>
+                <el-button size="small" @click="autoLayout">自动布局</el-button>
+              </div>
+            </div>
+          </template>
+          <el-table :data="nodes" v-loading="loading" stripe @row-click="selectNode">
+            <el-table-column prop="name" label="名称" min-width="160" />
+            <el-table-column prop="type" label="类型" width="110" />
+            <el-table-column prop="namespace" label="命名空间" width="120" />
+            <el-table-column prop="cluster" label="集群" width="120" />
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="坐标" width="120">
+              <template #default="{ row }">({{ row.x || 0 }}, {{ row.y || 0 }})</template>
+            </el-table-column>
+            <el-table-column label="操作" width="190" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click.stop="openNodeDialog(row)">编辑</el-button>
+                <el-button size="small" type="danger" plain @click.stop="removeNode(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+
+      <el-col :md="10" :sm="24">
+        <el-card>
+          <template #header>
+            <div class="section-header">
+              <span>依赖关系</span>
+              <el-button size="small" type="primary" icon="Plus" @click="openEdgeDialog">新增关系</el-button>
+            </div>
+          </template>
+          <el-table :data="edges" stripe size="small">
+            <el-table-column label="源服务" min-width="120">
+              <template #default="{ row }">{{ row.source_name || nodeName(row.source_id) }}</template>
+            </el-table-column>
+            <el-table-column label="目标服务" min-width="120">
+              <template #default="{ row }">{{ row.target_name || nodeName(row.target_id) }}</template>
+            </el-table-column>
+            <el-table-column prop="type" label="类型" width="90" />
+            <el-table-column prop="port" label="端口" width="80" />
+            <el-table-column label="操作" width="90">
+              <template #default="{ row }">
+                <el-button size="small" type="danger" plain @click="removeEdge(row)">删</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-divider />
+          <div class="sub-title">节点详情</div>
+          <el-empty v-if="!selectedNode" description="选择节点查看详情" :image-size="80" />
+          <el-descriptions v-else :column="1" border size="small">
+            <el-descriptions-item label="名称">{{ selectedNode.name }}</el-descriptions-item>
+            <el-descriptions-item label="类型">{{ selectedNode.type || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="描述">{{ selectedNode.description || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="健康检查">{{ selectedNode.health_url || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="端点">{{ selectedNode.endpoints || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="元数据">{{ selectedNode.metadata || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-dialog v-model="nodeDialogVisible" :title="nodeEditing ? '编辑节点' : '新增节点'" width="760px">
+      <el-form :model="nodeForm" label-width="92px">
+        <el-row :gutter="12">
+          <el-col :span="12"><el-form-item label="名称" required><el-input v-model="nodeForm.name" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="类型"><el-select v-model="nodeForm.type" style="width: 100%"><el-option label="service" value="service" /><el-option label="database" value="database" /><el-option label="cache" value="cache" /><el-option label="mq" value="mq" /><el-option label="gateway" value="gateway" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="命名空间"><el-input v-model="nodeForm.namespace" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="集群"><el-input v-model="nodeForm.cluster" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="状态"><el-select v-model="nodeForm.status" style="width: 100%"><el-option label="正常" :value="1" /><el-option label="告警" :value="2" /><el-option label="故障" :value="3" /><el-option label="未知" :value="0" /></el-select></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="坐标"><el-input-number v-model="nodeForm.x" :step="10" /><span style="padding:0 6px">/</span><el-input-number v-model="nodeForm.y" :step="10" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="健康检查"><el-input v-model="nodeForm.health_url" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="端点JSON"><el-input v-model="nodeForm.endpoints" type="textarea" :rows="2" placeholder='["http://a:8080"]' /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="元数据JSON"><el-input v-model="nodeForm.metadata" type="textarea" :rows="2" placeholder='{"team":"ops"}' /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="描述"><el-input v-model="nodeForm.description" type="textarea" :rows="2" /></el-form-item></el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="nodeDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="nodeSaving" @click="saveNode">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="edgeDialogVisible" title="新增依赖关系" width="560px">
+      <el-form :model="edgeForm" label-width="96px">
+        <el-form-item label="源节点" required>
+          <el-select v-model="edgeForm.source_id" filterable style="width: 100%">
+            <el-option v-for="item in nodes" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="目标节点" required>
+          <el-select v-model="edgeForm.target_id" filterable style="width: 100%">
+            <el-option v-for="item in nodes" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="关系类型">
+          <el-input v-model="edgeForm.type" placeholder="http/grpc/tcp/mq" />
+        </el-form-item>
+        <el-form-item label="协议">
+          <el-input v-model="edgeForm.protocol" />
+        </el-form-item>
+        <el-form-item label="端口">
+          <el-input-number v-model="edgeForm.port" :min="0" :max="65535" />
+        </el-form-item>
+        <el-form-item label="说明">
+          <el-input v-model="edgeForm.description" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="edgeDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="edgeSaving" @click="saveEdge">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="importDialogVisible" title="导入拓扑" width="620px">
+      <el-input v-model="importPayload" type="textarea" :rows="14" placeholder='{"nodes":[],"edges":[]}' />
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importing" @click="importTopology">导入</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
 <script setup>
-const title = '服务拓扑'
-const desc = '服务依赖与影响分析。'
+import { computed, onMounted, reactive, ref } from 'vue'
+import axios from 'axios'
+import { ElMessage, ElMessageBox } from 'element-plus'
+
+const loading = ref(false)
+const nodeSaving = ref(false)
+const edgeSaving = ref(false)
+const importing = ref(false)
+
+const nodes = ref([])
+const edges = ref([])
+const views = ref([])
+const selectedNode = ref(null)
+
+const nodeDialogVisible = ref(false)
+const nodeEditing = ref(false)
+const edgeDialogVisible = ref(false)
+const importDialogVisible = ref(false)
+
+const nodeForm = reactive({
+  id: '',
+  name: '',
+  type: 'service',
+  icon: '',
+  description: '',
+  namespace: '',
+  cluster: '',
+  endpoints: '[]',
+  metadata: '{}',
+  status: 1,
+  health_url: '',
+  x: 0,
+  y: 0
+})
+
+const edgeForm = reactive({
+  source_id: '',
+  target_id: '',
+  type: 'http',
+  protocol: 'HTTP/1.1',
+  port: 80,
+  description: ''
+})
+
+const importPayload = ref('{"nodes":[],"edges":[]}')
+
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const unhealthyCount = computed(() => nodes.value.filter(item => Number(item.status) === 2 || Number(item.status) === 3).length)
+
+const nodeName = (id) => nodes.value.find(item => item.id === id)?.name || id || '-'
+
+const statusText = (status) => {
+  const n = Number(status)
+  if (n === 1) return '正常'
+  if (n === 2) return '告警'
+  if (n === 3) return '故障'
+  return '未知'
+}
+
+const statusType = (status) => {
+  const n = Number(status)
+  if (n === 1) return 'success'
+  if (n === 2) return 'warning'
+  if (n === 3) return 'danger'
+  return 'info'
+}
+
+const fetchTopology = async () => {
+  loading.value = true
+  try {
+    const res = await axios.get('/api/v1/topology/data', { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      nodes.value = res.data.data?.nodes || []
+      edges.value = res.data.data?.edges || []
+      if (selectedNode.value) {
+        selectedNode.value = nodes.value.find(item => item.id === selectedNode.value.id) || null
+      }
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '加载拓扑失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchViews = async () => {
+  try {
+    const res = await axios.get('/api/v1/topology/views', { headers: authHeaders() })
+    if (res.data?.code === 0) views.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '加载视图失败')
+  }
+}
+
+const refreshAll = async () => {
+  await Promise.all([fetchTopology(), fetchViews()])
+}
+
+const selectNode = (row) => {
+  selectedNode.value = row
+}
+
+const resetNodeForm = () => {
+  nodeForm.id = ''
+  nodeForm.name = ''
+  nodeForm.type = 'service'
+  nodeForm.icon = ''
+  nodeForm.description = ''
+  nodeForm.namespace = ''
+  nodeForm.cluster = ''
+  nodeForm.endpoints = '[]'
+  nodeForm.metadata = '{}'
+  nodeForm.status = 1
+  nodeForm.health_url = ''
+  nodeForm.x = 0
+  nodeForm.y = 0
+}
+
+const openNodeDialog = (row) => {
+  nodeEditing.value = !!row
+  resetNodeForm()
+  if (row) {
+    nodeForm.id = row.id
+    nodeForm.name = row.name || ''
+    nodeForm.type = row.type || 'service'
+    nodeForm.icon = row.icon || ''
+    nodeForm.description = row.description || ''
+    nodeForm.namespace = row.namespace || ''
+    nodeForm.cluster = row.cluster || ''
+    nodeForm.endpoints = row.endpoints || '[]'
+    nodeForm.metadata = row.metadata || '{}'
+    nodeForm.status = Number(row.status || 1)
+    nodeForm.health_url = row.health_url || ''
+    nodeForm.x = Number(row.x || 0)
+    nodeForm.y = Number(row.y || 0)
+  }
+  nodeDialogVisible.value = true
+}
+
+const saveNode = async () => {
+  if (!nodeForm.name.trim()) {
+    ElMessage.warning('请输入节点名称')
+    return
+  }
+  try {
+    JSON.parse(nodeForm.endpoints || '[]')
+    JSON.parse(nodeForm.metadata || '{}')
+  } catch {
+    ElMessage.warning('端点或元数据JSON格式不正确')
+    return
+  }
+
+  nodeSaving.value = true
+  try {
+    const payload = {
+      name: nodeForm.name.trim(),
+      type: nodeForm.type,
+      icon: nodeForm.icon,
+      description: nodeForm.description,
+      namespace: nodeForm.namespace,
+      cluster: nodeForm.cluster,
+      endpoints: nodeForm.endpoints,
+      metadata: nodeForm.metadata,
+      status: Number(nodeForm.status),
+      health_url: nodeForm.health_url,
+      x: Number(nodeForm.x || 0),
+      y: Number(nodeForm.y || 0)
+    }
+
+    if (nodeEditing.value && nodeForm.id) {
+      await axios.put(`/api/v1/topology/nodes/${nodeForm.id}`, payload, { headers: authHeaders() })
+      ElMessage.success('更新成功')
+    } else {
+      await axios.post('/api/v1/topology/nodes', payload, { headers: authHeaders() })
+      ElMessage.success('创建成功')
+    }
+
+    nodeDialogVisible.value = false
+    await fetchTopology()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '保存失败')
+  } finally {
+    nodeSaving.value = false
+  }
+}
+
+const removeNode = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除节点 ${row.name} ?`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/topology/nodes/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    if (selectedNode.value?.id === row.id) selectedNode.value = null
+    await fetchTopology()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+  }
+}
+
+const openEdgeDialog = () => {
+  edgeForm.source_id = selectedNode.value?.id || ''
+  edgeForm.target_id = ''
+  edgeForm.type = 'http'
+  edgeForm.protocol = 'HTTP/1.1'
+  edgeForm.port = 80
+  edgeForm.description = ''
+  edgeDialogVisible.value = true
+}
+
+const saveEdge = async () => {
+  if (!edgeForm.source_id || !edgeForm.target_id) {
+    ElMessage.warning('请选择源节点和目标节点')
+    return
+  }
+
+  edgeSaving.value = true
+  try {
+    const sourceName = nodeName(edgeForm.source_id)
+    const targetName = nodeName(edgeForm.target_id)
+    await axios.post('/api/v1/topology/edges', {
+      source_id: edgeForm.source_id,
+      target_id: edgeForm.target_id,
+      source_name: sourceName,
+      target_name: targetName,
+      type: edgeForm.type,
+      protocol: edgeForm.protocol,
+      port: Number(edgeForm.port || 0),
+      description: edgeForm.description
+    }, { headers: authHeaders() })
+    ElMessage.success('关系创建成功')
+    edgeDialogVisible.value = false
+    await fetchTopology()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '创建关系失败')
+  } finally {
+    edgeSaving.value = false
+  }
+}
+
+const removeEdge = async (row) => {
+  try {
+    await ElMessageBox.confirm('确认删除该依赖关系?', '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/topology/edges/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    await fetchTopology()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+  }
+}
+
+const autoLayout = async () => {
+  try {
+    const res = await axios.post('/api/v1/topology/layout/auto', {}, { headers: authHeaders() })
+    ElMessage.success(res.data?.message || '已触发自动布局')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '自动布局失败')
+  }
+}
+
+const exportTopology = async () => {
+  try {
+    const res = await axios.get('/api/v1/topology/export', {
+      headers: authHeaders(),
+      responseType: 'blob'
+    })
+
+    const blob = new Blob([res.data], { type: 'application/json' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `topology-${Date.now()}.json`
+    link.click()
+    URL.revokeObjectURL(link.href)
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '导出失败')
+  }
+}
+
+const openImportDialog = () => {
+  importPayload.value = '{"nodes":[],"edges":[]}'
+  importDialogVisible.value = true
+}
+
+const importTopology = async () => {
+  try {
+    JSON.parse(importPayload.value || '{}')
+  } catch {
+    ElMessage.warning('导入内容必须是合法JSON')
+    return
+  }
+
+  importing.value = true
+  try {
+    await axios.post('/api/v1/topology/import', JSON.parse(importPayload.value || '{}'), { headers: authHeaders() })
+    ElMessage.success('导入请求已提交')
+    importDialogVisible.value = false
+    await fetchTopology()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '导入失败')
+  } finally {
+    importing.value = false
+  }
+}
+
+onMounted(refreshAll)
 </script>
 
 <style scoped>
-.page-card { max-width: 980px; margin: 0 auto; }
-.page-header { margin-bottom: 12px; }
-.page-desc { color: #606266; margin: 0; }
+.page-card { max-width: 1400px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.page-desc { color: #909399; margin: 4px 0 0; }
+.page-actions { display: flex; align-items: center; gap: 8px; }
+.k { color: #909399; font-size: 12px; }
+.v { font-size: 26px; font-weight: 700; margin-top: 4px; }
+.v.danger { color: #f56c6c; }
+.mb-12 { margin-bottom: 12px; }
+.section-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sub-title { font-size: 13px; color: #606266; margin-bottom: 8px; }
 </style>

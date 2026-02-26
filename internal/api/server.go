@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/config"
@@ -78,15 +79,18 @@ func (s *Server) setupPublicRoutes(g *gin.RouterGroup) {
 	g.POST("/login", func(c *gin.Context) {
 		var req core.LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			s.recordLoginLog(c, req.Username, 0, "参数错误")
 			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 			return
 		}
 
 		resp, err := s.core.Auth.Login(&req)
 		if err != nil {
+			s.recordLoginLog(c, req.Username, 0, err.Error())
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": err.Error()})
 			return
 		}
+		s.recordLoginLog(c, req.Username, 1, "登录成功")
 
 		c.JSON(http.StatusOK, gin.H{"code": 0, "data": resp})
 	})
@@ -145,4 +149,18 @@ func (s *Server) setupAuthRoutes(g *gin.RouterGroup) {
 			},
 		})
 	})
+}
+
+func (s *Server) recordLoginLog(c *gin.Context, username string, status int, message string) {
+	if s.core == nil || s.core.DB == nil {
+		return
+	}
+	_ = s.core.DB.Create(&loginLogRecord{
+		Username:  username,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+		Status:    status,
+		Message:   message,
+		LoginAt:   time.Now(),
+	}).Error
 }

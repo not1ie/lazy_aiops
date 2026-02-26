@@ -49,3 +49,36 @@ type Menu struct {
 	Visible   bool   `gorm:"default:true" json:"visible"`
 	Children  []Menu `gorm:"-" json:"children"`
 }
+
+// Post 岗位
+type Post struct {
+	BaseModel
+	Name        string `gorm:"size:64;not null" json:"name"`
+	Code        string `gorm:"size:64;uniqueIndex" json:"code"`
+	Sort        int    `gorm:"default:0" json:"sort"`
+	Status      int    `gorm:"default:1" json:"status"` // 1:启用 0:禁用
+	Description string `gorm:"size:256" json:"description"`
+}
+
+// CaptchaConfig 验证码配置
+type CaptchaConfig struct {
+	BaseModel
+	Enabled       bool   `gorm:"default:true" json:"enabled"`
+	Type          string `gorm:"size:32;default:math" json:"type"` // math, string
+	Length        int    `gorm:"default:4" json:"length"`
+	ExpireSeconds int    `gorm:"default:120" json:"expire_seconds"`
+	NoiseLevel    int    `gorm:"default:1" json:"noise_level"`
+	Background    string `gorm:"size:32;default:white" json:"background"`
+	CaseSensitive bool   `gorm:"default:false" json:"case_sensitive"`
+}
+
+// LoginLog 登录日志
+type LoginLog struct {
+	BaseModel
+	Username  string    `gorm:"size:64;index" json:"username"`
+	IP        string    `gorm:"size:64;index" json:"ip"`
+	UserAgent string    `gorm:"size:256" json:"user_agent"`
+	Status    int       `gorm:"default:1;index" json:"status"` // 1:成功 0:失败
+	Message   string    `gorm:"size:256" json:"message"`
+	LoginAt   time.Time `gorm:"index" json:"login_at"`
+}

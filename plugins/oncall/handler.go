@@ -243,6 +243,63 @@ func (h *OnCallHandler) CreateTeam(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": team})
 }
 
+// ListEscalations 升级策略列表
+func (h *OnCallHandler) ListEscalations(c *gin.Context) {
+	var escalations []OnCallEscalation
+	query := h.db.Order("created_at DESC")
+	if scheduleID := c.Query("schedule_id"); scheduleID != "" {
+		query = query.Where("schedule_id = ?", scheduleID)
+	}
+	if err := query.Find(&escalations).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": escalations})
+}
+
+// CreateEscalation 创建升级策略
+func (h *OnCallHandler) CreateEscalation(c *gin.Context) {
+	var escalation OnCallEscalation
+	if err := c.ShouldBindJSON(&escalation); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Create(&escalation).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": escalation})
+}
+
+// UpdateEscalation 更新升级策略
+func (h *OnCallHandler) UpdateEscalation(c *gin.Context) {
+	id := c.Param("id")
+	var escalation OnCallEscalation
+	if err := h.db.First(&escalation, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "升级策略不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&escalation); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&escalation).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": escalation})
+}
+
+// DeleteEscalation 删除升级策略
+func (h *OnCallHandler) DeleteEscalation(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&OnCallEscalation{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
 // WhoIsOnCall 查询谁在值班
 func (h *OnCallHandler) WhoIsOnCall(c *gin.Context) {
 	now := time.Now()

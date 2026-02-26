@@ -29,12 +29,12 @@ func (p *SystemPlugin) Start() error { return nil }
 func (p *SystemPlugin) Stop() error  { return nil }
 
 func (p *SystemPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&Department{}, &Menu{})
+	return p.core.DB.AutoMigrate(&Department{}, &Menu{}, &Post{}, &CaptchaConfig{}, &LoginLog{})
 }
 
 func (p *SystemPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	h := NewSystemHandler(p.core.DB)
-	
+
 	// Dept
 	g.GET("/depts", h.ListDepartments)
 	g.POST("/depts", h.CreateDepartment)
@@ -44,4 +44,17 @@ func (p *SystemPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	// Menu
 	g.GET("/menus", h.ListMenus)
 	g.POST("/menus", h.CreateMenu)
+
+	// Post
+	g.GET("/posts", h.ListPosts)
+	g.POST("/posts", h.CreatePost)
+	g.PUT("/posts/:id", h.UpdatePost)
+	g.DELETE("/posts/:id", h.DeletePost)
+
+	// Captcha
+	g.GET("/captcha", h.GetCaptchaConfig)
+	g.PUT("/captcha", h.UpdateCaptchaConfig)
+
+	// Login logs
+	g.GET("/login-logs", h.ListLoginLogs)
 }

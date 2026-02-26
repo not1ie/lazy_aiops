@@ -17,9 +17,11 @@ type OnCallPlugin struct {
 	cfg  map[string]interface{}
 }
 
-func (p *OnCallPlugin) Name() string        { return "oncall" }
-func (p *OnCallPlugin) Version() string     { return "1.0.0" }
-func (p *OnCallPlugin) Description() string { return "值班排班 - 轮换排班、换班、升级策略" }
+func (p *OnCallPlugin) Name() string    { return "oncall" }
+func (p *OnCallPlugin) Version() string { return "1.0.0" }
+func (p *OnCallPlugin) Description() string {
+	return "值班排班 - 轮换排班、换班、升级策略"
+}
 
 func (p *OnCallPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -58,6 +60,15 @@ func (p *OnCallPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	{
 		teams.GET("", h.ListTeams)
 		teams.POST("", h.CreateTeam)
+	}
+
+	// 升级策略
+	escalations := g.Group("/escalations")
+	{
+		escalations.GET("", h.ListEscalations)
+		escalations.POST("", h.CreateEscalation)
+		escalations.PUT("/:id", h.UpdateEscalation)
+		escalations.DELETE("/:id", h.DeleteEscalation)
 	}
 
 	// 查询当前值班
