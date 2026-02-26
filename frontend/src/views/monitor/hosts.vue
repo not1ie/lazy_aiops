@@ -76,6 +76,21 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="16" class="health-row">
+      <el-col :span="6"><el-card><div class="card-title">健康</div><div class="card-value health-ok">{{ healthSummary.ok }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="card-title">预警</div><div class="card-value health-warn">{{ healthSummary.warn }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="card-title">严重</div><div class="card-value health-critical">{{ healthSummary.critical }}</div></el-card></el-col>
+      <el-col :span="6">
+        <el-card>
+          <div class="card-title">当前主机</div>
+          <div class="card-sub">{{ selectedHost.instance || '-' }}</div>
+          <div class="card-mini">
+            CPU {{ selectedHost.cpu || '0.00' }}% / 内存 {{ selectedHost.memory || '0.00' }}%
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <template v-for="panel in panels" :key="panel.id">
       <el-card v-if="panel.id === 'top' && panel.visible" class="panel-card">
         <div class="panel-header">
@@ -213,29 +228,17 @@ const fetchPromRange = async (query, start, end, step) => {
   return res.data?.data?.result || []
 }
 
-const queryCpu = (instance) => instance
-  ? `100 - (avg by(instance) (irate(node_cpu_seconds_total{${buildSelector('mode="idle"', instance)}}[5m])) * 100)`
-  : `avg(100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))`
+const queryCpu = (instance) => `100 - (avg by(instance) (irate(node_cpu_seconds_total{${buildSelector('mode="idle"', instance)}}[5m])) * 100)`
 
-const queryMem = (instance) => instance
-  ? `100 * (1 - (node_memory_MemAvailable_bytes{${buildSelector('', instance)}} / node_memory_MemTotal_bytes{${buildSelector('', instance)}}))`
-  : `avg(100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)))`
+const queryMem = (instance) => `100 * (1 - (node_memory_MemAvailable_bytes{${buildSelector('', instance)}} / node_memory_MemTotal_bytes{${buildSelector('', instance)}}))`
 
-const queryDisk = (instance) => instance
-  ? `max by(instance) (100 - (node_filesystem_free_bytes{${buildSelector('fstype!="tmpfs"', instance)}} / node_filesystem_size_bytes{${buildSelector('fstype!="tmpfs"', instance)}}) * 100)`
-  : `avg(100 - (node_filesystem_free_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100)`
+const queryDisk = (instance) => `max by(instance) (100 - (node_filesystem_free_bytes{${buildSelector('fstype!="tmpfs",mountpoint="/"', instance)}} / node_filesystem_size_bytes{${buildSelector('fstype!="tmpfs",mountpoint="/"', instance)}}) * 100)`
 
-const queryNet = (instance) => instance
-  ? `sum by(instance) (rate(node_network_receive_bytes_total{${buildSelector('', instance)}}[5m]) + rate(node_network_transmit_bytes_total{${buildSelector('', instance)}}[5m])) / 1024 / 1024`
-  : `sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])) / 1024 / 1024`
+const queryNet = (instance) => `sum by(instance) (rate(node_network_receive_bytes_total{${buildSelector('', instance)}}[5m]) + rate(node_network_transmit_bytes_total{${buildSelector('', instance)}}[5m])) / 1024 / 1024`
 
-const queryLoad = (instance) => instance
-  ? `node_load1{${buildSelector('', instance)}}`
-  : `avg(node_load1)`
+const queryLoad = (instance) => `node_load1{${buildSelector('', instance)}}`
 
-const queryUptime = (instance) => instance
-  ? `node_time_seconds{${buildSelector('', instance)}} - node_boot_time_seconds{${buildSelector('', instance)}}`
-  : `avg(node_time_seconds - node_boot_time_seconds)`
+const queryUptime = (instance) => `node_time_seconds{${buildSelector('', instance)}} - node_boot_time_seconds{${buildSelector('', instance)}}`
 
 const filteredInstances = computed(() => {
   if (!companyFilter.value && !envFilter.value) return instances.value
@@ -582,6 +585,33 @@ const summary = computed(() => {
   }
 })
 
+const healthSummary = computed(() => {
+  let ok = 0
+  let warn = 0
+  let critical = 0
+  filteredRows.value.forEach((r) => {
+    const cpu = Number(r.cpu || 0)
+    const mem = Number(r.memory || 0)
+    const disk = Number(r.disk || 0)
+    if (cpu >= 85 || mem >= 90 || disk >= 90) {
+      critical++
+    } else if (cpu >= 70 || mem >= 80 || disk >= 80) {
+      warn++
+    } else {
+      ok++
+    }
+  })
+  return { ok, warn, critical }
+})
+
+const selectedHost = computed(() => {
+  if (instanceFilter.value) {
+    const found = rows.value.find(item => item.instance === instanceFilter.value)
+    if (found) return found
+  }
+  return filteredRows.value[0] || {}
+})
+
 watch(rangeHours, fetchCharts)
 watch(instanceFilter, fetchCharts)
 watch(filteredRows, renderTopCharts)
@@ -627,6 +657,7 @@ onBeforeUnmount(() => {
 .drag-handle { font-weight: 700; color: #909399; }
 .layout-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .summary-row { margin-top: 8px; }
+.health-row { margin-top: 8px; }
 .panel-card { margin-top: 16px; }
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
 .panel-desc { color: #909399; font-size: 12px; margin: 4px 0 0; }
@@ -635,6 +666,11 @@ onBeforeUnmount(() => {
 .chart-row { margin-top: 8px; }
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
+.card-sub { margin-top: 6px; font-weight: 600; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-mini { margin-top: 4px; font-size: 12px; color: #606266; }
+.health-ok { color: #67C23A; }
+.health-warn { color: #E6A23C; }
+.health-critical { color: #F56C6C; }
 .w-52 { width: 220px; }
 .w-40 { width: 140px; }
 </style>

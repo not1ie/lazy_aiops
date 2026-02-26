@@ -17,9 +17,11 @@ type DomainPlugin struct {
 	cfg  map[string]interface{}
 }
 
-func (p *DomainPlugin) Name() string        { return "domain" }
-func (p *DomainPlugin) Version() string     { return "1.0.0" }
-func (p *DomainPlugin) Description() string { return "域名管理 - 云域名到期监控、SSL证书监控" }
+func (p *DomainPlugin) Name() string    { return "domain" }
+func (p *DomainPlugin) Version() string { return "1.0.0" }
+func (p *DomainPlugin) Description() string {
+	return "域名管理 - 云域名到期监控、SSL证书监控"
+}
 
 func (p *DomainPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -61,6 +63,7 @@ func (p *DomainPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		certs.POST("", h.CreateCert)
 		certs.DELETE("/:id", h.DeleteCert)
 		certs.POST("/:id/check", h.CheckCert)
+		certs.POST("/check_all", h.CheckAllCerts)
 		certs.GET("/expiring", h.ListExpiringCerts)
 	}
 }

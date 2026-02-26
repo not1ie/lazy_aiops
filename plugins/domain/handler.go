@@ -103,7 +103,7 @@ func (h *DomainHandler) SyncDomains(c *gin.Context) {
 	// 更新账号
 	now := time.Now()
 	h.db.Model(&account).Updates(map[string]interface{}{
-		"last_sync_at":  now,
+		"last_sync_at": now,
 		"domain_count": len(domains),
 	})
 
@@ -185,7 +185,7 @@ func (h *DomainHandler) CheckDomain(c *gin.Context) {
 // ListCerts SSL证书列表
 func (h *DomainHandler) ListCerts(c *gin.Context) {
 	var certs []SSLCertificate
-	if err := h.db.Find(&certs).Error; err != nil {
+	if err := h.db.Order("days_to_expire asc").Find(&certs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -213,6 +213,7 @@ func (h *DomainHandler) CreateCert(c *gin.Context) {
 		Domain:       req.Domain,
 		Issuer:       certInfo["issuer"].(string),
 		Subject:      certInfo["subject"].(string),
+		SANs:         certInfo["sans"].(string),
 		NotBefore:    certInfo["not_before"].(*time.Time),
 		NotAfter:     certInfo["not_after"].(*time.Time),
 		DaysToExpire: certInfo["days_to_expire"].(int),
@@ -267,6 +268,7 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 	updates := map[string]interface{}{
 		"issuer":         certInfo["issuer"],
 		"subject":        certInfo["subject"],
+		"sans":           certInfo["sans"],
 		"not_before":     certInfo["not_before"],
 		"not_after":      certInfo["not_after"],
 		"days_to_expire": certInfo["days_to_expire"],
@@ -285,6 +287,56 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 	h.db.Model(&cert).Updates(updates)
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": certInfo})
+}
+
+// CheckAllCerts 批量检查证书
+func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
+	var certs []SSLCertificate
+	if err := h.db.Find(&certs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	success := 0
+	failed := 0
+	now := time.Now()
+	for _, cert := range certs {
+		certInfo, err := h.checkSSL(cert.Domain)
+		if err != nil {
+			failed++
+			continue
+		}
+		updates := map[string]interface{}{
+			"issuer":         certInfo["issuer"],
+			"subject":        certInfo["subject"],
+			"sans":           certInfo["sans"],
+			"not_before":     certInfo["not_before"],
+			"not_after":      certInfo["not_after"],
+			"days_to_expire": certInfo["days_to_expire"],
+			"serial_number":  certInfo["serial_number"],
+			"last_check_at":  now,
+			"status":         1,
+		}
+
+		daysToExpire := certInfo["days_to_expire"].(int)
+		if daysToExpire <= 0 {
+			updates["status"] = 0
+		} else if daysToExpire <= 30 {
+			updates["status"] = 2
+		}
+
+		if err := h.db.Model(&cert).Updates(updates).Error; err != nil {
+			failed++
+			continue
+		}
+		success++
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"total":   len(certs),
+		"success": success,
+		"failed":  failed,
+	}})
 }
 
 // ListExpiringCerts 即将过期的证书
@@ -348,7 +400,7 @@ func (h *DomainHandler) syncTencentDomains(account *CloudAccount) ([]CloudDomain
 type aliyunDomainResponse struct {
 	Domains struct {
 		Domain []struct {
-			DomainName     string `json:"DomainName"`
+			DomainName       string `json:"DomainName"`
 			RegistrationDate string `json:"RegistrationDate"`
 			ExpirationDate   string `json:"ExpirationDate"`
 			DomainStatus     string `json:"DomainStatus"`
