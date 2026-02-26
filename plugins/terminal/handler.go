@@ -58,7 +58,7 @@ func (h *TerminalHandler) ListSessions(c *gin.Context) {
 // CreateSession 创建会话
 func (h *TerminalHandler) CreateSession(c *gin.Context) {
 	var req struct {
-		HostID   string `json:"host_id" binding:"required"`
+		HostID   string `json:"host_id"`
 		Host     string `json:"host"`
 		Port     int    `json:"port"`
 		Username string `json:"username"`
@@ -69,16 +69,33 @@ func (h *TerminalHandler) CreateSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
+	if req.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机地址不能为空"})
+		return
+	}
+	if req.Username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名不能为空"})
+		return
+	}
+	if req.Password == "" && req.KeyAuth == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "密码或私钥至少填写一个"})
+		return
+	}
+	if req.Port <= 0 {
+		req.Port = 22
+	}
 
 	// 创建会话记录
 	session := TerminalSession{
-		HostID:   req.HostID,
-		Host:     req.Host,
-		Port:     req.Port,
-		Username: req.Username,
-		UserID:   c.GetString("user_id"),
-		Operator: c.GetString("username"),
-		Status:   0, // 待连接
+		HostID:     req.HostID,
+		Host:       req.Host,
+		Port:       req.Port,
+		Username:   req.Username,
+		Password:   req.Password,
+		PrivateKey: req.KeyAuth,
+		UserID:     c.GetString("user_id"),
+		Operator:   c.GetString("username"),
+		Status:     0, // 待连接
 	}
 	if err := h.db.Create(&session).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})

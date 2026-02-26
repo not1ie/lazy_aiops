@@ -46,6 +46,41 @@ func (h *WorkOrderHandler) CreateType(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": t})
 }
 
+// UpdateType 更新工单类型
+func (h *WorkOrderHandler) UpdateType(c *gin.Context) {
+	id := c.Param("id")
+	var t WorkOrderType
+	if err := h.db.First(&t, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "工单类型不存在"})
+		return
+	}
+	if err := c.ShouldBindJSON(&t); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Save(&t).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": t})
+}
+
+// DeleteType 删除工单类型
+func (h *WorkOrderHandler) DeleteType(c *gin.Context) {
+	id := c.Param("id")
+	var count int64
+	h.db.Model(&WorkOrder{}).Where("type_id = ?", id).Count(&count)
+	if count > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "该类型下存在工单，不能删除"})
+		return
+	}
+	if err := h.db.Delete(&WorkOrderType{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
 // ListOrders 工单列表
 func (h *WorkOrderHandler) ListOrders(c *gin.Context) {
 	var orders []WorkOrder

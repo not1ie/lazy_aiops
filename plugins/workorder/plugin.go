@@ -49,6 +49,8 @@ func (p *WorkOrderPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	{
 		types.GET("", h.ListTypes)
 		types.POST("", h.CreateType)
+		types.PUT("/:id", h.UpdateType)
+		types.DELETE("/:id", h.DeleteType)
 	}
 
 	// 工单
