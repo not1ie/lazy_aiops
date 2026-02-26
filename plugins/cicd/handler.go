@@ -2,9 +2,11 @@ package cicd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -201,7 +203,7 @@ func (h *CICDHandler) triggerJenkins(pipeline *CICDPipeline, params map[string]s
 
 // triggerGitLab 触发GitLab Pipeline
 func (h *CICDHandler) triggerGitLab(pipeline *CICDPipeline, params map[string]string) (string, error) {
-	url := fmt.Sprintf("%s/api/v4/projects/%s/pipeline", 
+	url := fmt.Sprintf("%s/api/v4/projects/%s/pipeline",
 		strings.TrimSuffix(pipeline.GitLabURL, "/"), pipeline.GitLabProjectID)
 
 	payload := map[string]interface{}{
@@ -240,7 +242,7 @@ func (h *CICDHandler) triggerGitLab(pipeline *CICDPipeline, params map[string]st
 
 // triggerArgoCD 触发ArgoCD同步
 func (h *CICDHandler) triggerArgoCD(pipeline *CICDPipeline) (string, error) {
-	url := fmt.Sprintf("%s/api/v1/applications/%s/sync", 
+	url := fmt.Sprintf("%s/api/v1/applications/%s/sync",
 		strings.TrimSuffix(pipeline.ArgoCDURL, "/"), pipeline.ArgoCDApp)
 
 	req, _ := http.NewRequest("POST", url, strings.NewReader("{}"))
@@ -363,6 +365,324 @@ func (h *CICDHandler) getGitLabStatus(pipeline *CICDPipeline, pipelineID string)
 	}
 }
 
+func (h *CICDHandler) upsertCICDJob(job *CICDJob) error {
+	var existing CICDJob
+	err := h.db.Where("pipeline_id = ? AND remote_id = ?", job.PipelineID, job.RemoteID).First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return h.db.Create(job).Error
+		}
+		return err
+	}
+
+	existing.Name = job.Name
+	existing.LastBuildNo = job.LastBuildNo
+	existing.LastStatus = job.LastStatus
+	existing.LastBuildAt = job.LastBuildAt
+	return h.db.Save(&existing).Error
+}
+
+func (h *CICDHandler) syncJenkinsJob(pipeline *CICDPipeline) (*CICDJob, error) {
+	if strings.TrimSpace(pipeline.JenkinsURL) == "" || strings.TrimSpace(pipeline.JenkinsJob) == "" {
+		return nil, fmt.Errorf("Jenkins配置不完整")
+	}
+
+	apiURL := fmt.Sprintf("%s/job/%s/api/json",
+		strings.TrimSuffix(pipeline.JenkinsURL, "/"),
+		url.PathEscape(pipeline.JenkinsJob))
+	req, _ := http.NewRequest("GET", apiURL, nil)
+	if pipeline.JenkinsUser != "" || pipeline.JenkinsToken != "" {
+		req.SetBasicAuth(pipeline.JenkinsUser, pipeline.JenkinsToken)
+	}
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Jenkins同步失败: %d, %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Name      string `json:"name"`
+		Color     string `json:"color"`
+		LastBuild struct {
+			Number    int   `json:"number"`
+			Timestamp int64 `json:"timestamp"`
+		} `json:"lastBuild"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	lastStatus := "unknown"
+	color := strings.ToLower(result.Color)
+	switch {
+	case strings.Contains(color, "blue") || strings.Contains(color, "green"):
+		lastStatus = "success"
+	case strings.Contains(color, "red"):
+		lastStatus = "failed"
+	case strings.Contains(color, "disabled"):
+		lastStatus = "disabled"
+	case strings.Contains(color, "anime"):
+		lastStatus = "running"
+	}
+
+	var lastBuildAt *time.Time
+	if result.LastBuild.Timestamp > 0 {
+		t := time.UnixMilli(result.LastBuild.Timestamp)
+		lastBuildAt = &t
+	}
+
+	name := strings.TrimSpace(result.Name)
+	if name == "" {
+		name = pipeline.JenkinsJob
+	}
+
+	return &CICDJob{
+		PipelineID:  pipeline.ID,
+		Name:        name,
+		RemoteID:    pipeline.JenkinsJob,
+		LastBuildNo: result.LastBuild.Number,
+		LastStatus:  lastStatus,
+		LastBuildAt: lastBuildAt,
+	}, nil
+}
+
+func (h *CICDHandler) syncGitLabJob(pipeline *CICDPipeline) (*CICDJob, error) {
+	if strings.TrimSpace(pipeline.GitLabURL) == "" || strings.TrimSpace(pipeline.GitLabProjectID) == "" {
+		return nil, fmt.Errorf("GitLab配置不完整")
+	}
+
+	projectID := url.PathEscape(pipeline.GitLabProjectID)
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%s/pipelines?per_page=1",
+		strings.TrimSuffix(pipeline.GitLabURL, "/"), projectID)
+	if ref := strings.TrimSpace(pipeline.GitLabRef); ref != "" {
+		apiURL += "&ref=" + url.QueryEscape(ref)
+	}
+
+	req, _ := http.NewRequest("GET", apiURL, nil)
+	req.Header.Set("PRIVATE-TOKEN", pipeline.GitLabToken)
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitLab同步失败: %d, %s", resp.StatusCode, string(body))
+	}
+
+	var runs []struct {
+		ID        int    `json:"id"`
+		Status    string `json:"status"`
+		Ref       string `json:"ref"`
+		UpdatedAt string `json:"updated_at"`
+		CreatedAt string `json:"created_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&runs); err != nil {
+		return nil, err
+	}
+	if len(runs) == 0 {
+		return &CICDJob{
+			PipelineID: pipeline.ID,
+			Name:       pipeline.Name,
+			RemoteID:   pipeline.GitLabProjectID,
+			LastStatus: "unknown",
+		}, nil
+	}
+
+	run := runs[0]
+	lastStatus := strings.TrimSpace(run.Status)
+	if lastStatus == "" {
+		lastStatus = "unknown"
+	}
+	var lastBuildAt *time.Time
+	for _, raw := range []string{run.UpdatedAt, run.CreatedAt} {
+		if t, err := time.Parse(time.RFC3339, raw); err == nil {
+			lastBuildAt = &t
+			break
+		}
+	}
+
+	name := pipeline.Name
+	if strings.TrimSpace(run.Ref) != "" {
+		name = fmt.Sprintf("%s (%s)", pipeline.Name, run.Ref)
+	}
+
+	return &CICDJob{
+		PipelineID:  pipeline.ID,
+		Name:        name,
+		RemoteID:    pipeline.GitLabProjectID,
+		LastBuildNo: run.ID,
+		LastStatus:  lastStatus,
+		LastBuildAt: lastBuildAt,
+	}, nil
+}
+
+func (h *CICDHandler) syncGitHubJob(pipeline *CICDPipeline) (*CICDJob, error) {
+	if strings.TrimSpace(pipeline.GitHubRepo) == "" || strings.TrimSpace(pipeline.GitHubWorkflow) == "" {
+		return nil, fmt.Errorf("GitHub配置不完整")
+	}
+
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/actions/workflows/%s/runs?per_page=1",
+		strings.TrimSpace(pipeline.GitHubRepo), url.PathEscape(strings.TrimSpace(pipeline.GitHubWorkflow)))
+	req, _ := http.NewRequest("GET", apiURL, nil)
+	if pipeline.GitHubToken != "" {
+		req.Header.Set("Authorization", "token "+pipeline.GitHubToken)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub同步失败: %d, %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		WorkflowRuns []struct {
+			ID         int64  `json:"id"`
+			RunNumber  int    `json:"run_number"`
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			UpdatedAt  string `json:"updated_at"`
+			CreatedAt  string `json:"created_at"`
+		} `json:"workflow_runs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if len(result.WorkflowRuns) == 0 {
+		return &CICDJob{
+			PipelineID: pipeline.ID,
+			Name:       pipeline.Name,
+			RemoteID:   pipeline.GitHubWorkflow,
+			LastStatus: "unknown",
+		}, nil
+	}
+
+	run := result.WorkflowRuns[0]
+	status := strings.TrimSpace(run.Conclusion)
+	if status == "" {
+		status = strings.TrimSpace(run.Status)
+	}
+	if status == "" {
+		status = "unknown"
+	}
+
+	var lastBuildAt *time.Time
+	for _, raw := range []string{run.UpdatedAt, run.CreatedAt} {
+		if t, err := time.Parse(time.RFC3339, raw); err == nil {
+			lastBuildAt = &t
+			break
+		}
+	}
+
+	name := strings.TrimSpace(run.Name)
+	if name == "" {
+		name = pipeline.Name
+	}
+
+	return &CICDJob{
+		PipelineID:  pipeline.ID,
+		Name:        name,
+		RemoteID:    pipeline.GitHubWorkflow,
+		LastBuildNo: run.RunNumber,
+		LastStatus:  status,
+		LastBuildAt: lastBuildAt,
+	}, nil
+}
+
+func (h *CICDHandler) syncArgoCDJob(pipeline *CICDPipeline) (*CICDJob, error) {
+	if strings.TrimSpace(pipeline.ArgoCDURL) == "" || strings.TrimSpace(pipeline.ArgoCDApp) == "" {
+		return nil, fmt.Errorf("ArgoCD配置不完整")
+	}
+
+	apiURL := fmt.Sprintf("%s/api/v1/applications/%s",
+		strings.TrimSuffix(pipeline.ArgoCDURL, "/"), url.PathEscape(strings.TrimSpace(pipeline.ArgoCDApp)))
+	req, _ := http.NewRequest("GET", apiURL, nil)
+	if pipeline.ArgoCDToken != "" {
+		req.Header.Set("Authorization", "Bearer "+pipeline.ArgoCDToken)
+	}
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ArgoCD同步失败: %d, %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Metadata struct {
+			Name string `json:"name"`
+		} `json:"metadata"`
+		Status struct {
+			Health struct {
+				Status string `json:"status"`
+			} `json:"health"`
+			Sync struct {
+				Status string `json:"status"`
+			} `json:"sync"`
+			OperationState struct {
+				Phase      string `json:"phase"`
+				FinishedAt string `json:"finishedAt"`
+			} `json:"operationState"`
+		} `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	lastStatus := strings.TrimSpace(result.Status.OperationState.Phase)
+	if lastStatus == "" {
+		lastStatus = strings.TrimSpace(result.Status.Sync.Status)
+	}
+	if lastStatus == "" {
+		lastStatus = strings.TrimSpace(result.Status.Health.Status)
+	}
+	if lastStatus == "" {
+		lastStatus = "unknown"
+	}
+
+	var lastBuildAt *time.Time
+	if t, err := time.Parse(time.RFC3339, result.Status.OperationState.FinishedAt); err == nil {
+		lastBuildAt = &t
+	}
+
+	name := strings.TrimSpace(result.Metadata.Name)
+	if name == "" {
+		name = pipeline.ArgoCDApp
+	}
+
+	return &CICDJob{
+		PipelineID:  pipeline.ID,
+		Name:        name,
+		RemoteID:    pipeline.ArgoCDApp,
+		LastBuildNo: 0,
+		LastStatus:  lastStatus,
+		LastBuildAt: lastBuildAt,
+	}, nil
+}
+
 // SyncFromRemote 从远程同步Job
 func (h *CICDHandler) SyncFromRemote(c *gin.Context) {
 	id := c.Param("id")
@@ -371,8 +691,37 @@ func (h *CICDHandler) SyncFromRemote(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "流水线不存在"})
 		return
 	}
-	// TODO: 实现同步逻辑
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "同步成功"})
+
+	var (
+		job *CICDJob
+		err error
+	)
+
+	switch strings.ToLower(strings.TrimSpace(pipeline.Provider)) {
+	case "jenkins":
+		job, err = h.syncJenkinsJob(&pipeline)
+	case "gitlab":
+		job, err = h.syncGitLabJob(&pipeline)
+	case "github":
+		job, err = h.syncGitHubJob(&pipeline)
+	case "argocd":
+		job, err = h.syncArgoCDJob(&pipeline)
+	default:
+		err = fmt.Errorf("不支持的Provider: %s", pipeline.Provider)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if job == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "同步失败：未获取到Job信息"})
+		return
+	}
+	if err := h.upsertCICDJob(job); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "同步成功", "data": job})
 }
 
 // ListExecutions 执行记录列表

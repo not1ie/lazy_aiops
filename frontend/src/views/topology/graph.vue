@@ -410,6 +410,7 @@ const autoLayout = async () => {
   try {
     const res = await axios.post('/api/v1/topology/layout/auto', {}, { headers: authHeaders() })
     ElMessage.success(res.data?.message || '已触发自动布局')
+    await fetchTopology()
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '自动布局失败')
   }

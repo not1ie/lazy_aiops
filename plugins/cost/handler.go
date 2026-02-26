@@ -1,8 +1,11 @@
 package cost
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -317,8 +320,193 @@ func (h *CostHandler) UpdateOptimization(c *gin.Context) {
 
 // AnalyzeOptimization 分析优化建议
 func (h *CostHandler) AnalyzeOptimization(c *gin.Context) {
-	// TODO: 实现资源利用率分析，生成优化建议
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "分析任务已提交"})
+	type resourceCostStat struct {
+		AccountID    string  `json:"account_id"`
+		ResourceID   string  `json:"resource_id"`
+		ResourceName string  `json:"resource_name"`
+		ProductCode  string  `json:"product_code"`
+		ProductName  string  `json:"product_name"`
+		Amount       float64 `json:"amount"`
+	}
+
+	since := time.Now().AddDate(0, 0, -30)
+	var stats []resourceCostStat
+	if err := h.db.Model(&CostRecord{}).
+		Select("account_id, resource_id, resource_name, product_code, product_name, SUM(amount) AS amount").
+		Where("billing_date >= ?", since).
+		Group("account_id, resource_id, resource_name, product_code, product_name").
+		Having("SUM(amount) > 0").
+		Order("amount DESC").
+		Limit(200).
+		Scan(&stats).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	if len(stats) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "暂无可分析的费用数据", "data": gin.H{"created": 0, "updated": 0}})
+		return
+	}
+
+	created := 0
+	updated := 0
+	skipped := 0
+	for _, stat := range stats {
+		resourceID := strings.TrimSpace(stat.ResourceID)
+		if resourceID == "" {
+			resourceID = strings.TrimSpace(stat.ProductCode)
+		}
+		if resourceID == "" {
+			skipped++
+			continue
+		}
+		resourceName := strings.TrimSpace(stat.ResourceName)
+		if resourceName == "" {
+			resourceName = strings.TrimSpace(stat.ProductName)
+		}
+		if resourceName == "" {
+			resourceName = resourceID
+		}
+
+		resourceType := inferResourceType(stat.ProductCode, stat.ProductName)
+		optType, saveRatio, reason := getOptimizationPolicy(resourceType, stat.Amount)
+		if saveRatio <= 0 {
+			skipped++
+			continue
+		}
+
+		currentCost := roundCost(stat.Amount)
+		suggestCost := roundCost(currentCost * (1 - saveRatio))
+		saveAmount := roundCost(currentCost - suggestCost)
+		opt := CostOptimization{
+			AccountID:    stat.AccountID,
+			ResourceID:   resourceID,
+			ResourceName: resourceName,
+			ResourceType: resourceType,
+			OptType:      optType,
+			CurrentSpec:  fmt.Sprintf("近30天成本 %.2f", currentCost),
+			SuggestSpec:  fmt.Sprintf("预计优化 %.0f%%", saveRatio*100),
+			CurrentCost:  currentCost,
+			SuggestCost:  suggestCost,
+			SaveAmount:   saveAmount,
+			Reason:       reason,
+			Status:       0,
+		}
+
+		var existing CostOptimization
+		err := h.db.Where("account_id = ? AND resource_id = ? AND opt_type = ?",
+			stat.AccountID, resourceID, optType).First(&existing).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if createErr := h.db.Create(&opt).Error; createErr != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": createErr.Error()})
+					return
+				}
+				created++
+				continue
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+
+		updates := map[string]interface{}{
+			"resource_name": resourceName,
+			"resource_type": resourceType,
+			"current_spec":  opt.CurrentSpec,
+			"suggest_spec":  opt.SuggestSpec,
+			"current_cost":  currentCost,
+			"suggest_cost":  suggestCost,
+			"save_amount":   saveAmount,
+			"reason":        reason,
+		}
+		if existing.Status == 0 {
+			updates["status"] = 0
+		}
+		if updateErr := h.db.Model(&existing).Updates(updates).Error; updateErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": updateErr.Error()})
+			return
+		}
+		updated++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "分析完成",
+		"data": gin.H{
+			"created": created,
+			"updated": updated,
+			"skipped": skipped,
+			"window":  "30d",
+		},
+	})
+}
+
+func inferResourceType(productCode, productName string) string {
+	value := strings.ToLower(strings.TrimSpace(productCode + " " + productName))
+	switch {
+	case strings.Contains(value, "ecs"),
+		strings.Contains(value, "ec2"),
+		strings.Contains(value, "cvm"),
+		strings.Contains(value, "compute"),
+		strings.Contains(value, "node"):
+		return "compute"
+	case strings.Contains(value, "rds"),
+		strings.Contains(value, "mysql"),
+		strings.Contains(value, "postgres"),
+		strings.Contains(value, "mongo"),
+		strings.Contains(value, "database"),
+		strings.Contains(value, "db"):
+		return "database"
+	case strings.Contains(value, "oss"),
+		strings.Contains(value, "s3"),
+		strings.Contains(value, "disk"),
+		strings.Contains(value, "storage"),
+		strings.Contains(value, "nas"):
+		return "storage"
+	case strings.Contains(value, "redis"),
+		strings.Contains(value, "cache"):
+		return "cache"
+	default:
+		return "general"
+	}
+}
+
+func getOptimizationPolicy(resourceType string, amount float64) (optType string, saveRatio float64, reason string) {
+	switch resourceType {
+	case "storage":
+		optType = "release"
+	case "database":
+		optType = "reserved"
+	default:
+		optType = "downgrade"
+	}
+
+	switch {
+	case amount >= 10000:
+		saveRatio = 0.25
+		reason = "近30天费用较高，建议优先进行规格优化或长期预留"
+	case amount >= 3000:
+		saveRatio = 0.18
+		reason = "成本处于高位，建议评估降配或预留实例"
+	case amount >= 800:
+		saveRatio = 0.12
+		reason = "存在持续支出，建议按利用率进行规格优化"
+	case amount >= 200:
+		saveRatio = 0.08
+		reason = "成本可进一步压缩，建议做闲置检查与容量治理"
+	default:
+		saveRatio = 0
+		reason = "成本较低，暂不推荐优化"
+	}
+
+	if resourceType == "storage" && saveRatio > 0 && saveRatio < 0.15 {
+		saveRatio = 0.15
+	}
+	return optType, saveRatio, reason
+}
+
+func roundCost(v float64) float64 {
+	return float64(int(v*100+0.5)) / 100
 }
 
 // GetCostTrend 费用趋势
