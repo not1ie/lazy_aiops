@@ -94,6 +94,8 @@
             >
               保存坐标({{ dirtyNodeIDs.length }})
             </el-button>
+            <el-button size="small" :disabled="!graphNodes.length" @click="exportCanvasSvg">导出SVG</el-button>
+            <el-button size="small" :disabled="!graphNodes.length" @click="exportCanvasPng">导出PNG</el-button>
             <el-switch v-model="showEdgeLabel" size="small" inline-prompt active-text="边标签" inactive-text="边标签" />
           </div>
         </div>
@@ -174,8 +176,13 @@
               <el-option label="故障" value="3" />
               <el-option label="未知" value="0" />
             </el-select>
+            <el-select v-model="nodeFilter.edge_type" class="filter-select" placeholder="链路类型">
+              <el-option label="全部链路" value="all" />
+              <el-option v-for="item in edgeTypeOptions" :key="item" :label="item" :value="item" />
+            </el-select>
             <el-checkbox v-model="nodeFilter.critical_only" class="filter-toggle">关键路径</el-checkbox>
             <el-checkbox v-model="nodeFilter.alert_chain_only" class="filter-toggle">告警链路</el-checkbox>
+            <el-checkbox v-model="nodeFilter.neighbor_only" class="filter-toggle">一跳邻居</el-checkbox>
           </div>
           <el-table :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode" :row-class-name="nodeRowClassName">
             <el-table-column prop="name" label="名称" min-width="160" />
@@ -429,8 +436,10 @@ const nodeFilter = reactive({
   keyword: '',
   source: 'all',
   status: 'all',
+  edge_type: 'all',
   critical_only: false,
-  alert_chain_only: false
+  alert_chain_only: false,
+  neighbor_only: false
 })
 
 const GRAPH_NODE_WIDTH = 190
@@ -475,6 +484,14 @@ const sourceStats = computed(() => {
     .map(([source, count]) => ({ source, count }))
     .sort((a, b) => b.count - a.count)
 })
+const edgeTypeOptions = computed(() => {
+  const set = new Set()
+  for (const edge of edges.value) {
+    const key = (edge.type || '').trim()
+    if (key) set.add(key)
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b))
+})
 const clusterStats = computed(() => {
   const map = new Map()
   for (const item of nodes.value) {
@@ -489,7 +506,7 @@ const filteredNodes = computed(() => {
   const keyword = nodeFilter.keyword.trim().toLowerCase()
   const source = nodeFilter.source
   const status = nodeFilter.status
-  return nodes.value.filter((item) => {
+  let list = nodes.value.filter((item) => {
     if (source !== 'all' && nodeSource(item) !== source) return false
     if (status !== 'all' && String(Number(item.status || 0)) !== status) return false
     if (nodeFilter.critical_only && !criticalNodeNames.value.has(item.name)) return false
@@ -498,12 +515,38 @@ const filteredNodes = computed(() => {
     const text = `${item.name || ''} ${item.namespace || ''} ${item.cluster || ''}`.toLowerCase()
     return text.includes(keyword)
   })
+
+  if (nodeFilter.neighbor_only && selectedNode.value) {
+    const selectedID = selectedNode.value.id
+    const selectedName = selectedNode.value.name || nodeName(selectedID)
+    const neighborIDs = new Set([selectedID])
+    const neighborNames = new Set([selectedName])
+    for (const edge of edges.value) {
+      const sourceName = (edge.source_name || nodeName(edge.source_id)).trim()
+      const targetName = (edge.target_name || nodeName(edge.target_id)).trim()
+      const hitByID = selectedID && (edge.source_id === selectedID || edge.target_id === selectedID)
+      const hitByName = selectedName && (sourceName === selectedName || targetName === selectedName)
+      if (!hitByID && !hitByName) continue
+      if (edge.source_id) neighborIDs.add(edge.source_id)
+      if (edge.target_id) neighborIDs.add(edge.target_id)
+      if (sourceName) neighborNames.add(sourceName)
+      if (targetName) neighborNames.add(targetName)
+    }
+    list = list.filter(item => neighborIDs.has(item.id) || neighborNames.has(item.name))
+  }
+
+  return list
 })
 const filteredEdges = computed(() => {
-  if (filteredNodes.value.length === nodes.value.length) return edges.value
+  const edgeType = nodeFilter.edge_type
+  const edgePool = edgeType === 'all'
+    ? edges.value
+    : edges.value.filter(edge => (edge.type || '').trim() === edgeType)
+
+  if (filteredNodes.value.length === nodes.value.length && edgeType === 'all') return edgePool
   const idSet = new Set(filteredNodes.value.map(item => item.id))
   const nameSet = new Set(filteredNodes.value.map(item => item.name))
-  return edges.value.filter((edge) => {
+  return edgePool.filter((edge) => {
     const sourceByID = edge.source_id && idSet.has(edge.source_id)
     const targetByID = edge.target_id && idSet.has(edge.target_id)
     if (sourceByID && targetByID) return true
@@ -712,8 +755,10 @@ const resetNodeFilter = () => {
   nodeFilter.keyword = ''
   nodeFilter.source = 'all'
   nodeFilter.status = 'all'
+  nodeFilter.edge_type = 'all'
   nodeFilter.critical_only = false
   nodeFilter.alert_chain_only = false
+  nodeFilter.neighbor_only = false
 }
 
 const startNodeDrag = (event, item) => {
@@ -767,6 +812,155 @@ const saveCanvasLayout = async () => {
   } finally {
     savingLayout.value = false
   }
+}
+
+const xmlEscape = (input) => {
+  return String(input ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;')
+}
+
+const trimText = (text, maxLen = 34) => {
+  const value = String(text || '')
+  if (value.length <= maxLen) return value
+  return `${value.slice(0, maxLen - 1)}…`
+}
+
+const drawRoundedRect = (ctx, x, y, width, height, radius) => {
+  const r = Math.min(radius, width / 2, height / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + width, y, x + width, y + height, r)
+  ctx.arcTo(x + width, y + height, x, y + height, r)
+  ctx.arcTo(x, y + height, x, y, r)
+  ctx.arcTo(x, y, x + width, y, r)
+  ctx.closePath()
+}
+
+const drawArrowLine = (ctx, x1, y1, x2, y2, color) => {
+  ctx.strokeStyle = color
+  ctx.lineWidth = color === '#f56c6c' ? 2.2 : 1.2
+  ctx.beginPath()
+  ctx.moveTo(x1, y1)
+  ctx.lineTo(x2, y2)
+  ctx.stroke()
+
+  const headLen = 8
+  const angle = Math.atan2(y2 - y1, x2 - x1)
+  ctx.beginPath()
+  ctx.moveTo(x2, y2)
+  ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6))
+  ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6))
+  ctx.closePath()
+  ctx.fillStyle = color
+  ctx.fill()
+}
+
+const topologyExportFileName = (suffix) => {
+  const ts = new Date().toISOString().replaceAll(':', '-').replace('T', '_').slice(0, 19)
+  return `topology-canvas-${ts}.${suffix}`
+}
+
+const downloadBlob = (blob, name) => {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+const exportCanvasSvg = () => {
+  if (!graphNodes.value.length) return
+  const width = canvasSize.value.width
+  const height = canvasSize.value.height
+  const lines = graphEdges.value.map((item) => `
+    <line x1="${item.x1}" y1="${item.y1}" x2="${item.x2}" y2="${item.y2}" stroke="${item.critical ? '#f56c6c' : '#9ca3af'}" stroke-width="${item.critical ? 2.2 : 1.2}" marker-end="url(#arrow)" />`).join('')
+  const labels = showEdgeLabel.value
+    ? graphEdges.value.map((item) => `
+    <text x="${(item.x1 + item.x2) / 2}" y="${(item.y1 + item.y2) / 2 - 4}" font-size="11" text-anchor="middle" fill="#6b7280">${xmlEscape(item.label)}</text>`).join('')
+    : ''
+  const rects = graphNodes.value.map((item) => {
+    const fill = criticalNodeNames.value.has(item.name) ? '#fff7f7' : '#ffffff'
+    return `
+    <rect x="${item.left}" y="${item.top}" width="${GRAPH_NODE_WIDTH}" height="${GRAPH_NODE_HEIGHT}" rx="10" ry="10" fill="${fill}" stroke="${sourceColor(item.source)}" stroke-width="2" />
+    <text x="${item.left + 10}" y="${item.top + 20}" font-size="12" fill="#303133">${xmlEscape(trimText(item.name, 32))}</text>
+    <text x="${item.left + 10}" y="${item.top + 37}" font-size="10" fill="#909399">${xmlEscape(`${item.source} | ${item.type}`)}</text>`
+  }).join('')
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#9ca3af" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="${width}" height="${height}" fill="#f8f9fb" />
+  ${lines}
+  ${labels}
+  ${rects}
+</svg>`
+  downloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), topologyExportFileName('svg'))
+}
+
+const exportCanvasPng = async () => {
+  if (!graphNodes.value.length) return
+  const ratio = window.devicePixelRatio || 1
+  const width = canvasSize.value.width
+  const height = canvasSize.value.height
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(width * ratio)
+  canvas.height = Math.round(height * ratio)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    ElMessage.error('当前浏览器不支持画布导出')
+    return
+  }
+  ctx.scale(ratio, ratio)
+  ctx.fillStyle = '#f8f9fb'
+  ctx.fillRect(0, 0, width, height)
+
+  for (const edge of graphEdges.value) {
+    drawArrowLine(ctx, edge.x1, edge.y1, edge.x2, edge.y2, edge.critical ? '#f56c6c' : '#9ca3af')
+    if (showEdgeLabel.value && edge.label) {
+      ctx.fillStyle = '#6b7280'
+      ctx.font = '11px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(edge.label, (edge.x1 + edge.x2) / 2, (edge.y1 + edge.y2) / 2 - 4)
+    }
+  }
+
+  for (const node of graphNodes.value) {
+    const isCritical = criticalNodeNames.value.has(node.name)
+    drawRoundedRect(ctx, node.left, node.top, GRAPH_NODE_WIDTH, GRAPH_NODE_HEIGHT, 10)
+    ctx.fillStyle = isCritical ? '#fff7f7' : '#ffffff'
+    ctx.fill()
+    ctx.lineWidth = 2
+    ctx.strokeStyle = sourceColor(node.source)
+    ctx.stroke()
+
+    ctx.fillStyle = '#303133'
+    ctx.font = '12px sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillText(trimText(node.name, 32), node.left + 10, node.top + 20)
+    ctx.fillStyle = '#909399'
+    ctx.font = '10px sans-serif'
+    ctx.fillText(`${node.source} | ${node.type}`, node.left + 10, node.top + 37)
+  }
+
+  await new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        ElMessage.error('导出PNG失败')
+        resolve(null)
+        return
+      }
+      downloadBlob(blob, topologyExportFileName('png'))
+      resolve(null)
+    }, 'image/png', 0.98)
+  })
 }
 
 const resetNodeForm = () => {
