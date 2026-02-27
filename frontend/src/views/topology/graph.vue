@@ -20,6 +20,61 @@
       <el-col :span="6"><el-card><div class="k">异常节点</div><div class="v danger">{{ unhealthyCount }}</div></el-card></el-col>
     </el-row>
 
+    <el-row :gutter="12" class="mb-12">
+      <el-col :md="14" :sm="24">
+        <el-card class="overview-card">
+          <template #header>
+            <div class="section-header">
+              <span>来源与集群分布</span>
+              <el-button text @click="resetNodeFilter">重置过滤</el-button>
+            </div>
+          </template>
+          <div class="source-grid">
+            <div
+              v-for="item in sourceStats"
+              :key="item.source"
+              class="source-item"
+              :class="{ active: nodeFilter.source === item.source }"
+              @click="nodeFilter.source = item.source"
+            >
+              <div class="source-title">
+                <span class="source-dot" :style="{ backgroundColor: sourceColor(item.source) }"></span>
+                <span>{{ item.source }}</span>
+              </div>
+              <div class="source-value">{{ item.count }}</div>
+            </div>
+          </div>
+          <el-divider />
+          <div class="cluster-list">
+            <div v-for="item in clusterStats.slice(0, 8)" :key="item.cluster" class="cluster-row">
+              <span class="cluster-name" :title="item.cluster">{{ item.cluster || '-' }}</span>
+              <el-tag size="small">{{ item.count }}</el-tag>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :md="10" :sm="24">
+        <el-card class="overview-card">
+          <template #header>
+            <div class="section-header">
+              <span>关键路径/影响分</span>
+              <el-button text :loading="dependencyLoading" @click="fetchDependencyInsights">刷新分析</el-button>
+            </div>
+          </template>
+          <el-empty v-if="!dependencyInsights.length" description="暂无分析结果" :image-size="72" />
+          <el-table v-else :data="dependencyInsights.slice(0, 6)" size="small" border>
+            <el-table-column prop="service_name" label="服务" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="impact_score" label="影响分" width="84" />
+            <el-table-column label="关键路径" width="92">
+              <template #default="{ row }">
+                <el-tag :type="row.critical_path ? 'danger' : 'info'" size="small">{{ row.critical_path ? '是' : '否' }}</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-row :gutter="12">
       <el-col :md="14" :sm="24">
         <el-card>
@@ -47,11 +102,13 @@
               <el-option label="未知" value="0" />
             </el-select>
           </div>
-          <el-table :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode">
+          <el-table :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode" :row-class-name="nodeRowClassName">
             <el-table-column prop="name" label="名称" min-width="160" />
             <el-table-column label="来源" width="120">
               <template #default="{ row }">
-                <el-tag size="small" effect="plain">{{ nodeSource(row) }}</el-tag>
+                <el-tag size="small" effect="plain" :color="sourceColor(nodeSource(row))" :style="{ color: '#fff', borderColor: 'transparent' }">
+                  {{ nodeSource(row) }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="type" label="类型" width="110" />
@@ -228,11 +285,13 @@ const nodeSaving = ref(false)
 const edgeSaving = ref(false)
 const importing = ref(false)
 const discovering = ref(false)
+const dependencyLoading = ref(false)
 
 const nodes = ref([])
 const edges = ref([])
 const views = ref([])
 const selectedNode = ref(null)
+const dependencyInsights = ref([])
 const clusterOptions = ref([])
 const dockerHostOptions = ref([])
 
@@ -286,10 +345,35 @@ const nodeFilter = reactive({
 })
 
 const unhealthyCount = computed(() => nodes.value.filter(item => Number(item.status) === 2 || Number(item.status) === 3).length)
+const criticalNodeNames = computed(() => new Set(
+  dependencyInsights.value
+    .filter(item => item.critical_path)
+    .map(item => item.service_name)
+))
 const sourceOptions = computed(() => {
   const options = new Set()
   for (const item of nodes.value) options.add(nodeSource(item))
   return Array.from(options).sort()
+})
+const sourceStats = computed(() => {
+  const map = new Map()
+  for (const item of nodes.value) {
+    const source = nodeSource(item)
+    map.set(source, (map.get(source) || 0) + 1)
+  }
+  return Array.from(map.entries())
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count)
+})
+const clusterStats = computed(() => {
+  const map = new Map()
+  for (const item of nodes.value) {
+    const key = item.cluster || '-'
+    map.set(key, (map.get(key) || 0) + 1)
+  }
+  return Array.from(map.entries())
+    .map(([cluster, count]) => ({ cluster, count }))
+    .sort((a, b) => b.count - a.count)
 })
 const filteredNodes = computed(() => {
   const keyword = nodeFilter.keyword.trim().toLowerCase()
@@ -329,6 +413,19 @@ const parseNodeMetadata = (raw) => {
     if (parsed && typeof parsed === 'object') return parsed
   } catch {}
   return {}
+}
+const sourceColor = (source) => {
+  const map = {
+    k8s: '#409eff',
+    swarm: '#67c23a',
+    docker: '#e6a23c',
+    manual: '#909399'
+  }
+  return map[source] || '#606266'
+}
+const nodeRowClassName = ({ row }) => {
+  if (criticalNodeNames.value.has(row.name)) return 'critical-node-row'
+  return ''
 }
 
 const statusText = (status) => {
@@ -374,6 +471,18 @@ const fetchViews = async () => {
   }
 }
 
+const fetchDependencyInsights = async () => {
+  dependencyLoading.value = true
+  try {
+    const res = await axios.get('/api/v1/topology/analyze', { headers: authHeaders() })
+    if (res.data?.code === 0) dependencyInsights.value = res.data.data || []
+  } catch {
+    dependencyInsights.value = []
+  } finally {
+    dependencyLoading.value = false
+  }
+}
+
 const fetchDiscoverOptions = async () => {
   try {
     const [k8sResp, dockerResp] = await Promise.all([
@@ -388,7 +497,7 @@ const fetchDiscoverOptions = async () => {
 }
 
 const refreshAll = async () => {
-  await Promise.all([fetchTopology(), fetchViews()])
+  await Promise.all([fetchTopology(), fetchViews(), fetchDependencyInsights()])
 }
 
 const selectNode = (row) => {
@@ -655,4 +764,19 @@ onMounted(fetchDiscoverOptions)
 .table-filters { display: flex; gap: 8px; margin-bottom: 8px; }
 .filter-input { flex: 1; }
 .filter-select { width: 140px; }
+.overview-card { min-height: 274px; }
+.source-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.source-item { border: 1px solid #ebeef5; border-radius: 8px; padding: 10px; cursor: pointer; background: #fff; }
+.source-item.active { border-color: #409eff; box-shadow: 0 0 0 1px #409eff inset; }
+.source-title { display: flex; align-items: center; gap: 6px; color: #606266; font-size: 12px; }
+.source-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+.source-value { font-size: 22px; font-weight: 700; margin-top: 6px; color: #303133; }
+.cluster-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cluster-row { display: flex; align-items: center; justify-content: space-between; border: 1px solid #f2f3f5; border-radius: 6px; padding: 6px 8px; }
+.cluster-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; color: #606266; font-size: 12px; }
+:deep(.critical-node-row > td) { background: #fff8f8 !important; }
+@media (max-width: 900px) {
+  .source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cluster-list { grid-template-columns: 1fr; }
+}
 </style>
