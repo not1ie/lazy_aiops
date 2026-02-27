@@ -1,9 +1,16 @@
 <template>
-  <el-card>
+  <el-card class="docker-page-card">
     <template #header>
-      <div class="flex justify-between items-center">
-        <span class="font-bold">Docker 环境列表</span>
-        <div>
+      <div class="header-row">
+        <div class="header-left">
+          <span class="font-bold header-title">Docker 环境列表</span>
+          <div class="header-stats">
+            <el-tag effect="plain">总环境 {{ tableData.length }}</el-tag>
+            <el-tag type="success" effect="plain">在线 {{ onlineHosts }}</el-tag>
+            <el-tag type="danger" effect="plain">离线 {{ offlineHosts }}</el-tag>
+          </div>
+        </div>
+        <div class="header-actions">
           <el-button type="primary" icon="Plus" @click="handleAdd">添加环境</el-button>
           <el-button icon="Refresh" @click="syncAll">刷新</el-button>
         </div>
@@ -60,7 +67,7 @@
     </el-dialog>
 
     <!-- 管理抽屉 -->
-    <el-drawer v-model="manageVisible" size="100%" :with-header="false" :append-to-body="true">
+    <el-drawer v-model="manageVisible" size="100%" :with-header="false" :append-to-body="true" class="docker-manage-drawer">
       <div class="drawer-header">
         <div>
           <div class="drawer-title">{{ activeHost?.name || 'Docker 环境' }}</div>
@@ -71,8 +78,10 @@
             <span class="drawer-meta">版本：{{ activeHost?.version || '-' }}</span>
           </div>
         </div>
-        <div>
+        <div class="drawer-actions">
           <el-button size="small" icon="Refresh" @click="refreshManage">刷新</el-button>
+          <el-button size="small" plain icon="Close" @click="manageVisible = false">退出管理</el-button>
+          <el-button size="small" type="danger" plain icon="SwitchButton" @click="logout">退出登录</el-button>
         </div>
       </div>
 
@@ -1558,6 +1567,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, watch, computed, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Terminal } from 'xterm'
@@ -1565,11 +1575,14 @@ import { FitAddon } from 'xterm-addon-fit'
 import * as echarts from 'echarts'
 import 'xterm/css/xterm.css'
 
+const router = useRouter()
 const loading = ref(false)
 const tableData = ref([])
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const hosts = ref([])
+const onlineHosts = computed(() => (tableData.value || []).filter((item) => item.status === 'online').length)
+const offlineHosts = computed(() => Math.max(0, (tableData.value || []).length - onlineHosts.value))
 
 const manageVisible = ref(false)
 const manageTab = ref('overview')
@@ -2114,6 +2127,14 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: 'Bearer ' + localStorage.getItem('token') })
+
+const logout = () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('permissions')
+  localStorage.removeItem('user_info')
+  localStorage.removeItem('role_code')
+  router.push('/login')
+}
 
 const normalizeContainers = (items) => items.map((row) => {
   const id = row.ID || row.Id || row.id
@@ -5313,18 +5334,72 @@ onUnmounted(() => {
 .items-center { align-items: center; }
 .gap-2 { gap: 8px; }
 .font-bold { font-weight: bold; }
+.docker-page-card {
+  max-width: 100%;
+  margin: 0 auto;
+  border-radius: 16px;
+  border: 1px solid #e8edf4;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.header-title {
+  font-size: 18px;
+  letter-spacing: -0.2px;
+}
+.header-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .w-100 { width: 100%; }
 .text-xs { font-size: 12px; line-height: 1.3; }
 .text-blue-500 { color: #409eff; }
 .text-xl { font-size: 18px; }
-.drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.drawer-title { font-size: 18px; font-weight: 600; }
+.drawer-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: -4px -4px 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #e8edf4;
+  backdrop-filter: blur(8px);
+}
+.drawer-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.drawer-title { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
 .drawer-sub { color: #606266; margin-top: 6px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .drawer-meta { color: #909399; }
 .w-40 { width: 140px; }
 .w-48 { width: 180px; }
 .w-28 { width: 110px; }
 .manage-tabs { margin-top: 8px; }
+.manage-tabs :deep(.el-tabs__item.is-active) {
+  font-weight: 600;
+}
 .tab-toolbar { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .toolbar-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .toolbar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -5347,5 +5422,11 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 .terminal-title { font-weight: 600; flex: 1; }
-:deep(.el-drawer__body) { padding: 16px; }
+:deep(.docker-manage-drawer .el-drawer__body) {
+  padding: 16px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+:deep(.el-table th.el-table__cell) {
+  background: #f8fafc;
+}
 </style>
