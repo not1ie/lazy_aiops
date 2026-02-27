@@ -75,6 +75,68 @@
       </el-col>
     </el-row>
 
+    <el-card class="mb-12">
+      <template #header>
+        <div class="section-header">
+          <span>拓扑画布</span>
+          <div class="canvas-actions">
+            <el-select v-model="canvasMode" size="small" class="canvas-select">
+              <el-option label="按集群泳道" value="lane" />
+              <el-option label="按布局坐标" value="manual" />
+            </el-select>
+            <el-switch v-model="showEdgeLabel" size="small" inline-prompt active-text="边标签" inactive-text="边标签" />
+          </div>
+        </div>
+      </template>
+      <div v-if="!graphNodes.length" class="canvas-empty">
+        <el-empty description="暂无可渲染拓扑数据（请先自动发现或调整筛选）" :image-size="90" />
+      </div>
+      <div v-else class="topology-canvas">
+        <div v-if="canvasMode === 'lane'" class="lane-header">
+          <div v-for="lane in laneColumns" :key="lane" class="lane-item">{{ lane || '-' }}</div>
+        </div>
+        <svg class="edge-layer" :viewBox="`0 0 ${canvasSize.width} ${canvasSize.height}`" preserveAspectRatio="none">
+          <defs>
+            <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 Z" fill="#9ca3af" />
+            </marker>
+          </defs>
+          <line
+            v-for="item in graphEdges"
+            :key="item.id"
+            :x1="item.x1"
+            :y1="item.y1"
+            :x2="item.x2"
+            :y2="item.y2"
+            :stroke="item.critical ? '#f56c6c' : '#9ca3af'"
+            :stroke-width="item.critical ? 2.4 : 1.4"
+            marker-end="url(#arrow)"
+          />
+          <text
+            v-if="showEdgeLabel"
+            v-for="item in graphEdges"
+            :key="`${item.id}-label`"
+            :x="(item.x1 + item.x2) / 2"
+            :y="(item.y1 + item.y2) / 2 - 4"
+            class="edge-label"
+          >
+            {{ item.label }}
+          </text>
+        </svg>
+        <div
+          v-for="item in graphNodes"
+          :key="item.id"
+          class="graph-node"
+          :class="{ selected: selectedNode?.id === item.id, critical: criticalNodeNames.has(item.name) }"
+          :style="{ left: `${item.left}px`, top: `${item.top}px`, borderColor: sourceColor(item.source) }"
+          @click="selectNode(item.raw)"
+        >
+          <div class="graph-node-title">{{ item.name }}</div>
+          <div class="graph-node-meta">{{ item.source }} | {{ item.type }}</div>
+        </div>
+      </div>
+    </el-card>
+
     <el-row :gutter="12">
       <el-col :md="14" :sm="24">
         <el-card>
@@ -286,6 +348,8 @@ const edgeSaving = ref(false)
 const importing = ref(false)
 const discovering = ref(false)
 const dependencyLoading = ref(false)
+const canvasMode = ref('lane')
+const showEdgeLabel = ref(false)
 
 const nodes = ref([])
 const edges = ref([])
@@ -344,6 +408,9 @@ const nodeFilter = reactive({
   status: 'all'
 })
 
+const GRAPH_NODE_WIDTH = 190
+const GRAPH_NODE_HEIGHT = 56
+
 const unhealthyCount = computed(() => nodes.value.filter(item => Number(item.status) === 2 || Number(item.status) === 3).length)
 const criticalNodeNames = computed(() => new Set(
   dependencyInsights.value
@@ -399,6 +466,100 @@ const filteredEdges = computed(() => {
     const targetName = (edge.target_name || nodeName(edge.target_id)).trim()
     return nameSet.has(sourceName) && nameSet.has(targetName)
   })
+})
+const laneColumns = computed(() => {
+  const laneSet = new Set()
+  for (const item of filteredNodes.value) laneSet.add(item.cluster || '-')
+  return Array.from(laneSet).sort((a, b) => a.localeCompare(b))
+})
+const graphNodes = computed(() => {
+  const list = filteredNodes.value
+  if (!list.length) return []
+  if (canvasMode.value === 'lane') {
+    const laneIndex = new Map()
+    laneColumns.value.forEach((lane, idx) => laneIndex.set(lane, idx))
+    const laneOrder = new Map()
+    const sorted = [...list].sort((a, b) => {
+      const clusterCmp = (a.cluster || '-').localeCompare(b.cluster || '-')
+      if (clusterCmp !== 0) return clusterCmp
+      return (a.name || '').localeCompare(b.name || '')
+    })
+    return sorted.map((raw) => {
+      const lane = raw.cluster || '-'
+      const col = laneIndex.get(lane) || 0
+      const row = laneOrder.get(lane) || 0
+      laneOrder.set(lane, row + 1)
+      const left = 36 + col * 260
+      const top = 64 + row * 84
+      return {
+        id: raw.id,
+        name: raw.name,
+        type: raw.type || '-',
+        source: nodeSource(raw),
+        left,
+        top,
+        raw
+      }
+    })
+  }
+  const sorted = [...list]
+  const xs = sorted.map(item => Number(item.x || 0))
+  const ys = sorted.map(item => Number(item.y || 0))
+  const minX = xs.length ? Math.min(...xs) : 0
+  const minY = ys.length ? Math.min(...ys) : 0
+  return sorted.map((raw, idx) => {
+    const x = Number(raw.x || 0)
+    const y = Number(raw.y || 0)
+    const left = 36 + Math.max(0, x-minX) + (idx % 3) * 8
+    const top = 64 + Math.max(0, y-minY)
+    return {
+      id: raw.id,
+      name: raw.name,
+      type: raw.type || '-',
+      source: nodeSource(raw),
+      left,
+      top,
+      raw
+    }
+  })
+})
+const graphNodeIndex = computed(() => {
+  const byID = new Map()
+  const byName = new Map()
+  for (const item of graphNodes.value) {
+    byID.set(item.id, item)
+    byName.set(item.name, item)
+  }
+  return { byID, byName }
+})
+const graphEdges = computed(() => {
+  const result = []
+  for (const edge of filteredEdges.value) {
+    const sourceName = (edge.source_name || nodeName(edge.source_id)).trim()
+    const targetName = (edge.target_name || nodeName(edge.target_id)).trim()
+    const sourceNode = edge.source_id ? graphNodeIndex.value.byID.get(edge.source_id) : graphNodeIndex.value.byName.get(sourceName)
+    const targetNode = edge.target_id ? graphNodeIndex.value.byID.get(edge.target_id) : graphNodeIndex.value.byName.get(targetName)
+    if (!sourceNode || !targetNode) continue
+    result.push({
+      id: edge.id,
+      x1: sourceNode.left + GRAPH_NODE_WIDTH / 2,
+      y1: sourceNode.top + GRAPH_NODE_HEIGHT / 2,
+      x2: targetNode.left + GRAPH_NODE_WIDTH / 2,
+      y2: targetNode.top + GRAPH_NODE_HEIGHT / 2,
+      label: [edge.type, edge.port ? `:${edge.port}` : ''].join(''),
+      critical: criticalNodeNames.value.has(sourceNode.name) || criticalNodeNames.value.has(targetNode.name)
+    })
+  }
+  return result
+})
+const canvasSize = computed(() => {
+  if (!graphNodes.value.length) return { width: 960, height: 320 }
+  const maxLeft = Math.max(...graphNodes.value.map(item => item.left))
+  const maxTop = Math.max(...graphNodes.value.map(item => item.top))
+  const laneWidth = laneColumns.value.length * 260 + 80
+  const width = Math.max(960, maxLeft + GRAPH_NODE_WIDTH + 80, laneWidth)
+  const height = Math.max(320, maxTop + GRAPH_NODE_HEIGHT + 80)
+  return { width, height }
 })
 
 const nodeName = (id) => nodes.value.find(item => item.id === id)?.name || id || '-'
@@ -774,6 +935,20 @@ onMounted(fetchDiscoverOptions)
 .cluster-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .cluster-row { display: flex; align-items: center; justify-content: space-between; border: 1px solid #f2f3f5; border-radius: 6px; padding: 6px 8px; }
 .cluster-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; color: #606266; font-size: 12px; }
+.canvas-actions { display: flex; align-items: center; gap: 8px; }
+.canvas-select { width: 140px; }
+.canvas-empty { min-height: 220px; display: flex; align-items: center; justify-content: center; }
+.topology-canvas { position: relative; min-height: 360px; border: 1px solid #ebeef5; border-radius: 8px; overflow: auto; background: linear-gradient(180deg, #fcfdff 0%, #f8f9fb 100%); }
+.lane-header { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; padding: 10px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(2px); border-bottom: 1px solid #ebeef5; }
+.lane-item { background: #f5f7fa; color: #606266; border: 1px solid #e9edf3; border-radius: 6px; padding: 6px 8px; font-size: 12px; text-align: center; font-weight: 600; }
+.edge-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.edge-label { fill: #6b7280; font-size: 11px; text-anchor: middle; dominant-baseline: middle; }
+.graph-node { position: absolute; width: 190px; min-height: 56px; border: 2px solid #dcdfe6; border-radius: 10px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04); padding: 8px 10px; z-index: 3; cursor: pointer; transition: all 0.18s ease; }
+.graph-node:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08); }
+.graph-node.selected { box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.25), 0 10px 20px rgba(64, 158, 255, 0.16); }
+.graph-node.critical { background: #fff7f7; }
+.graph-node-title { font-size: 13px; font-weight: 600; color: #303133; line-height: 1.35; word-break: break-all; }
+.graph-node-meta { margin-top: 4px; font-size: 11px; color: #909399; text-transform: lowercase; }
 :deep(.critical-node-row > td) { background: #fff8f8 !important; }
 @media (max-width: 900px) {
   .source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
