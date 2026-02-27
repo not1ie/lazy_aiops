@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,9 +16,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"gorm.io/gorm"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -622,7 +625,7 @@ func (h *K8sHandler) GetWorkloadManifest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": gin.H{
-			"format": format,
+			"format":  format,
 			"content": string(data),
 		},
 	})
@@ -700,6 +703,9 @@ func cleanupManifestMap(obj map[string]interface{}) {
 func (h *K8sHandler) ListDeployments(c *gin.Context) {
 	id := c.Param("id")
 	ns := c.Param("ns")
+	if ns == "all" || ns == "*" {
+		ns = ""
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
@@ -713,6 +719,205 @@ func (h *K8sHandler) ListDeployments(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": deployments.Items})
+}
+
+// CreateDeployment 创建Deployment
+func (h *K8sHandler) CreateDeployment(c *gin.Context) {
+	id := c.Param("id")
+	ns := c.Param("ns")
+	var req struct {
+		Name          string            `json:"name" binding:"required"`
+		Image         string            `json:"image" binding:"required"`
+		Replicas      *int32            `json:"replicas"`
+		ContainerName string            `json:"container_name"`
+		ContainerPort *int32            `json:"container_port"`
+		Labels        map[string]string `json:"labels"`
+		Env           map[string]string `json:"env"`
+		Command       []string          `json:"command"`
+		Args          []string          `json:"args"`
+		CPURequest    string            `json:"cpu_request"`
+		MemoryRequest string            `json:"memory_request"`
+		CPULimit      string            `json:"cpu_limit"`
+		MemoryLimit   string            `json:"memory_limit"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Image = strings.TrimSpace(req.Image)
+	if req.Name == "" || req.Image == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name 和 image 必填"})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	replicas := int32(1)
+	if req.Replicas != nil && *req.Replicas >= 0 {
+		replicas = *req.Replicas
+	}
+
+	labels := map[string]string{"app": req.Name}
+	for k, v := range req.Labels {
+		key := strings.TrimSpace(k)
+		val := strings.TrimSpace(v)
+		if key != "" && val != "" {
+			labels[key] = val
+		}
+	}
+	if _, ok := labels["app"]; !ok {
+		labels["app"] = req.Name
+	}
+
+	containerName := strings.TrimSpace(req.ContainerName)
+	if containerName == "" {
+		containerName = req.Name
+	}
+	container := corev1.Container{
+		Name:            containerName,
+		Image:           req.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+	}
+	if req.ContainerPort != nil && *req.ContainerPort > 0 {
+		container.Ports = []corev1.ContainerPort{{ContainerPort: *req.ContainerPort}}
+	}
+	if len(req.Command) > 0 {
+		container.Command = req.Command
+	}
+	if len(req.Args) > 0 {
+		container.Args = req.Args
+	}
+
+	if len(req.Env) > 0 {
+		keys := make([]string, 0, len(req.Env))
+		for k := range req.Env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		envVars := make([]corev1.EnvVar, 0, len(keys))
+		for _, k := range keys {
+			key := strings.TrimSpace(k)
+			if key == "" {
+				continue
+			}
+			envVars = append(envVars, corev1.EnvVar{Name: key, Value: req.Env[k]})
+		}
+		container.Env = envVars
+	}
+
+	resources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{},
+		Limits:   corev1.ResourceList{},
+	}
+	parseQuantity := func(field, raw string) (resource.Quantity, error) {
+		q, err := resource.ParseQuantity(strings.TrimSpace(raw))
+		if err != nil {
+			return resource.Quantity{}, fmt.Errorf("%s 格式无效: %v", field, err)
+		}
+		return q, nil
+	}
+	if strings.TrimSpace(req.CPURequest) != "" {
+		q, qErr := parseQuantity("cpu_request", req.CPURequest)
+		if qErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": qErr.Error()})
+			return
+		}
+		resources.Requests[corev1.ResourceCPU] = q
+	}
+	if strings.TrimSpace(req.MemoryRequest) != "" {
+		q, qErr := parseQuantity("memory_request", req.MemoryRequest)
+		if qErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": qErr.Error()})
+			return
+		}
+		resources.Requests[corev1.ResourceMemory] = q
+	}
+	if strings.TrimSpace(req.CPULimit) != "" {
+		q, qErr := parseQuantity("cpu_limit", req.CPULimit)
+		if qErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": qErr.Error()})
+			return
+		}
+		resources.Limits[corev1.ResourceCPU] = q
+	}
+	if strings.TrimSpace(req.MemoryLimit) != "" {
+		q, qErr := parseQuantity("memory_limit", req.MemoryLimit)
+		if qErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": qErr.Error()})
+			return
+		}
+		resources.Limits[corev1.ResourceMemory] = q
+	}
+	if len(resources.Requests) > 0 || len(resources.Limits) > 0 {
+		container.Resources = resources
+	}
+
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.Name,
+			Namespace: ns,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": labels["app"]},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{container},
+				},
+			},
+		},
+	}
+
+	created, err := client.AppsV1().Deployments(ns).Create(context.Background(), deployment, metav1.CreateOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "创建成功",
+		"data": gin.H{
+			"name":      created.Name,
+			"namespace": created.Namespace,
+			"replicas":  replicas,
+		},
+	})
+}
+
+// DeleteDeployment 删除Deployment
+func (h *K8sHandler) DeleteDeployment(c *gin.Context) {
+	id := c.Param("id")
+	ns := c.Param("ns")
+	name := c.Param("name")
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	propagation := metav1.DeletePropagationBackground
+	err = client.AppsV1().Deployments(ns).Delete(context.Background(), name, metav1.DeleteOptions{
+		PropagationPolicy: &propagation,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
 // ScaleDeployment 扩缩容

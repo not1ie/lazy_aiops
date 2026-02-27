@@ -21,6 +21,7 @@
           <el-option label="Job" value="Job" />
           <el-option label="CronJob" value="CronJob" />
         </el-select>
+        <el-button type="primary" plain @click="openDeploymentsView">Deployment视图</el-button>
         <el-button icon="Download" @click="exportCSV">导出</el-button>
         <el-button icon="Refresh" @click="fetchWorkloads">刷新</el-button>
       </div>
@@ -139,6 +140,16 @@ const openDetail = (row) => {
       namespace: row.namespace,
       kind: row.kind,
       name: row.name
+    }
+  })
+}
+
+const openDeploymentsView = () => {
+  router.push({
+    path: '/k8s/deployments',
+    query: {
+      clusterId: clusterId.value,
+      namespace: namespace.value
     }
   })
 }

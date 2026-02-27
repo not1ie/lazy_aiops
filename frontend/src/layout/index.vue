@@ -45,6 +45,7 @@
           <el-menu-item v-if="can('k8s')" index="/k8s/clusters">K8s集群</el-menu-item>
           <el-menu-item v-if="can('k8s')" index="/k8s/namespaces">命名空间</el-menu-item>
           <el-menu-item v-if="can('k8s')" index="/k8s/workloads">工作负载</el-menu-item>
+          <el-menu-item v-if="can('k8s')" index="/k8s/deployments">Deployments</el-menu-item>
           <el-menu-item v-if="can('k8s')" index="/k8s/pods">Pods</el-menu-item>
           <el-menu-item v-if="can('k8s')" index="/k8s/services">服务与Ingress</el-menu-item>
           <el-menu-item v-if="can('k8s')" index="/k8s/configs">Config/Secret</el-menu-item>

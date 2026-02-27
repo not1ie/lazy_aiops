@@ -17,9 +17,11 @@ type K8sPlugin struct {
 	cfg  map[string]interface{}
 }
 
-func (p *K8sPlugin) Name() string        { return "k8s" }
-func (p *K8sPlugin) Version() string     { return "1.0.0" }
-func (p *K8sPlugin) Description() string { return "Kubernetes管理 - 多集群、节点、工作负载、Pod管理" }
+func (p *K8sPlugin) Name() string    { return "k8s" }
+func (p *K8sPlugin) Version() string { return "1.0.0" }
+func (p *K8sPlugin) Description() string {
+	return "Kubernetes管理 - 多集群、节点、工作负载、Pod管理"
+}
 
 func (p *K8sPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -62,6 +64,8 @@ func (p *K8sPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.PUT("/clusters/:id/namespaces/:ns/workloads/:kind/:name/scale", h.ScaleWorkload)
 	g.POST("/clusters/:id/namespaces/:ns/workloads/:kind/:name/restart", h.RestartWorkloadByRef)
 	g.GET("/clusters/:id/namespaces/:ns/deployments", h.ListDeployments)
+	g.POST("/clusters/:id/namespaces/:ns/deployments", h.CreateDeployment)
+	g.DELETE("/clusters/:id/namespaces/:ns/deployments/:name", h.DeleteDeployment)
 	g.PUT("/clusters/:id/namespaces/:ns/deployments/:name/scale", h.ScaleDeployment)
 	g.POST("/clusters/:id/namespaces/:ns/deployments/:name/restart", h.RestartDeployment)
 

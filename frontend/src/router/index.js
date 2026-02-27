@@ -94,6 +94,12 @@ const routes = [
         meta: { title: '工作负载', icon: 'Cpu' }
       },
       {
+        path: 'k8s/deployments',
+        name: 'K8sDeployments',
+        component: () => import('@/views/k8s/deployments.vue'),
+        meta: { title: 'Deployments', icon: 'Cpu' }
+      },
+      {
         path: 'k8s/workloads/detail',
         name: 'K8sWorkloadDetail',
         component: () => import('@/views/k8s/workload-detail.vue'),

@@ -23,6 +23,15 @@
           <el-option label="Failed" value="Failed" />
           <el-option label="Unknown" value="Unknown" />
         </el-select>
+        <el-select v-model="ownerKindFilter" placeholder="控制器类型" class="w-40" clearable>
+          <el-option label="Deployment" value="Deployment" />
+          <el-option label="StatefulSet" value="StatefulSet" />
+          <el-option label="DaemonSet" value="DaemonSet" />
+          <el-option label="ReplicaSet" value="ReplicaSet" />
+          <el-option label="Job" value="Job" />
+          <el-option label="CronJob" value="CronJob" />
+        </el-select>
+        <el-input v-model="ownerNameFilter" placeholder="控制器名称" class="w-52" clearable />
         <el-button icon="Download" @click="exportCSV">导出</el-button>
         <el-button icon="Refresh" @click="fetchPods">刷新</el-button>
         <el-button type="warning" plain :disabled="selectedRows.length === 0" @click="batchRestart">批量重启</el-button>
@@ -51,7 +60,15 @@
       <el-table-column label="控制器" min-width="180">
         <template #default="scope">
           <span class="text-xs text-gray-500" v-if="!scope.row.owner_kind">-</span>
-          <el-tag v-else size="small">{{ scope.row.owner_kind }}/{{ scope.row.owner_name }}</el-tag>
+          <el-tag
+            v-else
+            size="small"
+            class="owner-tag"
+            :type="isWorkloadOwner(scope.row) ? 'primary' : 'info'"
+            @click="openOwnerWorkload(scope.row)"
+          >
+            {{ scope.row.owner_kind }}/{{ scope.row.owner_name }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="node" label="节点" min-width="160" />
@@ -121,7 +138,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -133,6 +150,8 @@ const pods = ref([])
 const keyword = ref('')
 const statusFilter = ref('')
 const nodeFilter = ref('')
+const ownerKindFilter = ref('')
+const ownerNameFilter = ref('')
 const selectedRows = ref([])
 const loading = ref(false)
 
@@ -143,6 +162,7 @@ const logContainer = ref('')
 const logContainers = ref([])
 const logPod = ref(null)
 const router = useRouter()
+const route = useRoute()
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -181,11 +201,15 @@ const filteredPods = computed(() => {
   return pods.value.filter(p => {
     if (statusFilter.value && p.status !== statusFilter.value) return false
     if (nodeFilter.value && p.node !== nodeFilter.value) return false
+    if (ownerKindFilter.value && p.owner_kind !== ownerKindFilter.value) return false
+    if (ownerNameFilter.value && p.owner_name !== ownerNameFilter.value) return false
     if (!key) return true
     return (
       (p.name || '').toLowerCase().includes(key) ||
       (p.node || '').toLowerCase().includes(key) ||
-      (p.ip || '').toLowerCase().includes(key)
+      (p.ip || '').toLowerCase().includes(key) ||
+      (p.owner_name || '').toLowerCase().includes(key) ||
+      (p.owner_kind || '').toLowerCase().includes(key)
     )
   })
 })
@@ -255,6 +279,24 @@ const openTerminal = (row) => {
       namespace: row.namespace,
       pod: row.name,
       container
+    }
+  })
+}
+
+const isWorkloadOwner = (row) => {
+  const kind = String(row?.owner_kind || '')
+  return ['Deployment', 'StatefulSet', 'DaemonSet'].includes(kind)
+}
+
+const openOwnerWorkload = (row) => {
+  if (!isWorkloadOwner(row)) return
+  router.push({
+    path: '/k8s/workloads/detail',
+    query: {
+      clusterId: clusterId.value,
+      namespace: row.namespace,
+      kind: row.owner_kind,
+      name: row.owner_name
     }
   })
 }
@@ -356,6 +398,11 @@ const formatSince = (value) => {
 }
 
 onMounted(async () => {
+  if (route.query.clusterId) clusterId.value = String(route.query.clusterId)
+  if (route.query.namespace) namespace.value = String(route.query.namespace)
+  if (route.query.keyword) keyword.value = String(route.query.keyword)
+  if (route.query.ownerKind) ownerKindFilter.value = String(route.query.ownerKind)
+  if (route.query.ownerName) ownerNameFilter.value = String(route.query.ownerName)
   await fetchClusters()
   await fetchNamespaces()
   await fetchPods()
@@ -376,4 +423,5 @@ onMounted(async () => {
 .label-grid { display: flex; flex-wrap: wrap; }
 .label-preview { display: flex; flex-wrap: wrap; }
 .log-controls { display: flex; gap: 12px; margin-bottom: 12px; align-items: center; }
+.owner-tag { cursor: pointer; }
 </style>
