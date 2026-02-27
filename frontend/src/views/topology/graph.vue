@@ -6,6 +6,7 @@
         <p class="page-desc">维护服务节点与依赖关系，支持导入导出。</p>
       </div>
       <div class="page-actions">
+        <el-button type="primary" icon="MagicStick" @click="openDiscoverDialog">自动发现</el-button>
         <el-button icon="Upload" @click="openImportDialog">导入</el-button>
         <el-button icon="Download" @click="exportTopology">导出</el-button>
         <el-button icon="Refresh" @click="refreshAll">刷新</el-button>
@@ -145,6 +146,38 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="discoverDialogVisible" title="自动发现拓扑" width="620px">
+      <el-form :model="discoverForm" label-width="110px">
+        <el-form-item label="发现源" required>
+          <el-checkbox-group v-model="discoverForm.sources">
+            <el-checkbox label="k8s">K8s</el-checkbox>
+            <el-checkbox label="swarm">Swarm</el-checkbox>
+            <el-checkbox label="docker">Docker</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="命名空间">
+          <el-input v-model="discoverForm.namespace" placeholder="all / default / 其他命名空间" />
+        </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="discoverForm.replace">覆盖历史自动发现节点</el-checkbox>
+        </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="discoverForm.auto_layout">完成后自动布局</el-checkbox>
+        </el-form-item>
+        <el-alert
+          type="info"
+          show-icon
+          :closable="false"
+          title="说明"
+          description="自动发现会采集 K8s Service/Ingress/Workload、Swarm Service、Docker Container 的结构关系。"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="discoverDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="discovering" @click="runDiscover">开始发现</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="importDialogVisible" title="导入拓扑" width="620px">
       <el-input v-model="importPayload" type="textarea" :rows="14" placeholder='{"nodes":[],"edges":[]}' />
       <template #footer>
@@ -164,6 +197,7 @@ const loading = ref(false)
 const nodeSaving = ref(false)
 const edgeSaving = ref(false)
 const importing = ref(false)
+const discovering = ref(false)
 
 const nodes = ref([])
 const edges = ref([])
@@ -174,6 +208,7 @@ const nodeDialogVisible = ref(false)
 const nodeEditing = ref(false)
 const edgeDialogVisible = ref(false)
 const importDialogVisible = ref(false)
+const discoverDialogVisible = ref(false)
 
 const nodeForm = reactive({
   id: '',
@@ -201,6 +236,13 @@ const edgeForm = reactive({
 })
 
 const importPayload = ref('{"nodes":[],"edges":[]}')
+
+const discoverForm = reactive({
+  sources: ['k8s', 'swarm', 'docker'],
+  namespace: 'all',
+  replace: true,
+  auto_layout: true
+})
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -431,6 +473,39 @@ const exportTopology = async () => {
     URL.revokeObjectURL(link.href)
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '导出失败')
+  }
+}
+
+const openDiscoverDialog = () => {
+  discoverDialogVisible.value = true
+}
+
+const runDiscover = async () => {
+  if (!discoverForm.sources.length) {
+    ElMessage.warning('请至少选择一个发现源')
+    return
+  }
+  discovering.value = true
+  try {
+    const payload = {
+      sources: discoverForm.sources,
+      namespace: (discoverForm.namespace || 'all').trim(),
+      replace: !!discoverForm.replace,
+      auto_layout: !!discoverForm.auto_layout
+    }
+    const res = await axios.post('/api/v1/topology/discover', payload, { headers: authHeaders() })
+    const data = res.data?.data || {}
+    const msg = `发现完成：节点 ${data.discovered_nodes || 0}，关系 ${data.discovered_edges || 0}`
+    ElMessage.success(msg)
+    if (Array.isArray(data.warnings) && data.warnings.length) {
+      ElMessage.warning(`发现告警：${data.warnings.slice(0, 2).join('；')}`)
+    }
+    discoverDialogVisible.value = false
+    await refreshAll()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '自动发现失败')
+  } finally {
+    discovering.value = false
   }
 }
 

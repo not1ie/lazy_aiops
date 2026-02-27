@@ -18,9 +18,11 @@ type TopologyPlugin struct {
 	handler *TopologyHandler
 }
 
-func (p *TopologyPlugin) Name() string        { return "topology" }
-func (p *TopologyPlugin) Version() string     { return "1.0.0" }
-func (p *TopologyPlugin) Description() string { return "服务拓扑 - 可视化服务依赖、调用链分析" }
+func (p *TopologyPlugin) Name() string    { return "topology" }
+func (p *TopologyPlugin) Version() string { return "1.0.0" }
+func (p *TopologyPlugin) Description() string {
+	return "服务拓扑 - 可视化服务依赖、调用链分析"
+}
 
 func (p *TopologyPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -50,6 +52,7 @@ func (p *TopologyPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.DELETE("/edges/:id", p.handler.DeleteEdge)
 	r.GET("/analyze", p.handler.AnalyzeDependencies)
 	r.POST("/sync-k8s", p.handler.SyncFromK8s)
+	r.POST("/discover", p.handler.Discover)
 	r.GET("/views", p.handler.ListViews)
 	r.POST("/views", p.handler.CreateView)
 	r.POST("/layout/save", p.handler.SaveLayout)

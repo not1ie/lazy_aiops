@@ -2575,33 +2575,7 @@ func (l *LocalExecutor) Execute(cmd string) (string, string, error) {
 // ================= Helper Functions =================
 
 func (h *DockerHandler) getClient(dockerHostID string) (CommandExecutor, error) {
-	var dHost DockerHost
-	if err := h.db.First(&dHost, "id = ?", dockerHostID).Error; err != nil {
-		return nil, fmt.Errorf("Docker主机不存在")
-	}
-
-	// 支持 Local 模式
-	if dHost.HostID == "local" {
-		return &LocalExecutor{}, nil
-	}
-
-	var host cmdb.Host
-	if err := h.db.Preload("Credential").First(&host, "id = ?", dHost.HostID).Error; err != nil {
-		return nil, fmt.Errorf("关联主机不存在")
-	}
-
-	if host.Credential == nil {
-		return nil, fmt.Errorf("主机未配置凭据")
-	}
-
-	return &core.SSHClient{
-		Host:     host.IP,
-		Port:     host.Port,
-		Username: host.Credential.Username,
-		Password: host.Credential.Password,
-		Key:      host.Credential.PrivateKey,
-		Timeout:  10 * time.Second,
-	}, nil
+	return GetExecutorByHost(h.db, dockerHostID)
 }
 
 // parseJSONList 解析Docker CLI返回的逐行JSON
