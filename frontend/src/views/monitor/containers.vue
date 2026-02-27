@@ -179,8 +179,12 @@ const rangeLabel = computed(() => {
   return found ? found.label : `${rangeHours.value}h`
 })
 
+const getErrorMessage = (err, fallback) => {
+  return err?.response?.data?.error || err?.response?.data?.message || err?.message || fallback
+}
+
 const selectorParts = () => {
-  const parts = ['image!=""']
+  const parts = ['id!="/"', 'image!=""', 'name!=""']
   if (companyFilter.value) parts.push(`com="${companyFilter.value}"`)
   if (envFilter.value) parts.push(`env="${envFilter.value}"`)
   if (stackFilter.value) parts.push(`container_label_com_docker_stack_namespace="${stackFilter.value}"`)
@@ -202,13 +206,13 @@ const filteredInstanceOptions = computed(() => {
 })
 
 const cpuQuery = (n) => `topk(${n},
-  sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
+  sum by (name, instance, image) (
     rate(container_cpu_usage_seconds_total{${selectorParts()}}[5m])
   )
 )`
 
 const memQuery = (n) => `topk(${n},
-  sum by (name, instance, image, container, container_label_com_docker_container_name, container_label_com_docker_swarm_service_name, container_label_com_docker_swarm_task_name) (
+  sum by (name, instance, image) (
     container_memory_working_set_bytes{${selectorParts()}}
   )
 )`
@@ -296,7 +300,18 @@ const fetchFilterOptions = async () => {
 const fetchMetrics = async () => {
   loading.value = true
   try {
-    const [cpuRes, memRes] = await Promise.all([fetchProm(cpuQuery(topN.value)), fetchProm(memQuery(topN.value))])
+    const settled = await Promise.allSettled([fetchProm(cpuQuery(topN.value)), fetchProm(memQuery(topN.value))])
+    const cpuRes = settled[0].status === 'fulfilled' ? settled[0].value : []
+    const memRes = settled[1].status === 'fulfilled' ? settled[1].value : []
+    const failedParts = []
+    if (settled[0].status === 'rejected') failedParts.push(`CPU(${getErrorMessage(settled[0].reason, '查询失败')})`)
+    if (settled[1].status === 'rejected') failedParts.push(`内存(${getErrorMessage(settled[1].reason, '查询失败')})`)
+    if (failedParts.length && failedParts.length < 2) {
+      ElMessage.warning(`部分指标查询失败：${failedParts.join('；')}`)
+    }
+    if (failedParts.length === 2) {
+      throw new Error(failedParts.join('；'))
+    }
     const map = {}
 
     cpuRes.forEach((item) => {
@@ -335,7 +350,7 @@ const fetchMetrics = async () => {
       ElMessage.warning('未获取到容器指标，请确认 Prometheus 已采集 cAdvisor 指标')
     }
   } catch (err) {
-    ElMessage.error('拉取容器指标失败')
+    ElMessage.error(getErrorMessage(err, '拉取容器指标失败'))
   } finally {
     loading.value = false
   }
@@ -454,8 +469,8 @@ const applyLayout = () => {
   envFilter.value = filters.env || ''
   stackFilter.value = filters.stack || ''
   instanceFilter.value = filters.instance || ''
-  topN.value = filters.topN || 50
-  rangeHours.value = filters.rangeHours || 1
+  topN.value = Number(filters.topN) || 50
+  rangeHours.value = Number(filters.rangeHours) || 1
   fetchMetrics()
   fetchCharts()
 }
@@ -548,10 +563,21 @@ const fetchCharts = async () => {
     const end = Math.floor(Date.now() / 1000)
     const start = end - (rangeHours.value * 3600)
     const step = calcStep(rangeHours.value)
-    const [cpuSeries, memSeries] = await Promise.all([
+    const settled = await Promise.allSettled([
       fetchPromRange(cpuQuery(5), start, end, step),
       fetchPromRange(memQuery(5), start, end, step)
     ])
+    const cpuSeries = settled[0].status === 'fulfilled' ? settled[0].value : []
+    const memSeries = settled[1].status === 'fulfilled' ? settled[1].value : []
+    const failedParts = []
+    if (settled[0].status === 'rejected') failedParts.push(`CPU趋势(${getErrorMessage(settled[0].reason, '查询失败')})`)
+    if (settled[1].status === 'rejected') failedParts.push(`内存趋势(${getErrorMessage(settled[1].reason, '查询失败')})`)
+    if (failedParts.length && failedParts.length < 2) {
+      ElMessage.warning(`部分趋势查询失败：${failedParts.join('；')}`)
+    }
+    if (failedParts.length === 2) {
+      throw new Error(failedParts.join('；'))
+    }
     const labels = (cpuSeries[0]?.values || memSeries[0]?.values || []).map(v =>
       new Date(Number(v[0]) * 1000).toLocaleTimeString()
     )
@@ -560,7 +586,7 @@ const fetchCharts = async () => {
     renderChart(cpuChart, 'CPU Top 5 (核)', labels, cpuLines, '核')
     renderChart(memChart, '内存 Top 5 (MiB)', labels, memLines, 'MiB')
   } catch (err) {
-    ElMessage.error('趋势图加载失败')
+    ElMessage.error(getErrorMessage(err, '趋势图加载失败'))
   } finally {
     chartLoading.value = false
   }
@@ -626,8 +652,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page-card { max-width: 1180px; margin: 0 auto; }
+.page-card {
+  max-width: 1180px;
+  margin: 0 auto;
+  border-radius: 20px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, #f8fbff 0%, #f6f8fc 100%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+}
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.page-header h2 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
 .motion-up { opacity: 0; transform: translateY(10px); animation: fade-up 0.42s cubic-bezier(0.21, 1, 0.35, 1) forwards; }
@@ -639,17 +673,46 @@ onBeforeUnmount(() => {
 .delay-6 { animation-delay: 230ms; }
 .delay-7 { animation-delay: 270ms; }
 .delay-8 { animation-delay: 310ms; }
-.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.layout-bar { margin-top: 12px; padding: 8px 12px; background: #f7f9fc; border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+}
+.layout-bar {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
 .layout-title { font-weight: 600; color: #606266; }
 .layout-items { display: flex; gap: 8px; flex-wrap: wrap; }
-.layout-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px dashed #dcdfe6; border-radius: 4px; background: #fff; cursor: grab; }
+.layout-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px dashed #dcdfe6; border-radius: 10px; background: #fff; cursor: grab; transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.layout-item:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08); }
 .drag-handle { font-weight: 700; color: #909399; }
 .layout-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .summary-row { margin-top: 12px; }
 .summary-card { transition: transform 0.22s ease, box-shadow 0.22s ease; }
 .summary-card:hover { transform: translateY(-2px); box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08); }
-.panel-card { margin-top: 16px; transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.2s ease; }
+.panel-card {
+  margin-top: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.2s ease;
+}
 .panel-card:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08); }
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
 .panel-desc { color: #909399; font-size: 12px; margin: 4px 0 0; }
@@ -661,6 +724,25 @@ onBeforeUnmount(() => {
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
 .w-40 { width: 140px; }
+:deep(.el-alert) {
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.78);
+}
+:deep(.el-card) {
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  transition: box-shadow 0.24s ease;
+}
+:deep(.el-card:hover) { box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06); }
+:deep(.el-button) { border-radius: 10px; transition: all 0.2s ease; }
+:deep(.el-button:hover) { transform: translateY(-1px); }
+:deep(.el-input__wrapper),
+:deep(.el-select__wrapper) {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.18) inset;
+}
 :deep(.el-table__body tr > td) { transition: background-color 0.2s ease; }
 :deep(.el-table__body tr:hover > td) { background: #f7fbff !important; }
 @keyframes fade-up {

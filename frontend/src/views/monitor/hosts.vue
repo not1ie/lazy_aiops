@@ -195,6 +195,10 @@ const rangeLabel = computed(() => {
   return found ? found.label : `${rangeHours.value}h`
 })
 
+const getErrorMessage = (err, fallback) => {
+  return err?.response?.data?.error || err?.response?.data?.message || err?.message || fallback
+}
+
 const buildSelector = (base, instance) => {
   if (!instance) return base
   if (!base) return `instance="${instance}"`
@@ -238,7 +242,7 @@ const queryNet = (instance) => `sum by(instance) (rate(node_network_receive_byte
 
 const queryLoad = (instance) => `node_load1{${buildSelector('', instance)}}`
 
-const queryUptime = (instance) => `node_time_seconds{${buildSelector('', instance)}} - node_boot_time_seconds{${buildSelector('', instance)}}`
+const queryUptime = (instance) => `time() - node_boot_time_seconds{${buildSelector('', instance)}}`
 
 const filteredInstances = computed(() => {
   if (!companyFilter.value && !envFilter.value) return instances.value
@@ -407,7 +411,7 @@ const applyLayout = () => {
   companyFilter.value = filters.company || ''
   envFilter.value = filters.env || ''
   instanceFilter.value = filters.instance || ''
-  rangeHours.value = filters.rangeHours || 1
+  rangeHours.value = Number(filters.rangeHours) || 1
   fetchTable()
   fetchCharts()
 }
@@ -471,7 +475,7 @@ const fetchInstances = async () => {
 const fetchTable = async () => {
   loading.value = true
   try {
-    const [cpuRes, memRes, diskRes, netRes, loadRes, upRes] = await Promise.all([
+    const settled = await Promise.allSettled([
       fetchProm(queryCpu('')),
       fetchProm(queryMem('')),
       fetchProm(queryDisk('')),
@@ -479,6 +483,22 @@ const fetchTable = async () => {
       fetchProm(queryLoad('')),
       fetchProm(queryUptime(''))
     ])
+    const cpuRes = settled[0].status === 'fulfilled' ? settled[0].value : []
+    const memRes = settled[1].status === 'fulfilled' ? settled[1].value : []
+    const diskRes = settled[2].status === 'fulfilled' ? settled[2].value : []
+    const netRes = settled[3].status === 'fulfilled' ? settled[3].value : []
+    const loadRes = settled[4].status === 'fulfilled' ? settled[4].value : []
+    const upRes = settled[5].status === 'fulfilled' ? settled[5].value : []
+    const metricNames = ['CPU', '内存', '磁盘', '网络', '负载', '运行时长']
+    const failedParts = settled
+      .map((item, idx) => (item.status === 'rejected' ? `${metricNames[idx]}(${getErrorMessage(item.reason, '查询失败')})` : ''))
+      .filter(Boolean)
+    if (failedParts.length && failedParts.length < settled.length) {
+      ElMessage.warning(`部分主机指标查询失败：${failedParts.join('；')}`)
+    }
+    if (failedParts.length === settled.length) {
+      throw new Error(failedParts.join('；'))
+    }
     const map = {}
     const apply = (res, key, format) => {
       res.forEach(item => {
@@ -500,7 +520,7 @@ const fetchTable = async () => {
     rows.value = Object.values(map)
     renderTopCharts()
   } catch (err) {
-    ElMessage.error('主机指标获取失败')
+    ElMessage.error(getErrorMessage(err, '主机指标获取失败'))
   } finally {
     loading.value = false
   }
@@ -514,12 +534,26 @@ const fetchCharts = async () => {
     const start = end - (rangeHours.value * 3600)
     const step = calcStep(rangeHours.value)
     const inst = instanceFilter.value
-    const [cpuRes, memRes, diskRes, netRes] = await Promise.all([
+    const settled = await Promise.allSettled([
       fetchPromRange(queryCpu(inst), start, end, step),
       fetchPromRange(queryMem(inst), start, end, step),
       fetchPromRange(queryDisk(inst), start, end, step),
       fetchPromRange(queryNet(inst), start, end, step)
     ])
+    const cpuRes = settled[0].status === 'fulfilled' ? settled[0].value : []
+    const memRes = settled[1].status === 'fulfilled' ? settled[1].value : []
+    const diskRes = settled[2].status === 'fulfilled' ? settled[2].value : []
+    const netRes = settled[3].status === 'fulfilled' ? settled[3].value : []
+    const metricNames = ['CPU趋势', '内存趋势', '磁盘趋势', '网络趋势']
+    const failedParts = settled
+      .map((item, idx) => (item.status === 'rejected' ? `${metricNames[idx]}(${getErrorMessage(item.reason, '查询失败')})` : ''))
+      .filter(Boolean)
+    if (failedParts.length && failedParts.length < settled.length) {
+      ElMessage.warning(`部分趋势查询失败：${failedParts.join('；')}`)
+    }
+    if (failedParts.length === settled.length) {
+      throw new Error(failedParts.join('；'))
+    }
     const labels = (cpuRes[0]?.values || memRes[0]?.values || []).map(v =>
       new Date(Number(v[0]) * 1000).toLocaleTimeString()
     )
@@ -533,7 +567,7 @@ const fetchCharts = async () => {
     renderChart(diskChart, '磁盘 使用率(%)', labels, seriesDisk, '%')
     renderChart(netChart, '网络 吞吐(MB/s)', labels, seriesNet, 'MB/s')
   } catch (err) {
-    ElMessage.error('趋势图加载失败')
+    ElMessage.error(getErrorMessage(err, '趋势图加载失败'))
   } finally {
     chartLoading.value = false
   }
@@ -645,8 +679,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page-card { max-width: 1180px; margin: 0 auto; }
+.page-card {
+  max-width: 1180px;
+  margin: 0 auto;
+  border-radius: 20px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, #f8fbff 0%, #f6f8fc 100%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+}
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.page-header h2 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
 .motion-up { opacity: 0; transform: translateY(10px); animation: fade-up 0.42s cubic-bezier(0.21, 1, 0.35, 1) forwards; }
@@ -658,18 +700,47 @@ onBeforeUnmount(() => {
 .delay-6 { animation-delay: 230ms; }
 .delay-7 { animation-delay: 270ms; }
 .delay-8 { animation-delay: 310ms; }
-.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.layout-bar { margin-bottom: 12px; padding: 8px 12px; background: #f7f9fc; border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+}
+.layout-bar {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
 .layout-title { font-weight: 600; color: #606266; }
 .layout-items { display: flex; gap: 8px; flex-wrap: wrap; }
-.layout-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px dashed #dcdfe6; border-radius: 4px; background: #fff; cursor: grab; }
+.layout-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px dashed #dcdfe6; border-radius: 10px; background: #fff; cursor: grab; transition: box-shadow 0.2s ease, transform 0.2s ease; }
+.layout-item:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08); }
 .drag-handle { font-weight: 700; color: #909399; }
 .layout-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .summary-row { margin-top: 8px; }
 .health-row { margin-top: 8px; }
 .summary-card { transition: transform 0.22s ease, box-shadow 0.22s ease; }
 .summary-card:hover { transform: translateY(-2px); box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08); }
-.panel-card { margin-top: 16px; transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.2s ease; }
+.panel-card {
+  margin-top: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.2s ease;
+}
 .panel-card:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08); }
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
 .panel-desc { color: #909399; font-size: 12px; margin: 4px 0 0; }
@@ -686,6 +757,19 @@ onBeforeUnmount(() => {
 .health-critical { color: #F56C6C; }
 .w-52 { width: 220px; }
 .w-40 { width: 140px; }
+:deep(.el-card) {
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  transition: box-shadow 0.24s ease;
+}
+:deep(.el-card:hover) { box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06); }
+:deep(.el-button) { border-radius: 10px; transition: all 0.2s ease; }
+:deep(.el-button:hover) { transform: translateY(-1px); }
+:deep(.el-input__wrapper),
+:deep(.el-select__wrapper) {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.18) inset;
+}
 :deep(.el-table__body tr > td) { transition: background-color 0.2s ease; }
 :deep(.el-table__body tr:hover > td) { background: #f7fbff !important; }
 @keyframes fade-up {
