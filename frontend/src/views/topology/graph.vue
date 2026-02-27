@@ -14,8 +14,8 @@
     </div>
 
     <el-row :gutter="12" class="mb-12">
-      <el-col :span="6"><el-card><div class="k">节点数</div><div class="v">{{ nodes.length }}</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="k">依赖边</div><div class="v">{{ edges.length }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="k">节点数(可见/总数)</div><div class="v">{{ filteredNodes.length }} / {{ nodes.length }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="k">依赖边(可见/总数)</div><div class="v">{{ filteredEdges.length }} / {{ edges.length }}</div></el-card></el-col>
       <el-col :span="6"><el-card><div class="k">视图数</div><div class="v">{{ views.length }}</div></el-card></el-col>
       <el-col :span="6"><el-card><div class="k">异常节点</div><div class="v danger">{{ unhealthyCount }}</div></el-card></el-col>
     </el-row>
@@ -27,13 +27,33 @@
             <div class="section-header">
               <span>节点清单</span>
               <div>
+                <el-button size="small" @click="resetNodeFilter">清空筛选</el-button>
                 <el-button size="small" type="primary" icon="Plus" @click="openNodeDialog()">新增节点</el-button>
                 <el-button size="small" @click="autoLayout">自动布局</el-button>
               </div>
             </div>
           </template>
-          <el-table :data="nodes" v-loading="loading" stripe @row-click="selectNode">
+          <div class="table-filters">
+            <el-input v-model="nodeFilter.keyword" clearable placeholder="按名称/命名空间/集群过滤" class="filter-input" />
+            <el-select v-model="nodeFilter.source" class="filter-select" placeholder="来源">
+              <el-option label="全部来源" value="all" />
+              <el-option v-for="item in sourceOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+            <el-select v-model="nodeFilter.status" class="filter-select" placeholder="状态">
+              <el-option label="全部状态" value="all" />
+              <el-option label="正常" value="1" />
+              <el-option label="告警" value="2" />
+              <el-option label="故障" value="3" />
+              <el-option label="未知" value="0" />
+            </el-select>
+          </div>
+          <el-table :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode">
             <el-table-column prop="name" label="名称" min-width="160" />
+            <el-table-column label="来源" width="120">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain">{{ nodeSource(row) }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="type" label="类型" width="110" />
             <el-table-column prop="namespace" label="命名空间" width="120" />
             <el-table-column prop="cluster" label="集群" width="120" />
@@ -63,7 +83,7 @@
               <el-button size="small" type="primary" icon="Plus" @click="openEdgeDialog">新增关系</el-button>
             </div>
           </template>
-          <el-table :data="edges" stripe size="small">
+          <el-table :data="filteredEdges" stripe size="small">
             <el-table-column label="源服务" min-width="120">
               <template #default="{ row }">{{ row.source_name || nodeName(row.source_id) }}</template>
             </el-table-column>
@@ -158,6 +178,16 @@
         <el-form-item label="命名空间">
           <el-input v-model="discoverForm.namespace" placeholder="all / default / 其他命名空间" />
         </el-form-item>
+        <el-form-item v-if="discoverForm.sources.includes('k8s')" label="K8s集群">
+          <el-select v-model="discoverForm.cluster_ids" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="不选=全部集群" style="width: 100%">
+            <el-option v-for="item in clusterOptions" :key="item.id" :label="item.display_name || item.name || item.id" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="discoverForm.sources.includes('swarm') || discoverForm.sources.includes('docker')" label="Docker主机">
+          <el-select v-model="discoverForm.docker_host_ids" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="不选=全部主机" style="width: 100%">
+            <el-option v-for="item in dockerHostOptions" :key="item.id" :label="item.name || item.id" :value="item.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-checkbox v-model="discoverForm.replace">覆盖历史自动发现节点</el-checkbox>
         </el-form-item>
@@ -203,6 +233,8 @@ const nodes = ref([])
 const edges = ref([])
 const views = ref([])
 const selectedNode = ref(null)
+const clusterOptions = ref([])
+const dockerHostOptions = ref([])
 
 const nodeDialogVisible = ref(false)
 const nodeEditing = ref(false)
@@ -240,15 +272,64 @@ const importPayload = ref('{"nodes":[],"edges":[]}')
 const discoverForm = reactive({
   sources: ['k8s', 'swarm', 'docker'],
   namespace: 'all',
+  cluster_ids: [],
+  docker_host_ids: [],
   replace: true,
   auto_layout: true
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const nodeFilter = reactive({
+  keyword: '',
+  source: 'all',
+  status: 'all'
+})
 
 const unhealthyCount = computed(() => nodes.value.filter(item => Number(item.status) === 2 || Number(item.status) === 3).length)
+const sourceOptions = computed(() => {
+  const options = new Set()
+  for (const item of nodes.value) options.add(nodeSource(item))
+  return Array.from(options).sort()
+})
+const filteredNodes = computed(() => {
+  const keyword = nodeFilter.keyword.trim().toLowerCase()
+  const source = nodeFilter.source
+  const status = nodeFilter.status
+  return nodes.value.filter((item) => {
+    if (source !== 'all' && nodeSource(item) !== source) return false
+    if (status !== 'all' && String(Number(item.status || 0)) !== status) return false
+    if (!keyword) return true
+    const text = `${item.name || ''} ${item.namespace || ''} ${item.cluster || ''}`.toLowerCase()
+    return text.includes(keyword)
+  })
+})
+const filteredEdges = computed(() => {
+  if (filteredNodes.value.length === nodes.value.length) return edges.value
+  const idSet = new Set(filteredNodes.value.map(item => item.id))
+  const nameSet = new Set(filteredNodes.value.map(item => item.name))
+  return edges.value.filter((edge) => {
+    const sourceByID = edge.source_id && idSet.has(edge.source_id)
+    const targetByID = edge.target_id && idSet.has(edge.target_id)
+    if (sourceByID && targetByID) return true
+    const sourceName = (edge.source_name || nodeName(edge.source_id)).trim()
+    const targetName = (edge.target_name || nodeName(edge.target_id)).trim()
+    return nameSet.has(sourceName) && nameSet.has(targetName)
+  })
+})
 
 const nodeName = (id) => nodes.value.find(item => item.id === id)?.name || id || '-'
+const nodeSource = (row) => {
+  const parsed = parseNodeMetadata(row?.metadata)
+  return parsed.topology_source || 'manual'
+}
+const parseNodeMetadata = (raw) => {
+  if (!raw || typeof raw !== 'string') return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') return parsed
+  } catch {}
+  return {}
+}
 
 const statusText = (status) => {
   const n = Number(status)
@@ -293,12 +374,31 @@ const fetchViews = async () => {
   }
 }
 
+const fetchDiscoverOptions = async () => {
+  try {
+    const [k8sResp, dockerResp] = await Promise.all([
+      axios.get('/api/v1/k8s/clusters', { headers: authHeaders() }),
+      axios.get('/api/v1/docker/hosts', { headers: authHeaders() })
+    ])
+    if (k8sResp.data?.code === 0) clusterOptions.value = k8sResp.data.data || []
+    if (dockerResp.data?.code === 0) dockerHostOptions.value = dockerResp.data.data || []
+  } catch {
+    // Keep page available even when one plugin is disabled or unauthorized.
+  }
+}
+
 const refreshAll = async () => {
   await Promise.all([fetchTopology(), fetchViews()])
 }
 
 const selectNode = (row) => {
   selectedNode.value = row
+}
+
+const resetNodeFilter = () => {
+  nodeFilter.keyword = ''
+  nodeFilter.source = 'all'
+  nodeFilter.status = 'all'
 }
 
 const resetNodeForm = () => {
@@ -490,6 +590,8 @@ const runDiscover = async () => {
     const payload = {
       sources: discoverForm.sources,
       namespace: (discoverForm.namespace || 'all').trim(),
+      cluster_ids: discoverForm.cluster_ids,
+      docker_host_ids: discoverForm.docker_host_ids,
       replace: !!discoverForm.replace,
       auto_layout: !!discoverForm.auto_layout
     }
@@ -536,6 +638,7 @@ const importTopology = async () => {
 }
 
 onMounted(refreshAll)
+onMounted(fetchDiscoverOptions)
 </script>
 
 <style scoped>
@@ -549,4 +652,7 @@ onMounted(refreshAll)
 .mb-12 { margin-bottom: 12px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .sub-title { font-size: 13px; color: #606266; margin-bottom: 8px; }
+.table-filters { display: flex; gap: 8px; margin-bottom: 8px; }
+.filter-input { flex: 1; }
+.filter-select { width: 140px; }
 </style>
