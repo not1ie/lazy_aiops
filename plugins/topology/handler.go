@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -61,6 +64,13 @@ type syncStats struct {
 	NodesUpdated int `json:"nodes_updated"`
 	EdgesCreated int `json:"edges_created"`
 	EdgesUpdated int `json:"edges_updated"`
+}
+
+type envDependencyHint struct {
+	Key      string `json:"key"`
+	Host     string `json:"host"`
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
 }
 
 type discoverRequest struct {
@@ -565,6 +575,12 @@ func (h *TopologyHandler) Discover(c *gin.Context) {
 		detail["docker"] = dockerMeta
 	}
 
+	inferredEdges, inferMeta := inferDependencyEdges(nodes, edges)
+	if len(inferredEdges) > 0 {
+		nodes, edges = mergeDiscovered(nodes, edges, nodeSeen, edgeSeen, nil, inferredEdges)
+	}
+	detail["inference"] = inferMeta
+
 	if len(nodes) == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"code":    0,
@@ -693,6 +709,7 @@ func (h *TopologyHandler) discoverFromK8s(clusterSet map[string]struct{}, namesp
 					}
 					result := make([]workloadRef, 0, len(items.Items))
 					for _, item := range items.Items {
+						envHints := collectContainerDependencyHints(item.Spec.Template.Spec.Containers)
 						name := fmt.Sprintf("k8s/%s/%s/deployment/%s", clusterName, item.Namespace, item.Name)
 						nodes = append(nodes, syncNode{
 							Name:      name,
@@ -708,6 +725,7 @@ func (h *TopologyHandler) discoverFromK8s(clusterSet map[string]struct{}, namesp
 								"resource_name":   item.Name,
 								"namespace":       item.Namespace,
 								"labels":          item.Labels,
+								"dep_hints":       envHints,
 							}),
 							Status:      1,
 							Description: fmt.Sprintf("Deployment %s/%s", item.Namespace, item.Name),
@@ -733,6 +751,7 @@ func (h *TopologyHandler) discoverFromK8s(clusterSet map[string]struct{}, namesp
 					}
 					result := make([]workloadRef, 0, len(items.Items))
 					for _, item := range items.Items {
+						envHints := collectContainerDependencyHints(item.Spec.Template.Spec.Containers)
 						name := fmt.Sprintf("k8s/%s/%s/statefulset/%s", clusterName, item.Namespace, item.Name)
 						nodes = append(nodes, syncNode{
 							Name:      name,
@@ -748,6 +767,7 @@ func (h *TopologyHandler) discoverFromK8s(clusterSet map[string]struct{}, namesp
 								"resource_name":   item.Name,
 								"namespace":       item.Namespace,
 								"labels":          item.Labels,
+								"dep_hints":       envHints,
 							}),
 							Status:      1,
 							Description: fmt.Sprintf("StatefulSet %s/%s", item.Namespace, item.Name),
@@ -773,6 +793,7 @@ func (h *TopologyHandler) discoverFromK8s(clusterSet map[string]struct{}, namesp
 					}
 					result := make([]workloadRef, 0, len(items.Items))
 					for _, item := range items.Items {
+						envHints := collectContainerDependencyHints(item.Spec.Template.Spec.Containers)
 						name := fmt.Sprintf("k8s/%s/%s/daemonset/%s", clusterName, item.Namespace, item.Name)
 						nodes = append(nodes, syncNode{
 							Name:      name,
@@ -788,6 +809,7 @@ func (h *TopologyHandler) discoverFromK8s(clusterSet map[string]struct{}, namesp
 								"resource_name":   item.Name,
 								"namespace":       item.Namespace,
 								"labels":          item.Labels,
+								"dep_hints":       envHints,
 							}),
 							Status:      1,
 							Description: fmt.Sprintf("DaemonSet %s/%s", item.Namespace, item.Name),
@@ -992,6 +1014,10 @@ func (h *TopologyHandler) discoverFromDocker(hostSet map[string]struct{}, includ
 						}
 
 						serviceNode := fmt.Sprintf("swarm/%s/service/%s", hostName, serviceName)
+						serviceHints, hintErr := inspectSwarmServiceDependencyHints(executor, serviceName)
+						if hintErr != nil {
+							warnings = append(warnings, fmt.Sprintf("Swarm[%s] 服务 %s 依赖提取失败: %v", hostName, serviceName, hintErr))
+						}
 						nodes = append(nodes, syncNode{
 							Name:      serviceNode,
 							Type:      "service",
@@ -1005,6 +1031,7 @@ func (h *TopologyHandler) discoverFromDocker(hostSet map[string]struct{}, includ
 								"docker_host_id":  host.ID,
 								"service_name":    serviceName,
 								"image":           image,
+								"dep_hints":       serviceHints,
 							}),
 							Status:      1,
 							Description: fmt.Sprintf("Swarm Service %s", serviceName),
@@ -1061,6 +1088,10 @@ func (h *TopologyHandler) discoverFromDocker(hostSet map[string]struct{}, includ
 					ports = strings.TrimSpace(parts[2])
 				}
 				containerNode := fmt.Sprintf("docker/%s/container/%s", hostName, name)
+				containerHints, hintErr := inspectContainerDependencyHints(executor, name)
+				if hintErr != nil {
+					warnings = append(warnings, fmt.Sprintf("Docker[%s] 容器 %s 依赖提取失败: %v", hostName, name, hintErr))
+				}
 				nodes = append(nodes, syncNode{
 					Name:      containerNode,
 					Type:      "service",
@@ -1074,6 +1105,7 @@ func (h *TopologyHandler) discoverFromDocker(hostSet map[string]struct{}, includ
 						"docker_host_id":  host.ID,
 						"container_name":  name,
 						"image":           image,
+						"dep_hints":       containerHints,
 					}),
 					Status:      1,
 					Description: fmt.Sprintf("Docker Container %s", name),
@@ -1319,6 +1351,546 @@ func matchSelector(selector map[string]string, labels map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func collectContainerDependencyHints(containers []corev1.Container) []envDependencyHint {
+	envItems := make([]string, 0, 64)
+	for _, container := range containers {
+		for _, item := range container.Env {
+			if strings.TrimSpace(item.Value) == "" {
+				continue
+			}
+			envItems = append(envItems, fmt.Sprintf("%s=%s", item.Name, item.Value))
+		}
+	}
+	return parseEnvDependencyHints(envItems)
+}
+
+func inspectSwarmServiceDependencyHints(executor docker.CommandExecutor, serviceName string) ([]envDependencyHint, error) {
+	cmd := fmt.Sprintf("docker service inspect %s --format '{{json .Spec.TaskTemplate.ContainerSpec.Env}}'", shellQuote(serviceName))
+	output, stderr, err := executor.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, errors.New(msg)
+	}
+	return parseEnvHintsFromJSON(output)
+}
+
+func inspectContainerDependencyHints(executor docker.CommandExecutor, containerName string) ([]envDependencyHint, error) {
+	cmd := fmt.Sprintf("docker inspect %s --format '{{json .Config.Env}}'", shellQuote(containerName))
+	output, stderr, err := executor.Execute(cmd)
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, errors.New(msg)
+	}
+	return parseEnvHintsFromJSON(output)
+}
+
+func parseEnvHintsFromJSON(raw string) ([]envDependencyHint, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
+	}
+	var envItems []string
+	if err := json.Unmarshal([]byte(trimmed), &envItems); err != nil {
+		return nil, err
+	}
+	return parseEnvDependencyHints(envItems), nil
+}
+
+func parseEnvDependencyHints(items []string) []envDependencyHint {
+	const maxHints = 24
+	hints := make([]envDependencyHint, 0, maxHints)
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		idx := strings.Index(item, "=")
+		if idx <= 0 || idx == len(item)-1 {
+			continue
+		}
+		key := strings.TrimSpace(item[:idx])
+		value := strings.TrimSpace(item[idx+1:])
+		if key == "" || value == "" {
+			continue
+		}
+		if !isDependencyEnvKey(key, value) {
+			continue
+		}
+		for _, parsed := range parseDependencyValue(key, value) {
+			if parsed.Host == "" {
+				continue
+			}
+			sign := fmt.Sprintf("%s|%s|%d|%s", strings.ToUpper(parsed.Key), parsed.Host, parsed.Port, strings.ToLower(parsed.Protocol))
+			if _, exists := seen[sign]; exists {
+				continue
+			}
+			seen[sign] = struct{}{}
+			hints = append(hints, parsed)
+			if len(hints) >= maxHints {
+				return hints
+			}
+		}
+	}
+	return hints
+}
+
+func parseDependencyValue(key, value string) []envDependencyHint {
+	result := make([]envDependencyHint, 0, 8)
+	parts := splitEnvValueTokens(value)
+	if len(parts) == 0 {
+		parts = []string{value}
+	}
+	for _, token := range parts {
+		host, protocol, port := normalizeHostAndProtocol(token)
+		if host == "" {
+			continue
+		}
+		if protocol == "" {
+			protocol = inferProtocolByContext(key, token)
+		}
+		result = append(result, envDependencyHint{
+			Key:      key,
+			Host:     host,
+			Protocol: protocol,
+			Port:     port,
+		})
+	}
+	return result
+}
+
+func inferDependencyEdges(nodes []syncNode, existingEdges []syncEdge) ([]syncEdge, gin.H) {
+	if len(nodes) == 0 {
+		return nil, gin.H{"inferred_edges": 0, "source_nodes": 0}
+	}
+	aliasToNodes := map[string][]syncNode{}
+	nodeHints := map[string][]envDependencyHint{}
+	hintNodes := 0
+	totalHints := 0
+	for _, node := range nodes {
+		for _, alias := range collectNodeAliases(node) {
+			aliasToNodes[alias] = append(aliasToNodes[alias], node)
+		}
+		hints := parseHintsFromNodeMetadata(node.Metadata)
+		if len(hints) > 0 {
+			hintNodes++
+			totalHints += len(hints)
+			nodeHints[node.Name] = hints
+		}
+	}
+
+	edgeSeen := map[string]struct{}{}
+	for _, edge := range existingEdges {
+		source := strings.TrimSpace(edge.SourceName)
+		target := strings.TrimSpace(edge.TargetName)
+		if source == "" || target == "" {
+			continue
+		}
+		edgeSeen[source+"->"+target+"|"+strings.TrimSpace(edge.Type)] = struct{}{}
+	}
+
+	inferred := make([]syncEdge, 0, 256)
+	inferredByNode := map[string]int{}
+	const maxEdgePerSource = 18
+	for _, node := range nodes {
+		sourceName := strings.TrimSpace(node.Name)
+		if sourceName == "" {
+			continue
+		}
+		hints := nodeHints[sourceName]
+		if len(hints) == 0 {
+			continue
+		}
+		targetRecord := map[string]envDependencyHint{}
+		for _, hint := range hints {
+			for _, alias := range hostLookupCandidates(hint.Host) {
+				targets := aliasToNodes[alias]
+				for _, targetNode := range targets {
+					targetName := strings.TrimSpace(targetNode.Name)
+					if targetName == "" || targetName == sourceName {
+						continue
+					}
+					if _, exists := targetRecord[targetName]; exists {
+						continue
+					}
+					targetRecord[targetName] = hint
+					if len(targetRecord) >= maxEdgePerSource {
+						break
+					}
+				}
+				if len(targetRecord) >= maxEdgePerSource {
+					break
+				}
+			}
+			if len(targetRecord) >= maxEdgePerSource {
+				break
+			}
+		}
+
+		for targetName, hint := range targetRecord {
+			edgeType, protocol := inferEdgeTypeAndProtocol(hint)
+			signature := sourceName + "->" + targetName + "|" + edgeType
+			if _, exists := edgeSeen[signature]; exists {
+				continue
+			}
+			edgeSeen[signature] = struct{}{}
+			inferred = append(inferred, syncEdge{
+				SourceName:  sourceName,
+				TargetName:  targetName,
+				Type:        edgeType,
+				Protocol:    protocol,
+				Port:        hint.Port,
+				Description: fmt.Sprintf("auto inferred by %s", hint.Key),
+			})
+			inferredByNode[sourceName]++
+		}
+	}
+
+	return inferred, gin.H{
+		"source_nodes":          len(nodes),
+		"nodes_with_hints":      hintNodes,
+		"hint_count":            totalHints,
+		"inferred_edges":        len(inferred),
+		"inferred_source_nodes": len(inferredByNode),
+	}
+}
+
+func parseHintsFromNodeMetadata(raw string) []envDependencyHint {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var meta map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+		return nil
+	}
+	value, ok := meta["dep_hints"]
+	if !ok {
+		return nil
+	}
+	array, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+	hints := make([]envDependencyHint, 0, len(array))
+	for _, item := range array {
+		switch typed := item.(type) {
+		case map[string]interface{}:
+			key, _ := typed["key"].(string)
+			host, _ := typed["host"].(string)
+			protocol, _ := typed["protocol"].(string)
+			port := 0
+			switch p := typed["port"].(type) {
+			case float64:
+				port = int(p)
+			case int:
+				port = p
+			case string:
+				if v, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
+					port = v
+				}
+			}
+			host = strings.ToLower(strings.TrimSpace(host))
+			if host == "" {
+				continue
+			}
+			hints = append(hints, envDependencyHint{
+				Key:      key,
+				Host:     host,
+				Protocol: protocol,
+				Port:     port,
+			})
+		case string:
+			host := strings.ToLower(strings.TrimSpace(typed))
+			if host == "" {
+				continue
+			}
+			hints = append(hints, envDependencyHint{
+				Key:  "DEP_HINT",
+				Host: host,
+			})
+		}
+	}
+	return hints
+}
+
+func collectNodeAliases(node syncNode) []string {
+	set := map[string]struct{}{}
+	add := func(value string) {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if key != "" {
+			set[key] = struct{}{}
+		}
+	}
+	add(strings.TrimSpace(node.Name))
+
+	segments := strings.Split(strings.TrimSpace(node.Name), "/")
+	if len(segments) > 0 {
+		add(segments[len(segments)-1])
+	}
+
+	meta := map[string]interface{}{}
+	if strings.TrimSpace(node.Metadata) != "" {
+		_ = json.Unmarshal([]byte(node.Metadata), &meta)
+	}
+	for _, key := range []string{"resource_name", "service_name", "container_name"} {
+		if v, ok := meta[key].(string); ok {
+			add(v)
+			if i := strings.Index(v, "_"); i > 0 && i < len(v)-1 {
+				add(v[i+1:])
+			}
+		}
+	}
+
+	resource, _ := meta["resource"].(string)
+	resource = strings.ToLower(strings.TrimSpace(resource))
+	ns := strings.ToLower(strings.TrimSpace(node.Namespace))
+	if resource == "service" {
+		if v, ok := meta["resource_name"].(string); ok {
+			svc := strings.ToLower(strings.TrimSpace(v))
+			add(svc)
+			if svc != "" && ns != "" {
+				add(fmt.Sprintf("%s.%s", svc, ns))
+				add(fmt.Sprintf("%s.%s.svc", svc, ns))
+				add(fmt.Sprintf("%s.%s.svc.cluster.local", svc, ns))
+			}
+		}
+	}
+
+	out := make([]string, 0, len(set))
+	for key := range set {
+		normalized := normalizeHostCandidate(key)
+		if normalized != "" {
+			out = append(out, normalized)
+		}
+		if key != "" {
+			out = append(out, key)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func hostLookupCandidates(host string) []string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return nil
+	}
+	candidates := []string{host}
+	if normalized := normalizeHostCandidate(host); normalized != "" && normalized != host {
+		candidates = append(candidates, normalized)
+	}
+	if idx := strings.Index(host, "."); idx > 0 {
+		candidates = append(candidates, host[:idx])
+	}
+	return uniqueStrings(candidates)
+}
+
+func inferEdgeTypeAndProtocol(hint envDependencyHint) (string, string) {
+	protocol := strings.ToLower(strings.TrimSpace(hint.Protocol))
+	key := strings.ToUpper(strings.TrimSpace(hint.Key))
+	switch {
+	case strings.Contains(protocol, "http"):
+		if protocol == "https" {
+			return "http", "HTTPS"
+		}
+		return "http", "HTTP"
+	case strings.Contains(protocol, "grpc"):
+		return "grpc", "gRPC"
+	case strings.Contains(protocol, "redis"):
+		return "cache", "Redis"
+	case strings.Contains(protocol, "mysql"):
+		return "tcp", "MySQL"
+	case strings.Contains(protocol, "postgres"):
+		return "tcp", "PostgreSQL"
+	case strings.Contains(protocol, "mongo"):
+		return "tcp", "MongoDB"
+	case strings.Contains(protocol, "kafka") || strings.Contains(protocol, "amqp") || strings.Contains(protocol, "rabbit") || strings.Contains(protocol, "nats"):
+		return "mq", strings.ToUpper(protocol)
+	case strings.Contains(key, "REDIS"):
+		return "cache", "Redis"
+	case strings.Contains(key, "KAFKA") || strings.Contains(key, "RABBIT") || strings.Contains(key, "MQ") || strings.Contains(key, "NATS"):
+		return "mq", "MQ"
+	default:
+		return "tcp", "TCP"
+	}
+}
+
+func isDependencyEnvKey(key, value string) bool {
+	keyUpper := strings.ToUpper(strings.TrimSpace(key))
+	if keyUpper == "" {
+		return false
+	}
+	if strings.Contains(value, "://") {
+		return true
+	}
+	words := []string{
+		"HOST", "URL", "ADDR", "ADDRESS", "ENDPOINT", "DSN",
+		"DATABASE", "DB_", "REDIS", "MYSQL", "POSTGRES", "MONGO",
+		"KAFKA", "RABBIT", "MQ", "NATS", "ELASTIC", "ES_", "GRPC", "API",
+	}
+	for _, word := range words {
+		if strings.Contains(keyUpper, word) {
+			return true
+		}
+	}
+	return false
+}
+
+func parsePort(value string) int {
+	port, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || port < 0 || port > 65535 {
+		return 0
+	}
+	return port
+}
+
+func inferProtocolByContext(key, raw string) string {
+	keyUpper := strings.ToUpper(key)
+	value := strings.ToLower(raw)
+	switch {
+	case strings.HasPrefix(value, "https://"), strings.Contains(keyUpper, "HTTPS"):
+		return "https"
+	case strings.HasPrefix(value, "http://"), strings.Contains(keyUpper, "HTTP"), strings.Contains(keyUpper, "API"):
+		return "http"
+	case strings.HasPrefix(value, "grpc://"), strings.Contains(keyUpper, "GRPC"):
+		return "grpc"
+	case strings.Contains(keyUpper, "REDIS"), strings.HasPrefix(value, "redis://"):
+		return "redis"
+	case strings.Contains(keyUpper, "MYSQL"), strings.HasPrefix(value, "mysql://"):
+		return "mysql"
+	case strings.Contains(keyUpper, "POSTGRES"), strings.HasPrefix(value, "postgres://"), strings.HasPrefix(value, "postgresql://"):
+		return "postgres"
+	case strings.Contains(keyUpper, "MONGO"), strings.HasPrefix(value, "mongodb://"):
+		return "mongodb"
+	case strings.Contains(keyUpper, "KAFKA"), strings.HasPrefix(value, "kafka://"):
+		return "kafka"
+	case strings.Contains(keyUpper, "RABBIT"), strings.HasPrefix(value, "amqp://"), strings.HasPrefix(value, "amqps://"):
+		return "amqp"
+	case strings.Contains(keyUpper, "NATS"), strings.HasPrefix(value, "nats://"):
+		return "nats"
+	default:
+		return ""
+	}
+}
+
+func splitEnvValueTokens(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		switch r {
+		case ',', ';', ' ', '\n', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		item := strings.Trim(strings.TrimSpace(field), `"'`)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+var hostValuePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+func normalizeHostAndProtocol(raw string) (string, string, int) {
+	token := strings.Trim(strings.TrimSpace(raw), `"'`)
+	if token == "" {
+		return "", "", 0
+	}
+
+	if strings.Contains(token, "://") {
+		if parsed, err := url.Parse(token); err == nil {
+			host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+			host = normalizeHostCandidate(host)
+			if host == "" {
+				return "", "", 0
+			}
+			return host, strings.ToLower(strings.TrimSpace(parsed.Scheme)), parsePort(parsed.Port())
+		}
+	}
+
+	if at := strings.LastIndex(token, "@"); at >= 0 && at+1 < len(token) {
+		token = token[at+1:]
+	}
+	if slash := strings.Index(token, "/"); slash >= 0 {
+		token = token[:slash]
+	}
+	if strings.HasPrefix(token, "[") && strings.Contains(token, "]") {
+		end := strings.Index(token, "]")
+		host := strings.TrimSpace(token[1:end])
+		host = normalizeHostCandidate(host)
+		if host == "" {
+			return "", "", 0
+		}
+		port := 0
+		if end+1 < len(token) && token[end+1] == ':' {
+			port = parsePort(token[end+2:])
+		}
+		return host, "", port
+	}
+
+	host := token
+	port := 0
+	if colon := strings.LastIndex(token, ":"); colon > 0 && colon < len(token)-1 {
+		if parsed := parsePort(token[colon+1:]); parsed > 0 {
+			host = token[:colon]
+			port = parsed
+		}
+	}
+	host = normalizeHostCandidate(host)
+	if host == "" {
+		return "", "", 0
+	}
+	return host, "", port
+}
+
+func normalizeHostCandidate(value string) string {
+	host := strings.ToLower(strings.Trim(strings.TrimSpace(value), `"'`))
+	host = strings.TrimSuffix(host, ".")
+	if host == "" {
+		return ""
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "0.0.0.0", "::1":
+		return ""
+	}
+	if strings.HasPrefix(host, "$") || strings.Contains(host, "{") || strings.Contains(host, "}") {
+		return ""
+	}
+	if !hostValuePattern.MatchString(host) {
+		return ""
+	}
+	return host
+}
+
+func uniqueStrings(items []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		key := strings.TrimSpace(item)
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func (h *TopologyHandler) ListViews(c *gin.Context) {

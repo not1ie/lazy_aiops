@@ -360,7 +360,7 @@
           show-icon
           :closable="false"
           title="说明"
-          description="自动发现会采集 K8s Service/Ingress/Workload、Swarm Service、Docker Container 的结构关系。"
+          description="自动发现会采集 K8s Service/Ingress/Workload、Swarm Service、Docker Container 关系，并根据环境变量自动推断服务依赖。"
         />
       </el-form>
       <template #footer>
@@ -1187,7 +1187,8 @@ const runDiscover = async () => {
     }
     const res = await axios.post('/api/v1/topology/discover', payload, { headers: authHeaders() })
     const data = res.data?.data || {}
-    const msg = `发现完成：节点 ${data.discovered_nodes || 0}，关系 ${data.discovered_edges || 0}`
+    const inferred = Number(data.detail?.inference?.inferred_edges || 0)
+    const msg = `发现完成：节点 ${data.discovered_nodes || 0}，关系 ${data.discovered_edges || 0}${inferred > 0 ? `（自动推断依赖 ${inferred}）` : ''}`
     ElMessage.success(msg)
     if (Array.isArray(data.warnings) && data.warnings.length) {
       ElMessage.warning(`发现告警：${data.warnings.slice(0, 2).join('；')}`)
