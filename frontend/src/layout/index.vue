@@ -8,9 +8,9 @@
       <el-menu
         router
         :default-active="$route.path"
-        background-color="#304156"
-        text-color="#bfcbd9"
-        active-text-color="#409EFF"
+        background-color="var(--sider-bg)"
+        text-color="var(--sider-text)"
+        active-text-color="var(--sider-active)"
         class="el-menu-vertical"
       >
         <el-menu-item v-if="can('dashboard')" index="/dashboard">
@@ -189,7 +189,9 @@
       </el-header>
       <el-main class="main">
         <router-view v-slot="{ Component, route }">
-          <component :is="Component" :key="route.fullPath" />
+          <div class="page-view app-fade-in">
+            <component :is="Component" :key="route.fullPath" />
+          </div>
         </router-view>
       </el-main>
     </el-container>
@@ -257,12 +259,60 @@ onMounted(fetchUserInfo)
 </script>
 
 <style scoped>
-.layout-container { height: 100vh; }
-.aside { background-color: #304156; color: white; display: flex; flex-direction: column; }
-.logo { height: 60px; line-height: 60px; text-align: center; font-size: 20px; font-weight: bold; background-color: #2b2f3a; display: flex; align-items: center; justify-content: center; gap: 10px;}
+.layout-container {
+  height: 100vh;
+  background: transparent;
+}
+.aside {
+  background: linear-gradient(180deg, var(--sider-bg) 0%, #0f1725 100%);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 8px 0 24px rgba(2, 6, 23, 0.24);
+}
+.logo {
+  height: 60px;
+  line-height: 60px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  background-color: var(--sider-logo-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
 .el-menu-vertical { border-right: none; }
-.header { background: white; border-bottom: 1px solid #dcdfe6; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; box-shadow: 0 1px 4px rgba(0,21,41,.08); }
-.main { background-color: #f0f2f5; padding: 20px; }
+.header {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+.main { background: transparent; padding: 20px; overflow: auto; }
+.page-view { min-height: calc(100vh - 110px); }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+:deep(.el-menu) { border-right: none; }
+:deep(.el-menu-item),
+:deep(.el-sub-menu__title) {
+  border-radius: 10px;
+  margin: 4px 10px;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+:deep(.el-menu-item:hover),
+:deep(.el-sub-menu__title:hover) {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  transform: translateX(1px);
+}
+:deep(.el-menu-item.is-active) {
+  background: linear-gradient(90deg, rgba(10, 132, 255, 0.24) 0%, rgba(10, 132, 255, 0.1) 100%) !important;
+  color: #fff !important;
+}
 </style>

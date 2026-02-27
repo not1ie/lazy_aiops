@@ -256,13 +256,31 @@ const filteredInstances = computed(() => {
   })
 })
 
+const resolveChartEl = (value) => {
+  if (!value) return null
+  if (Array.isArray(value)) return resolveChartEl(value[0])
+  if (value?.$el) return value.$el
+  return value
+}
+
+const ensureChartInstance = (instance, holderRef) => {
+  const el = resolveChartEl(holderRef.value)
+  if (!el) return instance
+  if (instance && instance.getDom && instance.getDom() !== el) {
+    instance.dispose()
+    instance = null
+  }
+  if (!instance) instance = echarts.init(el)
+  return instance
+}
+
 const ensureCharts = () => {
-  if (cpuChartRef.value && !cpuChart) cpuChart = echarts.init(cpuChartRef.value)
-  if (memChartRef.value && !memChart) memChart = echarts.init(memChartRef.value)
-  if (diskChartRef.value && !diskChart) diskChart = echarts.init(diskChartRef.value)
-  if (netChartRef.value && !netChart) netChart = echarts.init(netChartRef.value)
-  if (topCpuChartRef.value && !topCpuChart) topCpuChart = echarts.init(topCpuChartRef.value)
-  if (topMemChartRef.value && !topMemChart) topMemChart = echarts.init(topMemChartRef.value)
+  cpuChart = ensureChartInstance(cpuChart, cpuChartRef)
+  memChart = ensureChartInstance(memChart, memChartRef)
+  diskChart = ensureChartInstance(diskChart, diskChartRef)
+  netChart = ensureChartInstance(netChart, netChartRef)
+  topCpuChart = ensureChartInstance(topCpuChart, topCpuChartRef)
+  topMemChart = ensureChartInstance(topMemChart, topMemChartRef)
 }
 
 const renderChart = (chart, title, labels, series, unit) => {

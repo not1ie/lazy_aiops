@@ -1,8 +1,77 @@
 :root {
-  --el-color-primary: #409eff;
+  --el-color-primary: #0a84ff;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-bg-color-page: #f5f6f8;
+  --el-text-color-primary: #1d1d1f;
+  --el-text-color-regular: #4b5563;
+  --el-border-color-light: #e5e7eb;
+  --sider-bg: #111826;
+  --sider-logo-bg: #0d1421;
+  --sider-text: #c8d0dc;
+  --sider-active: #ffffff;
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(15, 23, 42, 0.08);
+  --surface-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
 }
 body {
   margin: 0;
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
-  background-color: #f0f2f5;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  background: radial-gradient(circle at top right, #edf3ff 0%, #f5f6f8 38%, #f3f4f6 100%);
+  color: #1d1d1f;
+}
+#app {
+  min-height: 100vh;
+}
+
+.app-surface {
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--surface-shadow);
+}
+
+.app-fade-in {
+  animation: app-fade-up 0.42s cubic-bezier(0.21, 1, 0.35, 1) both;
+}
+
+@keyframes app-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.el-card {
+  border-radius: 16px;
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.24s ease, transform 0.24s ease, border-color 0.24s ease;
+}
+
+.el-card:hover {
+  box-shadow: var(--surface-shadow);
+}
+
+.el-button {
+  border-radius: 10px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.el-button:hover {
+  transform: translateY(-1px);
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: 10px !important;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.2) inset !important;
+}
+
+.el-table__body tr > td {
+  transition: background-color 0.2s ease;
+}
+
+.el-table__body tr:hover > td {
+  background: #f7fbff !important;
 }
