@@ -1,6 +1,6 @@
 <template>
   <el-card class="page-card">
-    <div class="page-header">
+    <div class="page-header motion-up delay-1">
       <div>
         <h2>容器监控</h2>
         <p class="page-desc">基于 Prometheus/cAdvisor 的容器指标（CPU/内存）。</p>
@@ -10,15 +10,15 @@
       </div>
     </div>
 
-    <div class="meta-row" v-if="lastRefresh">
+    <div class="meta-row motion-up delay-2" v-if="lastRefresh">
       <span class="meta-text">刷新时间：{{ lastRefresh }}</span>
     </div>
 
-    <el-alert type="info" :closable="false" show-icon>
+    <el-alert class="motion-up delay-2" type="info" :closable="false" show-icon>
       如果没有数据，请确认 Prometheus 已采集 cAdvisor 或 kubelet/cAdvisor 指标。
     </el-alert>
 
-    <div class="filter-bar">
+    <div class="filter-bar motion-up delay-3">
       <el-select v-model="companyFilter" placeholder="公司" class="w-40" clearable>
         <el-option v-for="item in companies" :key="item" :label="item" :value="item" />
       </el-select>
@@ -39,7 +39,7 @@
       </el-select>
     </div>
 
-    <div class="layout-bar">
+    <div class="layout-bar motion-up delay-4">
       <div class="layout-title">面板布局</div>
       <div class="layout-items">
         <div
@@ -65,14 +65,14 @@
       </div>
     </div>
 
-    <el-row :gutter="16" class="summary-row">
-      <el-col :span="6"><el-card><div class="card-title">容器数</div><div class="card-value">{{ stats.total }}</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="card-title">CPU Top</div><div class="card-value">{{ stats.maxCpu }}</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="card-title">内存 Top(MiB)</div><div class="card-value">{{ stats.maxMem }}</div></el-card></el-col>
+    <el-row :gutter="16" class="summary-row motion-up delay-5">
+      <el-col :span="6"><el-card class="summary-card"><div class="card-title">容器数</div><div class="card-value">{{ stats.total }}</div></el-card></el-col>
+      <el-col :span="6"><el-card class="summary-card"><div class="card-title">CPU Top</div><div class="card-value">{{ stats.maxCpu }}</div></el-card></el-col>
+      <el-col :span="6"><el-card class="summary-card"><div class="card-title">内存 Top(MiB)</div><div class="card-value">{{ stats.maxMem }}</div></el-card></el-col>
     </el-row>
 
     <template v-for="panel in panels" :key="panel.id">
-      <el-card v-if="panel.id === 'top' && panel.visible" class="panel-card">
+      <el-card v-if="panel.id === 'top' && panel.visible" class="panel-card motion-up delay-6">
         <div class="panel-header">
           <div>
             <h3>Top 排行</h3>
@@ -92,7 +92,7 @@
         </el-row>
       </el-card>
 
-      <el-card v-if="panel.id === 'trend' && panel.visible" class="panel-card" v-loading="chartLoading">
+      <el-card v-if="panel.id === 'trend' && panel.visible" class="panel-card motion-up delay-7" v-loading="chartLoading">
         <div class="panel-header">
           <div>
             <h3>趋势看板</h3>
@@ -118,7 +118,7 @@
       </el-card>
     </template>
 
-    <el-table :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
+    <el-table class="motion-up delay-8" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
       <el-table-column prop="container" label="容器" min-width="220" />
       <el-table-column prop="image" label="镜像" min-width="200" />
       <el-table-column prop="instance" label="节点" min-width="160" />
@@ -630,6 +630,15 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
+.motion-up { opacity: 0; transform: translateY(10px); animation: fade-up 0.42s cubic-bezier(0.21, 1, 0.35, 1) forwards; }
+.delay-1 { animation-delay: 30ms; }
+.delay-2 { animation-delay: 70ms; }
+.delay-3 { animation-delay: 110ms; }
+.delay-4 { animation-delay: 150ms; }
+.delay-5 { animation-delay: 190ms; }
+.delay-6 { animation-delay: 230ms; }
+.delay-7 { animation-delay: 270ms; }
+.delay-8 { animation-delay: 310ms; }
 .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .layout-bar { margin-top: 12px; padding: 8px 12px; background: #f7f9fc; border-radius: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .layout-title { font-weight: 600; color: #606266; }
@@ -638,14 +647,30 @@ onBeforeUnmount(() => {
 .drag-handle { font-weight: 700; color: #909399; }
 .layout-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .summary-row { margin-top: 12px; }
-.panel-card { margin-top: 16px; }
+.summary-card { transition: transform 0.22s ease, box-shadow 0.22s ease; }
+.summary-card:hover { transform: translateY(-2px); box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08); }
+.panel-card { margin-top: 16px; transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.2s ease; }
+.panel-card:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08); }
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
 .panel-desc { color: #909399; font-size: 12px; margin: 4px 0 0; }
 .panel-actions { display: flex; align-items: center; gap: 8px; }
-.chart-box { width: 100%; height: 260px; }
+.chart-box { width: 100%; height: 260px; transition: filter 0.28s ease, transform 0.28s ease; }
+.panel-card:hover .chart-box { filter: saturate(1.04); }
 .meta-row { display: flex; align-items: center; margin-top: 8px; color: #606266; font-size: 12px; }
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
 .w-40 { width: 140px; }
+:deep(.el-table__body tr > td) { transition: background-color 0.2s ease; }
+:deep(.el-table__body tr:hover > td) { background: #f7fbff !important; }
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-up { opacity: 1; transform: none; animation: none; }
+  .summary-card,
+  .panel-card,
+  .chart-box { transition: none; }
+}
 </style>

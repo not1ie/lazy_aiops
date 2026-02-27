@@ -1,6 +1,6 @@
 <template>
   <el-card class="page-card">
-    <div class="page-header">
+    <div class="page-header motion-card delay-0">
       <div>
         <h2>服务拓扑</h2>
         <p class="page-desc">维护服务节点与依赖关系，支持导入导出。</p>
@@ -14,15 +14,35 @@
     </div>
 
     <el-row :gutter="12" class="mb-12">
-      <el-col :span="6"><el-card><div class="k">节点数(可见/总数)</div><div class="v">{{ filteredNodes.length }} / {{ nodes.length }}</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="k">依赖边(可见/总数)</div><div class="v">{{ filteredEdges.length }} / {{ edges.length }}</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="k">视图数</div><div class="v">{{ views.length }}</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="k">异常节点</div><div class="v danger">{{ unhealthyCount }}</div></el-card></el-col>
+      <el-col :span="6">
+        <el-card class="motion-card delay-1">
+          <div class="k">节点数(可见/总数)</div>
+          <div class="v">{{ filteredNodes.length }} / {{ nodes.length }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card class="motion-card delay-2">
+          <div class="k">依赖边(可见/总数)</div>
+          <div class="v">{{ filteredEdges.length }} / {{ edges.length }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card class="motion-card delay-3">
+          <div class="k">视图数</div>
+          <div class="v">{{ views.length }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card class="motion-card delay-4">
+          <div class="k">异常节点</div>
+          <div class="v danger">{{ unhealthyCount }}</div>
+        </el-card>
+      </el-col>
     </el-row>
 
     <el-row :gutter="12" class="mb-12">
       <el-col :md="14" :sm="24">
-        <el-card class="overview-card">
+        <el-card class="overview-card motion-card delay-2">
           <template #header>
             <div class="section-header">
               <span>来源与集群分布</span>
@@ -54,7 +74,7 @@
         </el-card>
       </el-col>
       <el-col :md="10" :sm="24">
-        <el-card class="overview-card">
+        <el-card class="overview-card motion-card delay-3">
           <template #header>
             <div class="section-header">
               <span>关键路径/影响分</span>
@@ -75,7 +95,7 @@
       </el-col>
     </el-row>
 
-    <el-card class="mb-12">
+    <el-card class="mb-12 motion-card delay-4">
       <template #header>
         <div class="section-header">
           <span>拓扑画布</span>
@@ -116,12 +136,14 @@
           <line
             v-for="item in graphEdges"
             :key="item.id"
+            class="edge-line"
             :x1="item.x1"
             :y1="item.y1"
             :x2="item.x2"
             :y2="item.y2"
             :stroke="item.critical ? '#f56c6c' : '#9ca3af'"
             :stroke-width="item.critical ? 2.4 : 1.4"
+            :style="{ animationDelay: `${item.delay}ms` }"
             marker-end="url(#arrow)"
           />
           <text
@@ -140,7 +162,7 @@
           :key="item.id"
           class="graph-node"
           :class="{ selected: selectedNode?.id === item.id, critical: criticalNodeNames.has(item.name), draggable: canvasMode === 'manual' }"
-          :style="{ left: `${item.left}px`, top: `${item.top}px`, borderColor: sourceColor(item.source) }"
+          :style="{ left: `${item.left}px`, top: `${item.top}px`, borderColor: sourceColor(item.source), animationDelay: `${item.delay}ms` }"
           @mousedown.stop="startNodeDrag($event, item)"
           @click="selectNode(item.raw)"
         >
@@ -152,7 +174,7 @@
 
     <el-row :gutter="12">
       <el-col :md="14" :sm="24">
-        <el-card>
+        <el-card class="motion-card delay-5">
           <template #header>
             <div class="section-header">
               <span>节点清单</span>
@@ -215,7 +237,7 @@
       </el-col>
 
       <el-col :md="10" :sm="24">
-        <el-card>
+        <el-card class="motion-card delay-6">
           <template #header>
             <div class="section-header">
               <span>依赖关系</span>
@@ -572,7 +594,7 @@ const graphNodes = computed(() => {
       if (clusterCmp !== 0) return clusterCmp
       return (a.name || '').localeCompare(b.name || '')
     })
-    return sorted.map((raw) => {
+    return sorted.map((raw, index) => {
       const lane = raw.cluster || '-'
       const col = laneIndex.get(lane) || 0
       const row = laneOrder.get(lane) || 0
@@ -587,12 +609,13 @@ const graphNodes = computed(() => {
         source: nodeSource(raw),
         left: override ? override.left : left,
         top: override ? override.top : top,
+        delay: Math.min(360, index * 18),
         raw
       }
     })
   }
   const sorted = [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-  return sorted.map((raw) => {
+  return sorted.map((raw, index) => {
     const x = Math.max(0, Number(raw.x || 0))
     const y = Math.max(0, Number(raw.y || 0))
     const left = 36 + x
@@ -605,6 +628,7 @@ const graphNodes = computed(() => {
       source: nodeSource(raw),
       left: override ? override.left : left,
       top: override ? override.top : top,
+      delay: Math.min(360, index * 16),
       raw
     }
   })
@@ -620,7 +644,8 @@ const graphNodeIndex = computed(() => {
 })
 const graphEdges = computed(() => {
   const result = []
-  for (const edge of filteredEdges.value) {
+  for (let index = 0; index < filteredEdges.value.length; index += 1) {
+    const edge = filteredEdges.value[index]
     const sourceName = (edge.source_name || nodeName(edge.source_id)).trim()
     const targetName = (edge.target_name || nodeName(edge.target_id)).trim()
     const sourceNode = edge.source_id ? graphNodeIndex.value.byID.get(edge.source_id) : graphNodeIndex.value.byName.get(sourceName)
@@ -633,7 +658,8 @@ const graphEdges = computed(() => {
       x2: targetNode.left + GRAPH_NODE_WIDTH / 2,
       y2: targetNode.top + GRAPH_NODE_HEIGHT / 2,
       label: [edge.type, edge.port ? `:${edge.port}` : ''].join(''),
-      critical: criticalNodeNames.value.has(sourceNode.name) || criticalNodeNames.value.has(targetNode.name)
+      critical: criticalNodeNames.value.has(sourceNode.name) || criticalNodeNames.value.has(targetNode.name),
+      delay: Math.min(420, index * 10)
     })
   }
   return result
@@ -1218,6 +1244,14 @@ onBeforeUnmount(() => {
 .page-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 .page-desc { color: #909399; margin: 4px 0 0; }
 .page-actions { display: flex; align-items: center; gap: 8px; }
+.motion-card { opacity: 0; transform: translateY(8px); animation: fade-in-up 0.42s ease forwards; }
+.delay-0 { animation-delay: 20ms; }
+.delay-1 { animation-delay: 40ms; }
+.delay-2 { animation-delay: 80ms; }
+.delay-3 { animation-delay: 120ms; }
+.delay-4 { animation-delay: 160ms; }
+.delay-5 { animation-delay: 200ms; }
+.delay-6 { animation-delay: 240ms; }
 .k { color: #909399; font-size: 12px; }
 .v { font-size: 26px; font-weight: 700; margin-top: 4px; }
 .v.danger { color: #f56c6c; }
@@ -1245,16 +1279,33 @@ onBeforeUnmount(() => {
 .lane-header { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; padding: 10px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(2px); border-bottom: 1px solid #ebeef5; }
 .lane-item { background: #f5f7fa; color: #606266; border: 1px solid #e9edf3; border-radius: 6px; padding: 6px 8px; font-size: 12px; text-align: center; font-weight: 600; }
 .edge-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.edge-line { opacity: 0; stroke-dasharray: 9 8; animation: edge-in 0.45s ease forwards; }
 .edge-label { fill: #6b7280; font-size: 11px; text-anchor: middle; dominant-baseline: middle; }
-.graph-node { position: absolute; width: 190px; min-height: 56px; border: 2px solid #dcdfe6; border-radius: 10px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04); padding: 8px 10px; z-index: 3; cursor: pointer; transition: all 0.18s ease; }
+.graph-node { position: absolute; width: 190px; min-height: 56px; border: 2px solid #dcdfe6; border-radius: 10px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04); padding: 8px 10px; z-index: 3; cursor: pointer; transition: left 0.24s ease, top 0.24s ease, box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease; opacity: 0; animation: node-in 0.34s ease forwards; }
 .graph-node.draggable { cursor: grab; }
 .graph-node.draggable:active { cursor: grabbing; }
 .graph-node:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08); }
 .graph-node.selected { box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.25), 0 10px 20px rgba(64, 158, 255, 0.16); }
-.graph-node.critical { background: #fff7f7; }
+.graph-node.critical { background: #fff7f7; animation: node-in 0.34s ease forwards, critical-pulse 2.8s ease-in-out infinite; }
 .graph-node-title { font-size: 13px; font-weight: 600; color: #303133; line-height: 1.35; word-break: break-all; }
 .graph-node-meta { margin-top: 4px; font-size: 11px; color: #909399; text-transform: lowercase; }
 :deep(.critical-node-row > td) { background: #fff8f8 !important; }
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes edge-in {
+  from { opacity: 0; stroke-dashoffset: 30; }
+  to { opacity: 1; stroke-dashoffset: 0; }
+}
+@keyframes node-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes critical-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.08); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 108, 108, 0.08); }
+}
 @media (max-width: 900px) {
   .source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cluster-list { grid-template-columns: 1fr; }
