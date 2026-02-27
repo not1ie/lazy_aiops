@@ -84,6 +84,16 @@
               <el-option label="按集群泳道" value="lane" />
               <el-option label="按布局坐标" value="manual" />
             </el-select>
+            <el-button
+              v-if="canvasMode === 'manual'"
+              size="small"
+              type="primary"
+              :loading="savingLayout"
+              :disabled="!dirtyNodeIDs.length"
+              @click="saveCanvasLayout"
+            >
+              保存坐标({{ dirtyNodeIDs.length }})
+            </el-button>
             <el-switch v-model="showEdgeLabel" size="small" inline-prompt active-text="边标签" inactive-text="边标签" />
           </div>
         </div>
@@ -127,8 +137,9 @@
           v-for="item in graphNodes"
           :key="item.id"
           class="graph-node"
-          :class="{ selected: selectedNode?.id === item.id, critical: criticalNodeNames.has(item.name) }"
+          :class="{ selected: selectedNode?.id === item.id, critical: criticalNodeNames.has(item.name), draggable: canvasMode === 'manual' }"
           :style="{ left: `${item.left}px`, top: `${item.top}px`, borderColor: sourceColor(item.source) }"
+          @mousedown.stop="startNodeDrag($event, item)"
           @click="selectNode(item.raw)"
         >
           <div class="graph-node-title">{{ item.name }}</div>
@@ -163,6 +174,8 @@
               <el-option label="故障" value="3" />
               <el-option label="未知" value="0" />
             </el-select>
+            <el-checkbox v-model="nodeFilter.critical_only" class="filter-toggle">关键路径</el-checkbox>
+            <el-checkbox v-model="nodeFilter.alert_chain_only" class="filter-toggle">告警链路</el-checkbox>
           </div>
           <el-table :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode" :row-class-name="nodeRowClassName">
             <el-table-column prop="name" label="名称" min-width="160" />
@@ -338,7 +351,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -350,6 +363,7 @@ const discovering = ref(false)
 const dependencyLoading = ref(false)
 const canvasMode = ref('lane')
 const showEdgeLabel = ref(false)
+const savingLayout = ref(false)
 
 const nodes = ref([])
 const edges = ref([])
@@ -358,6 +372,15 @@ const selectedNode = ref(null)
 const dependencyInsights = ref([])
 const clusterOptions = ref([])
 const dockerHostOptions = ref([])
+const dirtyNodeIDs = ref([])
+const dragOverrideMap = ref({})
+const dragState = reactive({
+  nodeID: '',
+  startX: 0,
+  startY: 0,
+  originLeft: 0,
+  originTop: 0
+})
 
 const nodeDialogVisible = ref(false)
 const nodeEditing = ref(false)
@@ -405,7 +428,9 @@ const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('toke
 const nodeFilter = reactive({
   keyword: '',
   source: 'all',
-  status: 'all'
+  status: 'all',
+  critical_only: false,
+  alert_chain_only: false
 })
 
 const GRAPH_NODE_WIDTH = 190
@@ -417,6 +442,24 @@ const criticalNodeNames = computed(() => new Set(
     .filter(item => item.critical_path)
     .map(item => item.service_name)
 ))
+const alertChainNames = computed(() => {
+  const mapByID = new Map(nodes.value.map(item => [item.id, item.name]))
+  const names = new Set()
+  for (const node of nodes.value) {
+    const st = Number(node.status || 0)
+    if (st === 2 || st === 3) names.add(node.name)
+  }
+  for (const edge of edges.value) {
+    const sourceName = (edge.source_name || mapByID.get(edge.source_id) || edge.source_id || '').trim()
+    const targetName = (edge.target_name || mapByID.get(edge.target_id) || edge.target_id || '').trim()
+    if (!sourceName || !targetName) continue
+    if (names.has(sourceName) || names.has(targetName)) {
+      names.add(sourceName)
+      names.add(targetName)
+    }
+  }
+  return names
+})
 const sourceOptions = computed(() => {
   const options = new Set()
   for (const item of nodes.value) options.add(nodeSource(item))
@@ -449,6 +492,8 @@ const filteredNodes = computed(() => {
   return nodes.value.filter((item) => {
     if (source !== 'all' && nodeSource(item) !== source) return false
     if (status !== 'all' && String(Number(item.status || 0)) !== status) return false
+    if (nodeFilter.critical_only && !criticalNodeNames.value.has(item.name)) return false
+    if (nodeFilter.alert_chain_only && !alertChainNames.value.has(item.name)) return false
     if (!keyword) return true
     const text = `${item.name || ''} ${item.namespace || ''} ${item.cluster || ''}`.toLowerCase()
     return text.includes(keyword)
@@ -491,34 +536,32 @@ const graphNodes = computed(() => {
       laneOrder.set(lane, row + 1)
       const left = 36 + col * 260
       const top = 64 + row * 84
+      const override = dragOverrideMap.value[raw.id]
       return {
         id: raw.id,
         name: raw.name,
         type: raw.type || '-',
         source: nodeSource(raw),
-        left,
-        top,
+        left: override ? override.left : left,
+        top: override ? override.top : top,
         raw
       }
     })
   }
-  const sorted = [...list]
-  const xs = sorted.map(item => Number(item.x || 0))
-  const ys = sorted.map(item => Number(item.y || 0))
-  const minX = xs.length ? Math.min(...xs) : 0
-  const minY = ys.length ? Math.min(...ys) : 0
-  return sorted.map((raw, idx) => {
-    const x = Number(raw.x || 0)
-    const y = Number(raw.y || 0)
-    const left = 36 + Math.max(0, x-minX) + (idx % 3) * 8
-    const top = 64 + Math.max(0, y-minY)
+  const sorted = [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  return sorted.map((raw) => {
+    const x = Math.max(0, Number(raw.x || 0))
+    const y = Math.max(0, Number(raw.y || 0))
+    const left = 36 + x
+    const top = 64 + y
+    const override = dragOverrideMap.value[raw.id]
     return {
       id: raw.id,
       name: raw.name,
       type: raw.type || '-',
       source: nodeSource(raw),
-      left,
-      top,
+      left: override ? override.left : left,
+      top: override ? override.top : top,
       raw
     }
   })
@@ -669,6 +712,61 @@ const resetNodeFilter = () => {
   nodeFilter.keyword = ''
   nodeFilter.source = 'all'
   nodeFilter.status = 'all'
+  nodeFilter.critical_only = false
+  nodeFilter.alert_chain_only = false
+}
+
+const startNodeDrag = (event, item) => {
+  if (canvasMode.value !== 'manual') return
+  dragState.nodeID = item.id
+  dragState.startX = event.clientX
+  dragState.startY = event.clientY
+  dragState.originLeft = item.left
+  dragState.originTop = item.top
+}
+
+const onMouseMove = (event) => {
+  if (!dragState.nodeID) return
+  const dx = event.clientX - dragState.startX
+  const dy = event.clientY - dragState.startY
+  const nextLeft = Math.max(10, Math.round(dragState.originLeft + dx))
+  const nextTop = Math.max(10, Math.round(dragState.originTop + dy))
+  dragOverrideMap.value = {
+    ...dragOverrideMap.value,
+    [dragState.nodeID]: { left: nextLeft, top: nextTop }
+  }
+}
+
+const onMouseUp = () => {
+  if (!dragState.nodeID) return
+  if (!dirtyNodeIDs.value.includes(dragState.nodeID)) {
+    dirtyNodeIDs.value = [...dirtyNodeIDs.value, dragState.nodeID]
+  }
+  dragState.nodeID = ''
+}
+
+const saveCanvasLayout = async () => {
+  if (!dirtyNodeIDs.value.length) return
+  savingLayout.value = true
+  try {
+    const requests = dirtyNodeIDs.value.map((id) => {
+      const pos = dragOverrideMap.value[id]
+      if (!pos) return Promise.resolve()
+      return axios.put(`/api/v1/topology/nodes/${id}/position`, {
+        x: Math.max(0, Math.round(pos.left - 36)),
+        y: Math.max(0, Math.round(pos.top - 64))
+      }, { headers: authHeaders() })
+    })
+    await Promise.all(requests)
+    ElMessage.success(`已保存 ${dirtyNodeIDs.value.length} 个节点坐标`)
+    dirtyNodeIDs.value = []
+    dragOverrideMap.value = {}
+    await fetchTopology()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '保存坐标失败')
+  } finally {
+    savingLayout.value = false
+  }
 }
 
 const resetNodeForm = () => {
@@ -822,6 +920,8 @@ const autoLayout = async () => {
   try {
     const res = await axios.post('/api/v1/topology/layout/auto', {}, { headers: authHeaders() })
     ElMessage.success(res.data?.message || '已触发自动布局')
+    dirtyNodeIDs.value = []
+    dragOverrideMap.value = {}
     await fetchTopology()
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '自动布局失败')
@@ -909,6 +1009,14 @@ const importTopology = async () => {
 
 onMounted(refreshAll)
 onMounted(fetchDiscoverOptions)
+onMounted(() => {
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
+})
 </script>
 
 <style scoped>
@@ -925,6 +1033,7 @@ onMounted(fetchDiscoverOptions)
 .table-filters { display: flex; gap: 8px; margin-bottom: 8px; }
 .filter-input { flex: 1; }
 .filter-select { width: 140px; }
+.filter-toggle { display: flex; align-items: center; padding: 0 6px; border: 1px solid #ebeef5; border-radius: 6px; background: #fff; }
 .overview-card { min-height: 274px; }
 .source-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .source-item { border: 1px solid #ebeef5; border-radius: 8px; padding: 10px; cursor: pointer; background: #fff; }
@@ -944,6 +1053,8 @@ onMounted(fetchDiscoverOptions)
 .edge-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
 .edge-label { fill: #6b7280; font-size: 11px; text-anchor: middle; dominant-baseline: middle; }
 .graph-node { position: absolute; width: 190px; min-height: 56px; border: 2px solid #dcdfe6; border-radius: 10px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04); padding: 8px 10px; z-index: 3; cursor: pointer; transition: all 0.18s ease; }
+.graph-node.draggable { cursor: grab; }
+.graph-node.draggable:active { cursor: grabbing; }
 .graph-node:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08); }
 .graph-node.selected { box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.25), 0 10px 20px rgba(64, 158, 255, 0.16); }
 .graph-node.critical { background: #fff7f7; }
