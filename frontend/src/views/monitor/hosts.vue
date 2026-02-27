@@ -142,7 +142,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch, onBeforeUnmount, nextTick } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
@@ -258,19 +258,36 @@ const filteredInstances = computed(() => {
 
 const resolveChartEl = (value) => {
   if (!value) return null
-  if (Array.isArray(value)) return resolveChartEl(value[0])
-  if (value?.$el) return value.$el
-  return value
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const resolved = resolveChartEl(item)
+      if (resolved instanceof HTMLElement) return resolved
+    }
+    return null
+  }
+  if (value?.$el) return resolveChartEl(value.$el)
+  if (value instanceof HTMLElement) return value
+  return null
 }
 
 const ensureChartInstance = (instance, holderRef) => {
   const el = resolveChartEl(holderRef.value)
   if (!el) return instance
+  if (el.clientWidth <= 0 || el.clientHeight <= 0) return instance
   if (instance && instance.getDom && instance.getDom() !== el) {
     instance.dispose()
     instance = null
   }
-  if (!instance) instance = echarts.init(el)
+  try {
+    if (!instance) {
+      instance = echarts.getInstanceByDom(el) || echarts.init(el)
+    }
+  } catch {
+    if (instance) {
+      instance.dispose()
+    }
+    return null
+  }
   return instance
 }
 
@@ -547,6 +564,7 @@ const fetchTable = async () => {
 const fetchCharts = async () => {
   chartLoading.value = true
   try {
+    await nextTick()
     ensureCharts()
     const end = Math.floor(Date.now() / 1000)
     const start = end - (rangeHours.value * 3600)
@@ -592,6 +610,7 @@ const fetchCharts = async () => {
 }
 
 const refreshAll = async () => {
+  await nextTick()
   await fetchInstances()
   await fetchTable()
   await fetchCharts()
