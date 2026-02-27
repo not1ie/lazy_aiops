@@ -21,6 +21,29 @@ func NewAIService(db *gorm.DB, c *core.Core) *AIService {
 	}
 }
 
+func (s *AIService) RuntimeSnapshot() core.AIConfigSnapshot {
+	return s.core.AI.SnapshotConfig()
+}
+
+func (s *AIService) ApplyProviderConfig(cfg *AIProviderConfig) {
+	if cfg == nil {
+		return
+	}
+	headers := map[string]string{}
+	if strings.TrimSpace(cfg.ExtraHeaders) != "" {
+		_ = json.Unmarshal([]byte(cfg.ExtraHeaders), &headers)
+	}
+	s.core.AI.UpdateConfig(
+		cfg.Provider,
+		cfg.APIKey,
+		cfg.BaseURL,
+		cfg.Model,
+		cfg.AuthType,
+		headers,
+		cfg.TimeoutSecond,
+	)
+}
+
 // Chat 对话
 func (s *AIService) Chat(sessionID, userID, message, context string) (*ChatResponse, error) {
 	// 获取或创建会话
@@ -179,12 +202,12 @@ func (s *AIService) parseAnalyzeResponse(reply string) (*AnalyzeResponse, error)
 	if err := json.Unmarshal([]byte(reply), &resp); err != nil {
 		// 解析失败时返回原始文本
 		return &AnalyzeResponse{
-			Summary:     reply,
-			Severity:    "info",
-			Suggestions: []string{},
-			Issues:      []Issue{},
-		},
-		 nil
+				Summary:     reply,
+				Severity:    "info",
+				Suggestions: []string{},
+				Issues:      []Issue{},
+			},
+			nil
 	}
 	return &resp, nil
 }

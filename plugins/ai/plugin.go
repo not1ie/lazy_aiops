@@ -18,9 +18,11 @@ type AIPlugin struct {
 	service *AIService
 }
 
-func (p *AIPlugin) Name() string        { return "ai" }
-func (p *AIPlugin) Version() string     { return "1.0.0" }
-func (p *AIPlugin) Description() string { return "AI运维助手 - 日志分析、故障诊断、智能问答" }
+func (p *AIPlugin) Name() string    { return "ai" }
+func (p *AIPlugin) Version() string { return "1.0.0" }
+func (p *AIPlugin) Description() string {
+	return "AI运维助手 - 日志分析、故障诊断、智能问答"
+}
 
 func (p *AIPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -30,11 +32,17 @@ func (p *AIPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	return nil
 }
 
-func (p *AIPlugin) Start() error { return nil }
-func (p *AIPlugin) Stop() error  { return nil }
+func (p *AIPlugin) Start() error {
+	var active AIProviderConfig
+	if err := p.core.DB.Where("active = ?", true).Order("updated_at desc").First(&active).Error; err == nil {
+		p.service.ApplyProviderConfig(&active)
+	}
+	return nil
+}
+func (p *AIPlugin) Stop() error { return nil }
 
 func (p *AIPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&ChatSession{}, &ChatMessage{}, &LogAnalysis{})
+	return p.core.DB.AutoMigrate(&ChatSession{}, &ChatMessage{}, &LogAnalysis{}, &AIProviderConfig{})
 }
 
 func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
@@ -45,6 +53,14 @@ func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/sessions", h.ListSessions)
 	g.GET("/sessions/:id/messages", h.GetSessionMessages)
 	g.DELETE("/sessions/:id", h.DeleteSession)
+
+	// 模型接入配置
+	g.GET("/configs", h.ListProviderConfigs)
+	g.POST("/configs", h.CreateProviderConfig)
+	g.PUT("/configs/:id", h.UpdateProviderConfig)
+	g.DELETE("/configs/:id", h.DeleteProviderConfig)
+	g.POST("/configs/:id/activate", h.ActivateProviderConfig)
+	g.POST("/configs/:id/test", h.TestProviderConfig)
 
 	// 分析
 	g.POST("/analyze/logs", h.AnalyzeLogs)

@@ -137,7 +137,119 @@
           </el-table>
         </el-card>
       </el-tab-pane>
+
+      <el-tab-pane label="模型配置" name="config">
+        <el-card>
+          <template #header>
+            <div class="section-header">
+              <span>自定义 API 接入</span>
+              <el-button size="small" type="primary" icon="Plus" @click="openConfigDialog()">新增配置</el-button>
+            </div>
+          </template>
+
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            class="mb-12"
+            title="支持 OpenAI 兼容 API / 私有网关 / 三方模型代理。"
+          />
+
+          <el-descriptions v-if="runtimeConfig" :column="2" border size="small" class="mb-12">
+            <el-descriptions-item label="当前 Provider">{{ runtimeConfig.provider || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="当前 Model">{{ runtimeConfig.model || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="Auth 类型">{{ runtimeConfig.auth_type || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="超时">{{ runtimeConfig.timeout_second || 0 }}s</el-descriptions-item>
+            <el-descriptions-item label="Base URL" :span="2">{{ runtimeConfig.base_url || '-' }}</el-descriptions-item>
+          </el-descriptions>
+
+          <el-table :data="providerConfigs" v-loading="configLoading" stripe>
+            <el-table-column prop="name" label="名称" min-width="140" />
+            <el-table-column prop="provider" label="Provider" width="110" />
+            <el-table-column prop="base_url" label="Base URL" min-width="240" show-overflow-tooltip />
+            <el-table-column prop="model" label="Model" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="auth_type" label="Auth" width="110" />
+            <el-table-column prop="timeout_second" label="超时(s)" width="90" />
+            <el-table-column label="当前" width="80">
+              <template #default="{ row }">
+                <el-tag v-if="row.active" type="success">激活</el-tag>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="330" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="openConfigDialog(row)">编辑</el-button>
+                <el-button size="small" type="primary" plain @click="activateConfig(row)" :disabled="row.active">设为当前</el-button>
+                <el-button size="small" type="warning" plain @click="testConfig(row)">测试</el-button>
+                <el-button size="small" type="danger" plain @click="removeConfig(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="configDialogVisible" :title="configEditing ? '编辑模型配置' : '新增模型配置'" width="700px">
+      <el-form :model="configForm" label-width="110px">
+        <el-form-item label="配置名称" required>
+          <el-input v-model="configForm.name" placeholder="如：OpenAI-Prod" />
+        </el-form-item>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="Provider">
+              <el-select v-model="configForm.provider" style="width: 100%">
+                <el-option label="openai" value="openai" />
+                <el-option label="ollama" value="ollama" />
+                <el-option label="custom" value="custom" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="Auth 类型">
+              <el-select v-model="configForm.auth_type" style="width: 100%">
+                <el-option label="bearer" value="bearer" />
+                <el-option label="x-api-key" value="x-api-key" />
+                <el-option label="api-key" value="api-key" />
+                <el-option label="none" value="none" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="Base URL" required>
+          <el-input v-model="configForm.base_url" placeholder="如：https://api.openai.com/v1" />
+        </el-form-item>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="模型" required>
+              <el-input v-model="configForm.model" placeholder="如：gpt-4o-mini" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="超时(秒)">
+              <el-input-number v-model="configForm.timeout_second" :min="5" :max="300" :step="5" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="API Key">
+          <el-input v-model="configForm.api_key" type="password" show-password placeholder="编辑时留空则保持原值" />
+        </el-form-item>
+        <el-form-item label="附加请求头">
+          <el-input
+            v-model="configForm.extra_headers"
+            type="textarea"
+            :rows="3"
+            placeholder='JSON对象，如 {"x-tenant":"ops","x-region":"cn"}'
+          />
+        </el-form-item>
+        <el-form-item label="说明">
+          <el-input v-model="configForm.description" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="configDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="configSaving" @click="saveConfig">保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -164,6 +276,24 @@ const analyzeForm = reactive({
 })
 const analysisResult = ref(null)
 const analysisHistory = ref([])
+const providerConfigs = ref([])
+const runtimeConfig = ref(null)
+const configLoading = ref(false)
+const configSaving = ref(false)
+const configDialogVisible = ref(false)
+const configEditing = ref(false)
+const configForm = reactive({
+  id: '',
+  name: '',
+  provider: 'openai',
+  base_url: '',
+  model: 'gpt-3.5-turbo',
+  auth_type: 'bearer',
+  api_key: '',
+  timeout_second: 60,
+  extra_headers: '{}',
+  description: ''
+})
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -306,8 +436,137 @@ const fetchHistory = async () => {
   }
 }
 
+const fetchConfigs = async () => {
+  configLoading.value = true
+  try {
+    const res = await axios.get('/api/v1/ai/configs', { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      providerConfigs.value = res.data.data?.configs || []
+      runtimeConfig.value = res.data.data?.runtime || null
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '加载模型配置失败')
+  } finally {
+    configLoading.value = false
+  }
+}
+
+const resetConfigForm = () => {
+  configForm.id = ''
+  configForm.name = ''
+  configForm.provider = 'openai'
+  configForm.base_url = ''
+  configForm.model = 'gpt-3.5-turbo'
+  configForm.auth_type = 'bearer'
+  configForm.api_key = ''
+  configForm.timeout_second = 60
+  configForm.extra_headers = '{}'
+  configForm.description = ''
+}
+
+const openConfigDialog = (row) => {
+  resetConfigForm()
+  configEditing.value = !!row
+  if (row) {
+    configForm.id = row.id
+    configForm.name = row.name || ''
+    configForm.provider = row.provider || 'openai'
+    configForm.base_url = row.base_url || ''
+    configForm.model = row.model || 'gpt-3.5-turbo'
+    configForm.auth_type = row.auth_type || 'bearer'
+    configForm.timeout_second = Number(row.timeout_second || 60)
+    configForm.extra_headers = row.extra_headers || '{}'
+    configForm.description = row.description || ''
+  }
+  configDialogVisible.value = true
+}
+
+const saveConfig = async () => {
+  if (!configForm.name.trim()) {
+    ElMessage.warning('请输入配置名称')
+    return
+  }
+  if (!configForm.base_url.trim()) {
+    ElMessage.warning('请输入 Base URL')
+    return
+  }
+  if (!configForm.model.trim()) {
+    ElMessage.warning('请输入模型名称')
+    return
+  }
+  let headersPayload = {}
+  const rawHeaders = (configForm.extra_headers || '').trim()
+  if (rawHeaders) {
+    try {
+      headersPayload = JSON.parse(rawHeaders)
+    } catch {
+      ElMessage.warning('附加请求头必须是 JSON 对象')
+      return
+    }
+  }
+
+  configSaving.value = true
+  try {
+    const payload = {
+      name: configForm.name.trim(),
+      provider: configForm.provider,
+      base_url: configForm.base_url.trim(),
+      model: configForm.model.trim(),
+      auth_type: configForm.auth_type,
+      api_key: configForm.api_key || '',
+      timeout_second: Number(configForm.timeout_second || 60),
+      extra_headers: headersPayload,
+      description: configForm.description
+    }
+    if (configEditing.value && configForm.id) {
+      await axios.put(`/api/v1/ai/configs/${configForm.id}`, payload, { headers: authHeaders() })
+      ElMessage.success('配置已更新')
+    } else {
+      await axios.post('/api/v1/ai/configs', payload, { headers: authHeaders() })
+      ElMessage.success('配置已创建')
+    }
+    configDialogVisible.value = false
+    await fetchConfigs()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '保存配置失败')
+  } finally {
+    configSaving.value = false
+  }
+}
+
+const activateConfig = async (row) => {
+  try {
+    await axios.post(`/api/v1/ai/configs/${row.id}/activate`, {}, { headers: authHeaders() })
+    ElMessage.success('已切换为当前模型配置')
+    await fetchConfigs()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '激活失败')
+  }
+}
+
+const testConfig = async (row) => {
+  try {
+    const res = await axios.post(`/api/v1/ai/configs/${row.id}/test`, {}, { headers: authHeaders() })
+    const info = res.data?.data?.reply ? `，返回: ${String(res.data.data.reply).slice(0, 30)}` : ''
+    ElMessage.success(`测试通过${info}`)
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '测试失败')
+  }
+}
+
+const removeConfig = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除模型配置 ${row.name} ?`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/ai/configs/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    await fetchConfigs()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+  }
+}
+
 const refreshAll = async () => {
-  await Promise.all([fetchSessions(), fetchHistory()])
+  await Promise.all([fetchSessions(), fetchHistory(), fetchConfigs()])
   await fetchMessages()
 }
 
@@ -337,4 +596,5 @@ onMounted(refreshAll)
 .muted { color: #909399; font-size: 12px; }
 .mt-8 { margin-top: 8px; }
 .mt-12 { margin-top: 12px; }
+.mb-12 { margin-bottom: 12px; }
 </style>

@@ -24,10 +24,10 @@ func (b *BaseModel) BeforeCreate(tx *gorm.DB) error {
 // ChatSession 对话会话
 type ChatSession struct {
 	BaseModel
-	UserID   string `gorm:"size:36;index" json:"user_id"`
-	Title    string `gorm:"size:256" json:"title"`
-	Type     string `gorm:"size:32" json:"type"` // chat, analyze, suggest
-	Context  string `gorm:"type:text" json:"context"` // 上下文信息
+	UserID  string `gorm:"size:36;index" json:"user_id"`
+	Title   string `gorm:"size:256" json:"title"`
+	Type    string `gorm:"size:32" json:"type"`      // chat, analyze, suggest
+	Context string `gorm:"type:text" json:"context"` // 上下文信息
 }
 
 // ChatMessage 对话消息
@@ -83,11 +83,26 @@ type LogAnalysis struct {
 	NeedAlert    bool    `json:"need_alert"`
 	AlertLevel   string  `gorm:"size:32" json:"alert_level"` // critical/warning/info
 	RootCause    string  `gorm:"type:text" json:"root_cause"`
-	Impact       string  `gorm:"type:text" json:"impact"`       // 存储为分号分隔的字符串
-	Solutions    string  `gorm:"type:text" json:"solutions"`    // 存储为分号分隔的字符串
-	Prevention   string  `gorm:"type:text" json:"prevention"`   // 存储为分号分隔的字符串
+	Impact       string  `gorm:"type:text" json:"impact"`     // 存储为分号分隔的字符串
+	Solutions    string  `gorm:"type:text" json:"solutions"`  // 存储为分号分隔的字符串
+	Prevention   string  `gorm:"type:text" json:"prevention"` // 存储为分号分隔的字符串
 	Confidence   float64 `json:"confidence"`
 	LogCount     int     `json:"log_count"`
 	ErrorCount   int     `json:"error_count"`
 	WarningCount int     `json:"warning_count"`
+}
+
+// AIProviderConfig AI模型接入配置
+type AIProviderConfig struct {
+	BaseModel
+	Name          string `gorm:"size:128;index" json:"name"`
+	Provider      string `gorm:"size:64;index" json:"provider"`
+	BaseURL       string `gorm:"size:512" json:"base_url"`
+	Model         string `gorm:"size:128" json:"model"`
+	AuthType      string `gorm:"size:32" json:"auth_type"` // bearer/x-api-key/api-key/none
+	APIKey        string `gorm:"size:1024" json:"api_key"`
+	ExtraHeaders  string `gorm:"type:text" json:"extra_headers"` // JSON object string
+	TimeoutSecond int    `gorm:"default:60" json:"timeout_second"`
+	Active        bool   `gorm:"default:false;index" json:"active"`
+	Description   string `gorm:"size:512" json:"description"`
 }

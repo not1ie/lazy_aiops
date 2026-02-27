@@ -1,10 +1,13 @@
 package ai
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"gorm.io/gorm"
 )
 
@@ -13,8 +16,88 @@ type AIHandler struct {
 	service *AIService
 }
 
+type providerConfigPayload struct {
+	Name          string          `json:"name"`
+	Provider      string          `json:"provider"`
+	BaseURL       string          `json:"base_url"`
+	Model         string          `json:"model"`
+	AuthType      string          `json:"auth_type"`
+	APIKey        string          `json:"api_key"`
+	TimeoutSecond int             `json:"timeout_second"`
+	ExtraHeaders  json.RawMessage `json:"extra_headers"`
+	Description   string          `json:"description"`
+}
+
 func NewAIHandler(db *gorm.DB, service *AIService) *AIHandler {
 	return &AIHandler{db: db, service: service}
+}
+
+func normalizeProviderPayload(req *providerConfigPayload) {
+	req.Name = strings.TrimSpace(req.Name)
+	req.Provider = strings.TrimSpace(strings.ToLower(req.Provider))
+	req.BaseURL = strings.TrimSpace(req.BaseURL)
+	req.Model = strings.TrimSpace(req.Model)
+	req.AuthType = strings.TrimSpace(strings.ToLower(req.AuthType))
+	req.Description = strings.TrimSpace(req.Description)
+
+	if req.Name == "" {
+		req.Name = "custom-api"
+	}
+	if req.Provider == "" {
+		req.Provider = "openai"
+	}
+	if req.Model == "" {
+		req.Model = "gpt-3.5-turbo"
+	}
+	if req.AuthType == "" {
+		req.AuthType = "bearer"
+	}
+	if req.TimeoutSecond <= 0 {
+		req.TimeoutSecond = 60
+	}
+}
+
+func parseHeaderMap(raw json.RawMessage) (map[string]string, string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]string{}, "{}", nil
+	}
+	headers := map[string]string{}
+
+	var asMap map[string]interface{}
+	if err := json.Unmarshal(raw, &asMap); err == nil {
+		for key, value := range asMap {
+			k := strings.TrimSpace(key)
+			v := strings.TrimSpace(fmt.Sprint(value))
+			if k == "" || v == "" || v == "<nil>" {
+				continue
+			}
+			headers[k] = v
+		}
+		serialized, _ := json.Marshal(headers)
+		return headers, string(serialized), nil
+	}
+
+	var rawString string
+	if err := json.Unmarshal(raw, &rawString); err != nil {
+		return nil, "", err
+	}
+	rawString = strings.TrimSpace(rawString)
+	if rawString == "" {
+		return map[string]string{}, "{}", nil
+	}
+	if err := json.Unmarshal([]byte(rawString), &asMap); err != nil {
+		return nil, "", err
+	}
+	for key, value := range asMap {
+		k := strings.TrimSpace(key)
+		v := strings.TrimSpace(fmt.Sprint(value))
+		if k == "" || v == "" || v == "<nil>" {
+			continue
+		}
+		headers[k] = v
+	}
+	serialized, _ := json.Marshal(headers)
+	return headers, string(serialized), nil
 }
 
 // Chat 对话
@@ -63,6 +146,197 @@ func (h *AIHandler) DeleteSession(c *gin.Context) {
 	h.db.Delete(&ChatMessage{}, "session_id = ?", sessionID)
 	h.db.Delete(&ChatSession{}, "id = ?", sessionID)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ListProviderConfigs 模型接入配置列表
+func (h *AIHandler) ListProviderConfigs(c *gin.Context) {
+	var list []AIProviderConfig
+	if err := h.db.Order("updated_at desc").Find(&list).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	for i := range list {
+		if strings.TrimSpace(list[i].APIKey) != "" {
+			list[i].APIKey = "******"
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"configs": list,
+			"runtime": h.service.RuntimeSnapshot(),
+		},
+	})
+}
+
+// CreateProviderConfig 新增模型接入配置
+func (h *AIHandler) CreateProviderConfig(c *gin.Context) {
+	var req providerConfigPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	normalizeProviderPayload(&req)
+	if req.AuthType != "bearer" && req.AuthType != "x-api-key" && req.AuthType != "api-key" && req.AuthType != "none" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "auth_type 仅支持 bearer/x-api-key/api-key/none"})
+		return
+	}
+	_, serializedHeaders, err := parseHeaderMap(req.ExtraHeaders)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "extra_headers 必须是对象或 JSON 字符串"})
+		return
+	}
+	cfg := AIProviderConfig{
+		Name:          req.Name,
+		Provider:      req.Provider,
+		BaseURL:       req.BaseURL,
+		Model:         req.Model,
+		AuthType:      req.AuthType,
+		APIKey:        strings.TrimSpace(req.APIKey),
+		ExtraHeaders:  serializedHeaders,
+		TimeoutSecond: req.TimeoutSecond,
+		Description:   req.Description,
+	}
+
+	var activeCount int64
+	h.db.Model(&AIProviderConfig{}).Where("active = ?", true).Count(&activeCount)
+	if activeCount == 0 {
+		cfg.Active = true
+	}
+	if err := h.db.Create(&cfg).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if cfg.Active {
+		h.service.ApplyProviderConfig(&cfg)
+	}
+	cfg.APIKey = ""
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cfg})
+}
+
+// UpdateProviderConfig 更新模型接入配置
+func (h *AIHandler) UpdateProviderConfig(c *gin.Context) {
+	id := c.Param("id")
+	var existing AIProviderConfig
+	if err := h.db.First(&existing, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
+
+	var req providerConfigPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	normalizeProviderPayload(&req)
+	if req.AuthType != "bearer" && req.AuthType != "x-api-key" && req.AuthType != "api-key" && req.AuthType != "none" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "auth_type 仅支持 bearer/x-api-key/api-key/none"})
+		return
+	}
+	_, serializedHeaders, err := parseHeaderMap(req.ExtraHeaders)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "extra_headers 必须是对象或 JSON 字符串"})
+		return
+	}
+	apiKey := existing.APIKey
+	if trimmed := strings.TrimSpace(req.APIKey); trimmed != "" {
+		apiKey = trimmed
+	}
+	updates := map[string]interface{}{
+		"name":           req.Name,
+		"provider":       req.Provider,
+		"base_url":       req.BaseURL,
+		"model":          req.Model,
+		"auth_type":      req.AuthType,
+		"api_key":        apiKey,
+		"extra_headers":  serializedHeaders,
+		"timeout_second": req.TimeoutSecond,
+		"description":    req.Description,
+	}
+	if err := h.db.Model(&AIProviderConfig{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if existing.Active {
+		h.service.ApplyProviderConfig(&AIProviderConfig{
+			Provider:      req.Provider,
+			APIKey:        apiKey,
+			BaseURL:       req.BaseURL,
+			Model:         req.Model,
+			AuthType:      req.AuthType,
+			ExtraHeaders:  serializedHeaders,
+			TimeoutSecond: req.TimeoutSecond,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
+}
+
+// DeleteProviderConfig 删除模型接入配置
+func (h *AIHandler) DeleteProviderConfig(c *gin.Context) {
+	id := c.Param("id")
+	var current AIProviderConfig
+	if err := h.db.First(&current, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
+	if err := h.db.Delete(&AIProviderConfig{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if current.Active {
+		var fallback AIProviderConfig
+		if err := h.db.Order("updated_at desc").First(&fallback).Error; err == nil {
+			h.db.Model(&AIProviderConfig{}).Where("id = ?", fallback.ID).Update("active", true)
+			h.service.ApplyProviderConfig(&fallback)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// ActivateProviderConfig 激活模型接入配置
+func (h *AIHandler) ActivateProviderConfig(c *gin.Context) {
+	id := c.Param("id")
+	var cfg AIProviderConfig
+	if err := h.db.First(&cfg, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
+	if err := h.db.Model(&AIProviderConfig{}).Where("active = ?", true).Update("active", false).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.Model(&AIProviderConfig{}).Where("id = ?", id).Update("active", true).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	h.service.ApplyProviderConfig(&cfg)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已激活"})
+}
+
+// TestProviderConfig 测试模型接入配置
+func (h *AIHandler) TestProviderConfig(c *gin.Context) {
+	id := c.Param("id")
+	var cfg AIProviderConfig
+	if err := h.db.First(&cfg, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
+
+	headers := map[string]string{}
+	if strings.TrimSpace(cfg.ExtraHeaders) != "" {
+		if err := json.Unmarshal([]byte(cfg.ExtraHeaders), &headers); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "extra_headers JSON 无效"})
+			return
+		}
+	}
+	tester := core.NewAIService(cfg.Provider, cfg.APIKey, cfg.BaseURL, cfg.Model)
+	tester.UpdateConfig(cfg.Provider, cfg.APIKey, cfg.BaseURL, cfg.Model, cfg.AuthType, headers, cfg.TimeoutSecond)
+	reply, tokens, err := tester.CallSimple("请仅返回: pong")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "测试失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "连接成功", "data": gin.H{"reply": strings.TrimSpace(reply), "token_used": tokens}})
 }
 
 // AnalyzeLogs 分析日志
