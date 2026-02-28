@@ -84,9 +84,10 @@
                     <el-radio-button label="manual">手动粘贴</el-radio-button>
                     <el-radio-button label="service">Docker 服务</el-radio-button>
                     <el-radio-button label="container">Docker 容器</el-radio-button>
+                    <el-radio-button label="k8s-pod">K8s Pod</el-radio-button>
                   </el-radio-group>
                 </el-form-item>
-                <template v-if="analyzeForm.sourceType !== 'manual'">
+                <template v-if="analyzeForm.sourceType === 'service' || analyzeForm.sourceType === 'container'">
                   <el-form-item label="主机">
                     <el-select
                       v-model="analyzeForm.hostId"
@@ -124,6 +125,76 @@
                       <el-input-number v-model="analyzeForm.tail" :min="50" :max="2000" :step="50" controls-position="right" />
                       <el-button :loading="pullingLogs" @click="pullTargetLogs">拉取日志</el-button>
                     </div>
+                  </el-form-item>
+                </template>
+                <template v-if="analyzeForm.sourceType === 'k8s-pod'">
+                  <el-form-item label="集群">
+                    <el-select
+                      v-model="analyzeForm.clusterId"
+                      placeholder="选择 K8s 集群"
+                      filterable
+                      clearable
+                      style="width: 100%"
+                      @change="onAnalyzeClusterChange"
+                    >
+                      <el-option
+                        v-for="cluster in k8sClusters"
+                        :key="cluster.id"
+                        :label="cluster.display_name || cluster.name || cluster.id"
+                        :value="cluster.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="命名空间">
+                    <el-select
+                      v-model="analyzeForm.namespace"
+                      placeholder="选择命名空间"
+                      filterable
+                      clearable
+                      style="width: 100%"
+                      :loading="targetLoading"
+                      @change="onAnalyzeNamespaceChange"
+                    >
+                      <el-option
+                        v-for="ns in k8sNamespaces"
+                        :key="ns.name"
+                        :label="ns.name"
+                        :value="ns.name"
+                      />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="Pod">
+                    <div class="log-source-row">
+                      <el-select
+                        v-model="analyzeForm.podName"
+                        placeholder="选择 Pod"
+                        filterable
+                        clearable
+                        style="flex: 1"
+                        :loading="targetLoading"
+                        @change="onAnalyzePodChange"
+                      >
+                        <el-option
+                          v-for="pod in k8sPods"
+                          :key="pod.name"
+                          :label="`${pod.name} (${pod.status || '-'})`"
+                          :value="pod.name"
+                        />
+                      </el-select>
+                      <el-input-number v-model="analyzeForm.tail" :min="50" :max="2000" :step="50" controls-position="right" />
+                      <el-button :loading="pullingLogs" @click="pullTargetLogs">拉取日志</el-button>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="容器(可选)">
+                    <el-select
+                      v-model="analyzeForm.containerName"
+                      placeholder="默认首个容器"
+                      clearable
+                      filterable
+                      style="width: 100%"
+                    >
+                      <el-option v-for="ct in k8sContainers" :key="ct.name" :label="ct.name" :value="ct.name" />
+                    </el-select>
                   </el-form-item>
                 </template>
                 <el-form-item label="服务名">
@@ -326,11 +397,19 @@ const chatContext = ref('')
 const dockerHosts = ref([])
 const dockerServices = ref([])
 const dockerContainers = ref([])
+const k8sClusters = ref([])
+const k8sNamespaces = ref([])
+const k8sPods = ref([])
+const k8sContainers = ref([])
 
 const analyzeForm = reactive({
   sourceType: 'manual',
   hostId: '',
   targetId: '',
+  clusterId: '',
+  namespace: '',
+  podName: '',
+  containerName: '',
   tail: 300,
   service: '',
   logs: '',
@@ -480,7 +559,21 @@ const fetchDockerHosts = async () => {
   }
 }
 
-const loadAnalyzeTargets = async () => {
+const fetchK8sClusters = async () => {
+  try {
+    const res = await axios.get('/api/v1/k8s/clusters', { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      k8sClusters.value = res.data.data || []
+      if (!analyzeForm.clusterId && k8sClusters.value.length) {
+        analyzeForm.clusterId = k8sClusters.value[0].id
+      }
+    }
+  } catch (err) {
+    k8sClusters.value = []
+  }
+}
+
+const loadDockerTargets = async () => {
   if (!analyzeForm.hostId) {
     dockerServices.value = []
     dockerContainers.value = []
@@ -519,35 +612,148 @@ const loadAnalyzeTargets = async () => {
   }
 }
 
+const loadK8sNamespaces = async () => {
+  if (!analyzeForm.clusterId) {
+    k8sNamespaces.value = []
+    analyzeForm.namespace = ''
+    return
+  }
+  targetLoading.value = true
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${analyzeForm.clusterId}/namespaces`, { headers: authHeaders() })
+    const list = res.data?.code === 0 ? (res.data.data || []) : []
+    k8sNamespaces.value = list
+    if (!analyzeForm.namespace && k8sNamespaces.value.length) {
+      analyzeForm.namespace = k8sNamespaces.value[0].name
+    }
+  } catch (err) {
+    k8sNamespaces.value = []
+    analyzeForm.namespace = ''
+  } finally {
+    targetLoading.value = false
+  }
+}
+
+const loadK8sPods = async () => {
+  if (!analyzeForm.clusterId || !analyzeForm.namespace) {
+    k8sPods.value = []
+    k8sContainers.value = []
+    analyzeForm.podName = ''
+    analyzeForm.containerName = ''
+    return
+  }
+  targetLoading.value = true
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${analyzeForm.clusterId}/namespaces/${analyzeForm.namespace}/pods`, {
+      headers: authHeaders()
+    })
+    k8sPods.value = res.data?.code === 0 ? (res.data.data || []) : []
+    if (!k8sPods.value.some((p) => p.name === analyzeForm.podName)) {
+      analyzeForm.podName = ''
+      analyzeForm.containerName = ''
+      k8sContainers.value = []
+    }
+  } catch (err) {
+    k8sPods.value = []
+    k8sContainers.value = []
+    analyzeForm.podName = ''
+    analyzeForm.containerName = ''
+  } finally {
+    targetLoading.value = false
+  }
+}
+
+const loadAnalyzeTargets = async () => {
+  if (analyzeForm.sourceType === 'service' || analyzeForm.sourceType === 'container') {
+    await loadDockerTargets()
+    return
+  }
+  if (analyzeForm.sourceType === 'k8s-pod') {
+    await loadK8sNamespaces()
+    await loadK8sPods()
+  }
+}
+
 const onAnalyzeHostChange = async () => {
   analyzeForm.targetId = ''
-  await loadAnalyzeTargets()
+  await loadDockerTargets()
+}
+
+const onAnalyzeClusterChange = async () => {
+  analyzeForm.namespace = ''
+  analyzeForm.podName = ''
+  analyzeForm.containerName = ''
+  await loadK8sNamespaces()
+  await loadK8sPods()
+}
+
+const onAnalyzeNamespaceChange = async () => {
+  analyzeForm.podName = ''
+  analyzeForm.containerName = ''
+  await loadK8sPods()
+}
+
+const onAnalyzePodChange = () => {
+  const pod = k8sPods.value.find((item) => item.name === analyzeForm.podName)
+  const containers = Array.isArray(pod?.containers) ? pod.containers : []
+  k8sContainers.value = containers
+  if (containers.length === 1) {
+    analyzeForm.containerName = containers[0].name
+  } else if (!containers.some((c) => c.name === analyzeForm.containerName)) {
+    analyzeForm.containerName = ''
+  }
 }
 
 const selectedTargetLabel = () => {
+  if (analyzeForm.sourceType === 'k8s-pod') return analyzeForm.podName || ''
   const target = analyzeTargets.value.find((item) => item.id === analyzeForm.targetId)
   if (!target) return ''
   return String(target.label || '').split('(')[0].trim()
 }
 
 const pullTargetLogs = async () => {
-  if (!analyzeForm.hostId) {
-    ElMessage.warning('请先选择主机')
+  let endpoint = ''
+  let params = { tail: analyzeForm.tail, timestamps: 1 }
+  let warnText = ''
+
+  if (analyzeForm.sourceType === 'service' || analyzeForm.sourceType === 'container') {
+    if (!analyzeForm.hostId) {
+      ElMessage.warning('请先选择主机')
+      return
+    }
+    if (!analyzeForm.targetId) {
+      ElMessage.warning(`请先选择${analyzeForm.sourceType === 'service' ? '服务' : '容器'}`)
+      return
+    }
+    endpoint = analyzeForm.sourceType === 'service'
+      ? `/api/v1/docker/hosts/${analyzeForm.hostId}/services/${analyzeForm.targetId}/logs`
+      : `/api/v1/docker/hosts/${analyzeForm.hostId}/containers/${analyzeForm.targetId}/logs`
+    warnText = analyzeForm.sourceType === 'service'
+      ? '未获取到服务日志（请确认当前节点是 Swarm manager）'
+      : '未获取到容器日志'
+  } else if (analyzeForm.sourceType === 'k8s-pod') {
+    if (!analyzeForm.clusterId || !analyzeForm.namespace || !analyzeForm.podName) {
+      ElMessage.warning('请先选择集群、命名空间和 Pod')
+      return
+    }
+    endpoint = `/api/v1/k8s/clusters/${analyzeForm.clusterId}/namespaces/${analyzeForm.namespace}/pods/${analyzeForm.podName}/logs`
+    params = { tail: analyzeForm.tail }
+    if (analyzeForm.containerName) params.container = analyzeForm.containerName
+    warnText = '未获取到 Pod 日志'
+  } else {
+    ElMessage.warning('手动粘贴模式无需拉取日志')
     return
   }
-  if (!analyzeForm.targetId) {
-    ElMessage.warning(`请先选择${analyzeForm.sourceType === 'service' ? '服务' : '容器'}`)
-    return
-  }
-  const params = { tail: analyzeForm.tail, timestamps: 1 }
-  const endpoint = analyzeForm.sourceType === 'service'
-    ? `/api/v1/docker/hosts/${analyzeForm.hostId}/services/${analyzeForm.targetId}/logs`
-    : `/api/v1/docker/hosts/${analyzeForm.hostId}/containers/${analyzeForm.targetId}/logs`
+
   pullingLogs.value = true
   try {
     const res = await axios.get(endpoint, { headers: authHeaders(), params })
     if (res.data?.code === 0) {
       analyzeForm.logs = String(res.data.data || '').trim()
+      if (!analyzeForm.logs) {
+        ElMessage.warning(warnText)
+        return
+      }
       if (!analyzeForm.service.trim()) {
         analyzeForm.service = selectedTargetLabel()
       }
@@ -770,13 +976,16 @@ const removeConfig = async (row) => {
 }
 
 const refreshAll = async () => {
-  await Promise.all([fetchSessions(), fetchHistory(), fetchConfigs(), fetchDockerHosts()])
+  await Promise.all([fetchSessions(), fetchHistory(), fetchConfigs(), fetchDockerHosts(), fetchK8sClusters()])
   await loadAnalyzeTargets()
   await fetchMessages()
 }
 
-watch(() => analyzeForm.sourceType, () => {
+watch(() => analyzeForm.sourceType, async () => {
   analyzeForm.targetId = ''
+  analyzeForm.podName = ''
+  analyzeForm.containerName = ''
+  await loadAnalyzeTargets()
 })
 
 onMounted(refreshAll)
