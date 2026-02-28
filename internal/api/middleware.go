@@ -13,21 +13,27 @@ import (
 // AuthMiddleware JWT认证中间件
 func AuthMiddleware(auth *core.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		token := ""
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "认证格式错误"})
+				c.Abort()
+				return
+			}
+			token = parts[1]
+		} else {
+			// WebSocket 场景无法方便携带 Authorization 头，允许通过 query token 透传。
+			token = strings.TrimSpace(c.Query("token"))
+		}
+		if token == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
 			c.Abort()
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "认证格式错误"})
-			c.Abort()
-			return
-		}
-
-		claims, err := auth.ValidateToken(parts[1])
+		claims, err := auth.ValidateToken(token)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "Token无效或已过期"})
 			c.Abort()
