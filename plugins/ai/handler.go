@@ -100,6 +100,14 @@ func parseHeaderMap(raw json.RawMessage) (map[string]string, string, error) {
 	return headers, string(serialized), nil
 }
 
+func (h *AIHandler) currentUserID(c *gin.Context) string {
+	userID := strings.TrimSpace(c.GetString("user_id"))
+	if userID != "" {
+		return userID
+	}
+	return strings.TrimSpace(c.GetString("username"))
+}
+
 // Chat 对话
 func (h *AIHandler) Chat(c *gin.Context) {
 	var req ChatRequest
@@ -108,7 +116,11 @@ func (h *AIHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("user_id")
+	userID := h.currentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
+		return
+	}
 	resp, err := h.service.Chat(req.SessionID, userID, req.Message, req.Context)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -118,9 +130,43 @@ func (h *AIHandler) Chat(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resp})
 }
 
+// CreateSession 显式创建会话
+func (h *AIHandler) CreateSession(c *gin.Context) {
+	var req struct {
+		Title   string `json:"title"`
+		Context string `json:"context"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	userID := h.currentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = "新会话"
+	}
+	session := ChatSession{
+		UserID:  userID,
+		Title:   title,
+		Type:    "chat",
+		Context: strings.TrimSpace(req.Context),
+	}
+	if err := h.db.Create(&session).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+}
+
 // ListSessions 会话列表
 func (h *AIHandler) ListSessions(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := h.currentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
+		return
+	}
 	var sessions []ChatSession
 	if err := h.db.Where("user_id = ?", userID).Order("updated_at DESC").Find(&sessions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -132,6 +178,20 @@ func (h *AIHandler) ListSessions(c *gin.Context) {
 // GetSessionMessages 获取会话消息
 func (h *AIHandler) GetSessionMessages(c *gin.Context) {
 	sessionID := c.Param("id")
+	userID := h.currentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
+		return
+	}
+	var session ChatSession
+	if err := h.db.First(&session, "id = ?", sessionID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	if session.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "无权访问该会话"})
+		return
+	}
 	var messages []ChatMessage
 	if err := h.db.Where("session_id = ?", sessionID).Order("created_at").Find(&messages).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -143,6 +203,20 @@ func (h *AIHandler) GetSessionMessages(c *gin.Context) {
 // DeleteSession 删除会话
 func (h *AIHandler) DeleteSession(c *gin.Context) {
 	sessionID := c.Param("id")
+	userID := h.currentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
+		return
+	}
+	var session ChatSession
+	if err := h.db.First(&session, "id = ?", sessionID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	if session.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "无权删除该会话"})
+		return
+	}
 	h.db.Delete(&ChatMessage{}, "session_id = ?", sessionID)
 	h.db.Delete(&ChatSession{}, "id = ?", sessionID)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})

@@ -79,6 +79,53 @@
                 <span>日志分析</span>
               </template>
               <el-form label-width="90px">
+                <el-form-item label="日志来源">
+                  <el-radio-group v-model="analyzeForm.sourceType">
+                    <el-radio-button label="manual">手动粘贴</el-radio-button>
+                    <el-radio-button label="service">Docker 服务</el-radio-button>
+                    <el-radio-button label="container">Docker 容器</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+                <template v-if="analyzeForm.sourceType !== 'manual'">
+                  <el-form-item label="主机">
+                    <el-select
+                      v-model="analyzeForm.hostId"
+                      placeholder="选择 Docker 环境"
+                      filterable
+                      clearable
+                      style="width: 100%"
+                      @change="onAnalyzeHostChange"
+                    >
+                      <el-option
+                        v-for="host in dockerHosts"
+                        :key="host.id"
+                        :label="`${host.name || host.id} (${host.status || 'unknown'})`"
+                        :value="host.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item :label="analyzeForm.sourceType === 'service' ? '服务' : '容器'">
+                    <div class="log-source-row">
+                      <el-select
+                        v-model="analyzeForm.targetId"
+                        placeholder="选择目标"
+                        filterable
+                        clearable
+                        style="flex: 1"
+                        :loading="targetLoading"
+                      >
+                        <el-option
+                          v-for="target in analyzeTargets"
+                          :key="target.id"
+                          :label="target.label"
+                          :value="target.id"
+                        />
+                      </el-select>
+                      <el-input-number v-model="analyzeForm.tail" :min="50" :max="2000" :step="50" controls-position="right" />
+                      <el-button :loading="pullingLogs" @click="pullTargetLogs">拉取日志</el-button>
+                    </div>
+                  </el-form-item>
+                </template>
                 <el-form-item label="服务名">
                   <el-input v-model="analyzeForm.service" placeholder="例如: payment-service" />
                 </el-form-item>
@@ -87,6 +134,12 @@
                 </el-form-item>
                 <el-form-item label="上下文">
                   <el-input v-model="analyzeForm.context" type="textarea" :rows="3" placeholder="补充环境、版本、变更记录等" />
+                </el-form-item>
+                <el-form-item label="Prometheus">
+                  <div class="prom-switch">
+                    <el-switch v-model="analyzeForm.attachPromContext" />
+                    <span class="muted">分析时自动附加该服务最近 5 分钟 CPU/内存摘要</span>
+                  </div>
                 </el-form-item>
               </el-form>
               <div class="actions-right">
@@ -254,7 +307,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -262,17 +315,27 @@ const activeTab = ref('chat')
 const chatting = ref(false)
 const analyzing = ref(false)
 const historyLoading = ref(false)
+const targetLoading = ref(false)
+const pullingLogs = ref(false)
 
 const sessions = ref([])
 const activeSessionId = ref('')
 const messages = ref([])
 const chatInput = ref('')
 const chatContext = ref('')
+const dockerHosts = ref([])
+const dockerServices = ref([])
+const dockerContainers = ref([])
 
 const analyzeForm = reactive({
+  sourceType: 'manual',
+  hostId: '',
+  targetId: '',
+  tail: 300,
   service: '',
   logs: '',
-  context: ''
+  context: '',
+  attachPromContext: true
 })
 const analysisResult = ref(null)
 const analysisHistory = ref([])
@@ -298,6 +361,7 @@ const configForm = reactive({
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const activeSessionTitle = computed(() => sessions.value.find(item => item.id === activeSessionId.value)?.title || '新会话')
+const analyzeTargets = computed(() => (analyzeForm.sourceType === 'service' ? dockerServices.value : dockerContainers.value))
 
 const formatTime = (value) => {
   if (!value) return '-'
@@ -338,7 +402,21 @@ const selectSession = async (item) => {
   await fetchMessages()
 }
 
-const startNewSession = () => {
+const startNewSession = async () => {
+  try {
+    const res = await axios.post('/api/v1/ai/sessions', { title: '新会话' }, { headers: authHeaders() })
+    if (res.data?.code === 0 && res.data.data?.id) {
+      activeSessionId.value = res.data.data.id
+      chatInput.value = ''
+      chatContext.value = ''
+      await fetchSessions()
+      await fetchMessages()
+      return
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '创建会话失败')
+  }
+  // 兜底：保留本地清空态
   activeSessionId.value = ''
   messages.value = []
   chatInput.value = ''
@@ -388,25 +466,150 @@ const removeSession = async (item) => {
   }
 }
 
-const analyzeLogs = async () => {
-  if (!analyzeForm.service.trim()) {
-    ElMessage.warning('请输入服务名')
+const fetchDockerHosts = async () => {
+  try {
+    const res = await axios.get('/api/v1/docker/hosts', { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      dockerHosts.value = res.data.data || []
+      if (!analyzeForm.hostId && dockerHosts.value.length) {
+        analyzeForm.hostId = dockerHosts.value[0].id
+      }
+    }
+  } catch (err) {
+    dockerHosts.value = []
+  }
+}
+
+const loadAnalyzeTargets = async () => {
+  if (!analyzeForm.hostId) {
+    dockerServices.value = []
+    dockerContainers.value = []
+    analyzeForm.targetId = ''
     return
   }
+  targetLoading.value = true
+  try {
+    const [servicesRes, containersRes] = await Promise.all([
+      axios.get(`/api/v1/docker/hosts/${analyzeForm.hostId}/services`, { headers: authHeaders() }),
+      axios.get(`/api/v1/docker/hosts/${analyzeForm.hostId}/containers`, { headers: authHeaders() })
+    ])
+    const services = servicesRes.data?.code === 0 ? (servicesRes.data.data || []) : []
+    const containers = containersRes.data?.code === 0 ? (containersRes.data.data || []) : []
+    dockerServices.value = services.map((item) => ({
+      id: item.ID || item.id,
+      label: `${item.Name || item.name || item.ID || item.id} (${item.Replicas || '-'})`
+    }))
+    dockerContainers.value = containers.map((item) => {
+      const name = Array.isArray(item.names) ? (item.names[0] || item.id) : (item.name || item.id)
+      return {
+        id: item.id,
+        label: `${name || item.id} (${item.status || '-'})`
+      }
+    })
+    if (analyzeForm.targetId) {
+      const exists = analyzeTargets.value.some((item) => item.id === analyzeForm.targetId)
+      if (!exists) analyzeForm.targetId = ''
+    }
+  } catch (err) {
+    dockerServices.value = []
+    dockerContainers.value = []
+    analyzeForm.targetId = ''
+  } finally {
+    targetLoading.value = false
+  }
+}
+
+const onAnalyzeHostChange = async () => {
+  analyzeForm.targetId = ''
+  await loadAnalyzeTargets()
+}
+
+const selectedTargetLabel = () => {
+  const target = analyzeTargets.value.find((item) => item.id === analyzeForm.targetId)
+  if (!target) return ''
+  return String(target.label || '').split('(')[0].trim()
+}
+
+const pullTargetLogs = async () => {
+  if (!analyzeForm.hostId) {
+    ElMessage.warning('请先选择主机')
+    return
+  }
+  if (!analyzeForm.targetId) {
+    ElMessage.warning(`请先选择${analyzeForm.sourceType === 'service' ? '服务' : '容器'}`)
+    return
+  }
+  const params = { tail: analyzeForm.tail, timestamps: 1 }
+  const endpoint = analyzeForm.sourceType === 'service'
+    ? `/api/v1/docker/hosts/${analyzeForm.hostId}/services/${analyzeForm.targetId}/logs`
+    : `/api/v1/docker/hosts/${analyzeForm.hostId}/containers/${analyzeForm.targetId}/logs`
+  pullingLogs.value = true
+  try {
+    const res = await axios.get(endpoint, { headers: authHeaders(), params })
+    if (res.data?.code === 0) {
+      analyzeForm.logs = String(res.data.data || '').trim()
+      if (!analyzeForm.service.trim()) {
+        analyzeForm.service = selectedTargetLabel()
+      }
+      ElMessage.success('日志拉取成功')
+    } else {
+      ElMessage.error(res.data?.message || '日志拉取失败')
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '日志拉取失败')
+  } finally {
+    pullingLogs.value = false
+  }
+}
+
+const escapePromRegex = (v) => String(v || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const fetchPromInstant = async (query) => {
+  const res = await axios.get('/api/v1/monitor/prometheus/query', {
+    headers: authHeaders(),
+    params: { query }
+  })
+  if (res.data?.status === 'success') {
+    return res.data?.data?.result || []
+  }
+  return []
+}
+
+const buildPromContext = async (serviceName) => {
+  const key = escapePromRegex(serviceName)
+  if (!key) return ''
+  const cpuQuery = `sum(rate(container_cpu_usage_seconds_total{name=~".*${key}.*"}[5m]))`
+  const memQuery = `sum(container_memory_working_set_bytes{name=~".*${key}.*"}) / 1024 / 1024`
+  const [cpuRes, memRes] = await Promise.allSettled([fetchPromInstant(cpuQuery), fetchPromInstant(memQuery)])
+  const cpu = cpuRes.status === 'fulfilled' ? Number(cpuRes.value?.[0]?.value?.[1] || 0) : 0
+  const mem = memRes.status === 'fulfilled' ? Number(memRes.value?.[0]?.value?.[1] || 0) : 0
+  if (cpu <= 0 && mem <= 0) return ''
+  return `Prometheus 摘要(最近5分钟): CPU=${cpu.toFixed(3)} 核, 内存=${mem.toFixed(1)} MiB`
+}
+
+const analyzeLogs = async () => {
   if (!analyzeForm.logs.trim()) {
     ElMessage.warning('请输入日志内容')
     return
   }
+  const resolvedService = analyzeForm.service.trim() || selectedTargetLabel() || 'unknown-service'
   analyzing.value = true
   try {
     const logs = analyzeForm.logs
       .split('\n')
       .map(item => item.trim())
       .filter(Boolean)
+    let contextText = analyzeForm.context || ''
+    if (analyzeForm.attachPromContext) {
+      const promContext = await buildPromContext(resolvedService)
+      if (promContext) {
+        contextText = contextText ? `${contextText}\n${promContext}` : promContext
+      }
+    }
     const res = await axios.post('/api/v1/ai/analyze/logs-detailed', {
       logs,
-      service: analyzeForm.service.trim(),
-      context: analyzeForm.context
+      service: resolvedService,
+      context: contextText
     }, { headers: authHeaders() })
 
     if (res.data?.code === 0) {
@@ -424,9 +627,10 @@ const analyzeLogs = async () => {
 const fetchHistory = async () => {
   historyLoading.value = true
   try {
+    const service = analyzeForm.service || selectedTargetLabel() || undefined
     const res = await axios.get('/api/v1/ai/analyze/history', {
       headers: authHeaders(),
-      params: { service: analyzeForm.service || undefined }
+      params: { service }
     })
     if (res.data?.code === 0) analysisHistory.value = res.data.data || []
   } catch (err) {
@@ -566,9 +770,14 @@ const removeConfig = async (row) => {
 }
 
 const refreshAll = async () => {
-  await Promise.all([fetchSessions(), fetchHistory(), fetchConfigs()])
+  await Promise.all([fetchSessions(), fetchHistory(), fetchConfigs(), fetchDockerHosts()])
+  await loadAnalyzeTargets()
   await fetchMessages()
 }
+
+watch(() => analyzeForm.sourceType, () => {
+  analyzeForm.targetId = ''
+})
 
 onMounted(refreshAll)
 </script>
@@ -593,6 +802,8 @@ onMounted(refreshAll)
 .msg-time { color: #909399; font-size: 12px; margin-top: 4px; }
 .chat-input { margin-top: 12px; }
 .actions-right { display: flex; justify-content: flex-end; }
+.log-source-row { display: flex; width: 100%; gap: 8px; align-items: center; }
+.prom-switch { display: flex; align-items: center; gap: 8px; }
 .muted { color: #909399; font-size: 12px; }
 .mt-8 { margin-top: 8px; }
 .mt-12 { margin-top: 12px; }

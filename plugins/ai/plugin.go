@@ -51,6 +51,7 @@ func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	// 对话
 	g.POST("/chat", h.Chat)
 	g.GET("/sessions", h.ListSessions)
+	g.POST("/sessions", h.CreateSession)
 	g.GET("/sessions/:id/messages", h.GetSessionMessages)
 	g.DELETE("/sessions/:id", h.DeleteSession)
 
