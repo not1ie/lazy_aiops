@@ -373,7 +373,7 @@ const refreshDashboard = async () => {
     axios.get('/api/v1/docker/hosts', { headers: authHeaders() }),
     axios.get('/api/v1/k8s/clusters', { headers: authHeaders() }),
     axios.get('/api/v1/monitor/alerts', { headers: authHeaders() }),
-    axios.get('/api/v1/tasks', { headers: authHeaders() }),
+    axios.get('/api/v1/task/tasks', { headers: authHeaders() }),
     axios.get('/api/v1/monitor/agents', { headers: authHeaders() }),
     axios.get('/api/v1/monitor/metrics', { headers: authHeaders() }),
     axios.get('/api/v1/monitor/metrics/history', { headers: authHeaders(), params: { hours: 24 } })
@@ -444,8 +444,8 @@ const refreshDashboard = async () => {
     failures.push('Agent')
   }
 
-  const metricData = extractData(calls[6]) || {}
-  if (calls[6].status === 'fulfilled') {
+  const metricData = extractData(calls[6])
+  if (metricData !== null) {
     realtime.cpu = toNumber(metricData.cpu)
     realtime.memory = toNumber(metricData.memory)
     realtime.disk = toNumber(metricData.disk)
@@ -456,7 +456,11 @@ const refreshDashboard = async () => {
     failures.push('监控')
   }
 
-  const history = toArray(extractData(calls[7]))
+  const historyPayload = extractData(calls[7])
+  const history = toArray(historyPayload)
+  if (historyPayload === null) {
+    failures.push('趋势')
+  }
   trendRecords.value = history
     .map((item) => ({
       timestamp: item.timestamp,

@@ -2,9 +2,11 @@ package monitor
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -236,29 +238,29 @@ func (h *MonitorHandler) ListAlerts(c *gin.Context) {
 
 // GetMetrics 获取监控指标数据
 func (h *MonitorHandler) GetMetrics(c *gin.Context) {
-	// 如果采集器可用，返回实时数据
+	data := gin.H{}
+
+	// 优先读取本地采集器，低质量数据会由 Prometheus 覆盖
 	if h.collector != nil {
 		metrics := h.collector.GetMetrics()
-		c.JSON(http.StatusOK, gin.H{
-			"code": 0,
-			"data": gin.H{
-				"cpu":     metrics.CPU.Usage,
-				"memory":  metrics.Memory.Usage,
-				"disk":    metrics.Disk.Usage,
-				"network": metrics.Network.InboundRate / (1024 * 1024), // 转换为MB/s
-			},
-		})
-		return
+		data = gin.H{
+			"cpu":     roundMetric(metrics.CPU.Usage),
+			"memory":  roundMetric(metrics.Memory.Usage),
+			"disk":    roundMetric(metrics.Disk.Usage),
+			"network": roundMetric(float64(metrics.Network.InboundRate+metrics.Network.OutboundRate) / (1024 * 1024)),
+		}
 	}
-	
-	// 否则返回模拟数据
-	metrics := gin.H{
-		"cpu":     65,
-		"memory":  78,
-		"disk":    45,
-		"network": 125,
+
+	// 使用 Prometheus 填补/覆盖采集器中的异常零值
+	promMetrics, err := h.queryPromSystemMetrics()
+	if err == nil {
+		data = mergeMetricPayload(data, promMetrics)
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": metrics})
+
+	if len(data) == 0 {
+		data = gin.H{"cpu": 0, "memory": 0, "disk": 0, "network": 0}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": sanitizeMetricPayload(data)})
 }
 
 // GetRealtimeMetrics 获取实时监控指标（完整数据）
@@ -270,7 +272,7 @@ func (h *MonitorHandler) GetRealtimeMetrics(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	metrics := h.collector.GetMetrics()
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": metrics})
 }
@@ -284,7 +286,7 @@ func (h *MonitorHandler) GetMetricsHistory(c *gin.Context) {
 			hours = v
 		}
 	}
-	
+
 	// 查询历史数据
 	var records []MetricRecord
 	startTime := time.Now().Add(-time.Duration(hours) * time.Hour)
@@ -297,33 +299,41 @@ func (h *MonitorHandler) GetMetricsHistory(c *gin.Context) {
 		})
 		return
 	}
-	
+
+	if metricHistoryWeak(records) {
+		if promRecords, err := h.queryPromSystemHistory(hours); err == nil && len(promRecords) > 0 {
+			records = promRecords
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": records})
 }
 
 // GetServerMetrics 获取服务器监控数据
 func (h *MonitorHandler) GetServerMetrics(c *gin.Context) {
-	// 如果采集器可用，返回实时主机数据
+	// 本地采集器若包含可用指标优先返回
 	if h.collector != nil {
 		metrics := h.collector.GetMetrics()
-		c.JSON(http.StatusOK, gin.H{"code": 0, "data": metrics.Hosts})
+		if hostsMetricUsable(metrics.Hosts) {
+			c.JSON(http.StatusOK, gin.H{"code": 0, "data": metrics.Hosts})
+			return
+		}
+	}
+
+	// Collector 不可用或数据为空时，回退到 Prometheus 聚合主机指标
+	hosts, err := h.queryPromHostsMetrics()
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": hosts})
 		return
 	}
-	
-	// 否则返回模拟数据
-	servers := []gin.H{
-		{"hostname": "web-01", "ip": "192.168.1.10", "status": "online", "cpu": 45, "memory": 62, "uptime": "15天"},
-		{"hostname": "web-02", "ip": "192.168.1.11", "status": "online", "cpu": 38, "memory": 55, "uptime": "15天"},
-		{"hostname": "db-01", "ip": "192.168.1.20", "status": "online", "cpu": 78, "memory": 85, "uptime": "30天"},
-		{"hostname": "cache-01", "ip": "192.168.1.30", "status": "offline", "cpu": 0, "memory": 0, "uptime": "-"},
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": servers})
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": []gin.H{}})
 }
 
 // GetChartData 获取图表数据
 func (h *MonitorHandler) GetChartData(c *gin.Context) {
 	metricType := c.Query("type")
-	
+
 	var data gin.H
 	switch metricType {
 	case "cpu_memory":
@@ -334,14 +344,14 @@ func (h *MonitorHandler) GetChartData(c *gin.Context) {
 		}
 	case "network":
 		data = gin.H{
-			"labels": []string{"00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "24:00"},
+			"labels":   []string{"00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "24:00"},
 			"inbound":  []int{80, 95, 85, 110, 125, 115, 100},
 			"outbound": []int{60, 75, 65, 90, 105, 95, 80},
 		}
 	default:
 		data = gin.H{}
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": data})
 }
 
@@ -648,6 +658,513 @@ func (h *MonitorHandler) getPromConfig() (string, string, string, string, string
 	return setting.PrometheusURL, setting.AuthType, setting.Username, setting.Password, setting.Token
 }
 
+type promQueryAPIResponse struct {
+	Status string `json:"status"`
+	Data   struct {
+		ResultType string             `json:"resultType"`
+		Result     []promVectorResult `json:"result"`
+	} `json:"data"`
+	Error string `json:"error"`
+}
+
+type promRangeAPIResponse struct {
+	Status string `json:"status"`
+	Data   struct {
+		ResultType string            `json:"resultType"`
+		Result     []promRangeResult `json:"result"`
+	} `json:"data"`
+	Error string `json:"error"`
+}
+
+type promVectorResult struct {
+	Metric map[string]string `json:"metric"`
+	Value  []interface{}     `json:"value"`
+}
+
+type promRangeResult struct {
+	Metric map[string]string `json:"metric"`
+	Values [][]interface{}   `json:"values"`
+}
+
+func (h *MonitorHandler) queryPromVector(query string) ([]promVectorResult, error) {
+	promURL, authType, username, password, token := h.getPromConfig()
+	if strings.TrimSpace(promURL) == "" {
+		return nil, fmt.Errorf("Prometheus 未配置")
+	}
+	reqURL, _ := url.Parse(strings.TrimRight(promURL, "/") + "/api/v1/query")
+	params := reqURL.Query()
+	params.Set("query", strings.TrimSpace(query))
+	reqURL.RawQuery = params.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	switch authType {
+	case "basic":
+		req.SetBasicAuth(username, password)
+	case "bearer":
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Prometheus 查询失败: %s", strings.TrimSpace(string(body)))
+	}
+
+	var parsed promQueryAPIResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	if parsed.Status != "success" {
+		if parsed.Error != "" {
+			return nil, fmt.Errorf(parsed.Error)
+		}
+		return nil, fmt.Errorf("Prometheus 查询失败")
+	}
+	return parsed.Data.Result, nil
+}
+
+func (h *MonitorHandler) queryPromRange(query string, start, end int64, step int) ([]promRangeResult, error) {
+	promURL, authType, username, password, token := h.getPromConfig()
+	if strings.TrimSpace(promURL) == "" {
+		return nil, fmt.Errorf("Prometheus 未配置")
+	}
+	reqURL, _ := url.Parse(strings.TrimRight(promURL, "/") + "/api/v1/query_range")
+	params := reqURL.Query()
+	params.Set("query", strings.TrimSpace(query))
+	params.Set("start", strconv.FormatInt(start, 10))
+	params.Set("end", strconv.FormatInt(end, 10))
+	params.Set("step", strconv.Itoa(step))
+	reqURL.RawQuery = params.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	switch authType {
+	case "basic":
+		req.SetBasicAuth(username, password)
+	case "bearer":
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Prometheus 范围查询失败: %s", strings.TrimSpace(string(body)))
+	}
+
+	var parsed promRangeAPIResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	if parsed.Status != "success" {
+		if parsed.Error != "" {
+			return nil, fmt.Errorf(parsed.Error)
+		}
+		return nil, fmt.Errorf("Prometheus 范围查询失败")
+	}
+	return parsed.Data.Result, nil
+}
+
+func parsePromFlexibleNumber(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case string:
+		f, _ := strconv.ParseFloat(n, 64)
+		return f
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	default:
+		return 0
+	}
+}
+
+func parsePromMatrixPoint(raw []interface{}) (time.Time, float64, bool) {
+	if len(raw) < 2 {
+		return time.Time{}, 0, false
+	}
+	tsFloat := parsePromFlexibleNumber(raw[0])
+	if tsFloat <= 0 {
+		return time.Time{}, 0, false
+	}
+	val := parsePromFlexibleNumber(raw[1])
+	return time.Unix(int64(tsFloat), 0), val, true
+}
+
+func parsePromNumber(raw []interface{}) float64 {
+	if len(raw) < 2 {
+		return 0
+	}
+	switch v := raw[1].(type) {
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	case float64:
+		return v
+	case json.Number:
+		if f, err := v.Float64(); err == nil {
+			return f
+		}
+	}
+	return 0
+}
+
+func (h *MonitorHandler) queryPromSingleValue(query string) (float64, bool, error) {
+	result, err := h.queryPromVector(query)
+	if err != nil {
+		return 0, false, err
+	}
+	if len(result) == 0 {
+		return 0, false, nil
+	}
+	return parsePromNumber(result[0].Value), true, nil
+}
+
+func (h *MonitorHandler) queryPromSystemMetrics() (gin.H, error) {
+	metrics := gin.H{
+		"cpu":     0.0,
+		"memory":  0.0,
+		"disk":    0.0,
+		"network": 0.0,
+	}
+	hasData := false
+
+	if v, ok, err := h.queryPromSingleValue(`100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`); err == nil && ok {
+		metrics["cpu"] = roundMetric(v)
+		hasData = true
+	}
+	if v, ok, err := h.queryPromSingleValue(`100 * (1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)))`); err == nil && ok {
+		metrics["memory"] = roundMetric(v)
+		hasData = true
+	}
+	if v, ok, err := h.queryPromSingleValue(`100 - (sum(node_filesystem_free_bytes{fstype!="tmpfs",mountpoint="/"}) / sum(node_filesystem_size_bytes{fstype!="tmpfs",mountpoint="/"}) * 100)`); err == nil && ok {
+		metrics["disk"] = roundMetric(v)
+		hasData = true
+	}
+	if v, ok, err := h.queryPromSingleValue(`sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])) / 1024 / 1024`); err == nil && ok {
+		metrics["network"] = roundMetric(v)
+		hasData = true
+	}
+
+	if !hasData {
+		return nil, fmt.Errorf("未获取到 Prometheus 系统指标")
+	}
+	return metrics, nil
+}
+
+func promHistoryStepSeconds(hours int) int {
+	switch {
+	case hours <= 1:
+		return 30
+	case hours <= 6:
+		return 60
+	case hours <= 24:
+		return 120
+	default:
+		return 300
+	}
+}
+
+func (h *MonitorHandler) queryPromSystemHistory(hours int) ([]MetricRecord, error) {
+	end := time.Now().Unix()
+	start := time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+	step := promHistoryStepSeconds(hours)
+
+	cpuRange, err := h.queryPromRange(`100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`, start, end, step)
+	if err != nil {
+		return nil, err
+	}
+	memRange, _ := h.queryPromRange(`100 * (1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)))`, start, end, step)
+	diskRange, _ := h.queryPromRange(`100 - (sum(node_filesystem_free_bytes{fstype!="tmpfs",mountpoint="/"}) / sum(node_filesystem_size_bytes{fstype!="tmpfs",mountpoint="/"}) * 100)`, start, end, step)
+	netInRange, _ := h.queryPromRange(`sum(rate(node_network_receive_bytes_total[5m]))`, start, end, step)
+	netOutRange, _ := h.queryPromRange(`sum(rate(node_network_transmit_bytes_total[5m]))`, start, end, step)
+
+	recordsMap := map[int64]*MetricRecord{}
+	getRecord := func(ts time.Time) *MetricRecord {
+		key := ts.Unix()
+		if item, ok := recordsMap[key]; ok {
+			return item
+		}
+		item := &MetricRecord{Timestamp: ts}
+		recordsMap[key] = item
+		return item
+	}
+	applySeries := func(result []promRangeResult, setter func(*MetricRecord, float64)) {
+		if len(result) == 0 {
+			return
+		}
+		for _, point := range result[0].Values {
+			ts, value, ok := parsePromMatrixPoint(point)
+			if !ok {
+				continue
+			}
+			setter(getRecord(ts), roundMetric(value))
+		}
+	}
+
+	applySeries(cpuRange, func(item *MetricRecord, value float64) { item.CPUUsage = value })
+	applySeries(memRange, func(item *MetricRecord, value float64) { item.MemoryUsage = value })
+	applySeries(diskRange, func(item *MetricRecord, value float64) { item.DiskUsage = value })
+	applySeries(netInRange, func(item *MetricRecord, value float64) { item.NetworkIn = uint64(value) })
+	applySeries(netOutRange, func(item *MetricRecord, value float64) { item.NetworkOut = uint64(value) })
+
+	if len(recordsMap) == 0 {
+		return nil, fmt.Errorf("未获取到 Prometheus 历史指标")
+	}
+	keys := make([]int64, 0, len(recordsMap))
+	for k := range recordsMap {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
+	records := make([]MetricRecord, 0, len(keys))
+	for _, k := range keys {
+		records = append(records, *recordsMap[k])
+	}
+	return records, nil
+}
+
+func (h *MonitorHandler) queryPromHostsMetrics() ([]gin.H, error) {
+	cpuResult, err := h.queryPromVector(`100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`)
+	if err != nil {
+		return nil, err
+	}
+	memResult, _ := h.queryPromVector(`100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))`)
+	diskResult, _ := h.queryPromVector(`max by(instance) (100 - (node_filesystem_free_bytes{fstype!="tmpfs",mountpoint="/"} / node_filesystem_size_bytes{fstype!="tmpfs",mountpoint="/"} * 100))`)
+	loadResult, _ := h.queryPromVector(`node_load1`)
+	uptimeResult, _ := h.queryPromVector(`time() - node_boot_time_seconds`)
+
+	type hostItem struct {
+		Hostname string
+		IP       string
+		Status   string
+		CPU      float64
+		Memory   float64
+		Disk     float64
+		Load1    float64
+		Uptime   string
+	}
+	hostMap := map[string]*hostItem{}
+	getHost := func(instance string, metric map[string]string) *hostItem {
+		item, exists := hostMap[instance]
+		if exists {
+			return item
+		}
+		hostOrIP := extractHostFromInstance(instance)
+		hostname := metric["nodename"]
+		if hostname == "" {
+			hostname = metric["hostname"]
+		}
+		if hostname == "" {
+			hostname = hostOrIP
+		}
+		item = &hostItem{
+			Hostname: hostname,
+			IP:       hostOrIP,
+			Status:   "online",
+		}
+		hostMap[instance] = item
+		return item
+	}
+
+	for _, item := range cpuResult {
+		inst := item.Metric["instance"]
+		if inst == "" {
+			continue
+		}
+		host := getHost(inst, item.Metric)
+		host.CPU = roundMetric(parsePromNumber(item.Value))
+	}
+	for _, item := range memResult {
+		inst := item.Metric["instance"]
+		if inst == "" {
+			continue
+		}
+		host := getHost(inst, item.Metric)
+		host.Memory = roundMetric(parsePromNumber(item.Value))
+	}
+	for _, item := range diskResult {
+		inst := item.Metric["instance"]
+		if inst == "" {
+			continue
+		}
+		host := getHost(inst, item.Metric)
+		host.Disk = roundMetric(parsePromNumber(item.Value))
+	}
+	for _, item := range loadResult {
+		inst := item.Metric["instance"]
+		if inst == "" {
+			continue
+		}
+		host := getHost(inst, item.Metric)
+		host.Load1 = roundMetric(parsePromNumber(item.Value))
+	}
+	for _, item := range uptimeResult {
+		inst := item.Metric["instance"]
+		if inst == "" {
+			continue
+		}
+		host := getHost(inst, item.Metric)
+		host.Uptime = formatUptime(parsePromNumber(item.Value))
+	}
+
+	if len(hostMap) == 0 {
+		return nil, fmt.Errorf("未获取到主机指标")
+	}
+	instances := make([]string, 0, len(hostMap))
+	for k := range hostMap {
+		instances = append(instances, k)
+	}
+	sort.Strings(instances)
+
+	hosts := make([]gin.H, 0, len(instances))
+	for _, instance := range instances {
+		item := hostMap[instance]
+		hosts = append(hosts, gin.H{
+			"instance": instance,
+			"hostname": item.Hostname,
+			"ip":       item.IP,
+			"status":   item.Status,
+			"cpu":      item.CPU,
+			"memory":   item.Memory,
+			"disk":     item.Disk,
+			"load1":    item.Load1,
+			"uptime":   item.Uptime,
+		})
+	}
+	return hosts, nil
+}
+
+func extractHostFromInstance(instance string) string {
+	v := strings.TrimSpace(instance)
+	if v == "" {
+		return ""
+	}
+	if strings.HasPrefix(v, "[") {
+		if idx := strings.Index(v, "]"); idx > 1 {
+			return v[1:idx]
+		}
+	}
+	if idx := strings.LastIndex(v, ":"); idx > 0 {
+		return v[:idx]
+	}
+	return v
+}
+
+func formatUptime(seconds float64) string {
+	if seconds <= 0 {
+		return "-"
+	}
+	hours := seconds / 3600
+	if hours < 24 {
+		return fmt.Sprintf("%.1fh", hours)
+	}
+	days := hours / 24
+	if days < 30 {
+		return fmt.Sprintf("%.1fd", days)
+	}
+	months := days / 30
+	return fmt.Sprintf("%.1fmo", months)
+}
+
+func toFloat(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case uint64:
+		return float64(n)
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func sanitizeMetricPayload(payload gin.H) gin.H {
+	out := gin.H{}
+	for _, key := range []string{"cpu", "memory", "disk", "network"} {
+		value := toFloat(payload[key])
+		if value < 0 {
+			value = 0
+		}
+		out[key] = roundMetric(value)
+	}
+	return out
+}
+
+func mergeMetricPayload(base gin.H, fallback gin.H) gin.H {
+	base = sanitizeMetricPayload(base)
+	fallback = sanitizeMetricPayload(fallback)
+	merged := gin.H{}
+	for _, key := range []string{"cpu", "memory", "disk", "network"} {
+		baseVal := toFloat(base[key])
+		fallbackVal := toFloat(fallback[key])
+		if baseVal <= 0 && fallbackVal > 0 {
+			merged[key] = fallbackVal
+		} else {
+			merged[key] = baseVal
+		}
+	}
+	return sanitizeMetricPayload(merged)
+}
+
+func metricHistoryWeak(records []MetricRecord) bool {
+	if len(records) == 0 {
+		return true
+	}
+	healthyPoints := 0
+	for _, item := range records {
+		if item.CPUUsage > 0 || item.MemoryUsage > 0 || item.NetworkIn > 0 || item.NetworkOut > 0 {
+			healthyPoints++
+			if healthyPoints >= 2 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func hostsMetricUsable(hosts []HostMetrics) bool {
+	if len(hosts) == 0 {
+		return false
+	}
+	for _, host := range hosts {
+		if host.CPU > 0 || host.Memory > 0 || host.Disk > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func roundMetric(v float64) float64 {
+	return float64(int(v*100+0.5)) / 100
+}
+
 // AgentHeartbeat 采集器心跳
 func (h *MonitorHandler) AgentHeartbeat(c *gin.Context) {
 	if h.agentSecret != "" {
@@ -725,10 +1242,10 @@ func (h *MonitorHandler) AgentHeartbeat(c *gin.Context) {
 	}
 
 	record := AgentHeartbeatRecord{
-		AgentID:  req.AgentID,
+		AgentID:   req.AgentID,
 		Timestamp: now,
-		Labels:   agent.Labels,
-		Meta:     agent.Meta,
+		Labels:    agent.Labels,
+		Meta:      agent.Meta,
 	}
 
 	if agent.ID == "" {

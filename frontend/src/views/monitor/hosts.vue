@@ -196,7 +196,9 @@ const rangeLabel = computed(() => {
 })
 
 const getErrorMessage = (err, fallback) => {
-  return err?.response?.data?.error || err?.response?.data?.message || err?.message || fallback
+  const raw = err?.response?.data?.error || err?.response?.data?.message || err?.message || ''
+  if (String(raw).includes('getContext')) return '图表容器初始化失败，请刷新页面后重试'
+  return raw || fallback
 }
 
 const buildSelector = (base, instance) => {
@@ -272,37 +274,59 @@ const resolveChartEl = (value) => {
 
 const ensureChartInstance = (instance, holderRef) => {
   const el = resolveChartEl(holderRef.value)
-  if (!el) return instance
-  if (el.clientWidth <= 0 || el.clientHeight <= 0) return instance
+  if (!el || !el.isConnected || el.clientWidth <= 0 || el.clientHeight <= 0) {
+    if (instance) {
+      try { instance.dispose() } catch {}
+    }
+    return null
+  }
+  const existing = echarts.getInstanceByDom(el)
+  if (existing && existing !== instance) {
+    try { existing.dispose() } catch {}
+  }
   if (instance && instance.getDom && instance.getDom() !== el) {
-    instance.dispose()
+    try { instance.dispose() } catch {}
     instance = null
   }
   try {
     if (!instance) {
-      instance = echarts.getInstanceByDom(el) || echarts.init(el)
+      instance = echarts.init(el, null, { renderer: 'svg' })
     }
   } catch {
     if (instance) {
-      instance.dispose()
+      try { instance.dispose() } catch {}
     }
     return null
   }
   return instance
 }
 
+const panelVisible = (panelId) => panels.value.find((panel) => panel.id === panelId)?.visible !== false
+
 const ensureCharts = () => {
-  cpuChart = ensureChartInstance(cpuChart, cpuChartRef)
-  memChart = ensureChartInstance(memChart, memChartRef)
-  diskChart = ensureChartInstance(diskChart, diskChartRef)
-  netChart = ensureChartInstance(netChart, netChartRef)
-  topCpuChart = ensureChartInstance(topCpuChart, topCpuChartRef)
-  topMemChart = ensureChartInstance(topMemChart, topMemChartRef)
+  if (panelVisible('trend')) {
+    cpuChart = ensureChartInstance(cpuChart, cpuChartRef)
+    memChart = ensureChartInstance(memChart, memChartRef)
+    diskChart = ensureChartInstance(diskChart, diskChartRef)
+    netChart = ensureChartInstance(netChart, netChartRef)
+  } else {
+    cpuChart = ensureChartInstance(cpuChart, { value: null })
+    memChart = ensureChartInstance(memChart, { value: null })
+    diskChart = ensureChartInstance(diskChart, { value: null })
+    netChart = ensureChartInstance(netChart, { value: null })
+  }
+  if (panelVisible('top')) {
+    topCpuChart = ensureChartInstance(topCpuChart, topCpuChartRef)
+    topMemChart = ensureChartInstance(topMemChart, topMemChartRef)
+  } else {
+    topCpuChart = ensureChartInstance(topCpuChart, { value: null })
+    topMemChart = ensureChartInstance(topMemChart, { value: null })
+  }
 }
 
 const renderChart = (chart, title, labels, series, unit) => {
-  if (!chart) return
-  chart.setOption({
+  if (!chart) return chart
+  const option = {
     title: { text: title, left: 'left', textStyle: { fontSize: 12 } },
     tooltip: { trigger: 'axis', valueFormatter: (val) => `${Number(val).toFixed(2)} ${unit}` },
     legend: { top: 24, type: 'scroll' },
@@ -310,30 +334,65 @@ const renderChart = (chart, title, labels, series, unit) => {
     xAxis: { type: 'category', data: labels },
     yAxis: { type: 'value' },
     series
-  })
+  }
+  try {
+    chart.setOption(option, true)
+    chart.resize()
+    return chart
+  } catch {
+    const dom = chart.getDom?.()
+    try {
+      chart.dispose()
+      if (!dom) return null
+      const recreated = echarts.init(dom, null, { renderer: 'svg' })
+      recreated.setOption(option, true)
+      recreated.resize()
+      return recreated
+    } catch {
+      return null
+    }
+  }
 }
 
 const renderBarChart = (chart, title, items, valueKey, unit) => {
-  if (!chart) return
+  if (!chart) return chart
   const labels = items.map(item => item.instance)
   const data = items.map(item => Number(item[valueKey] || 0))
-  chart.setOption({
+  const option = {
     title: { text: title, left: 'left', textStyle: { fontSize: 12 } },
     tooltip: { trigger: 'axis', valueFormatter: (val) => `${Number(val).toFixed(2)} ${unit}` },
     grid: { left: 120, right: 20, top: 40, bottom: 20 },
     xAxis: { type: 'value' },
     yAxis: { type: 'category', data: labels, axisLabel: { width: 180, overflow: 'truncate' } },
     series: [{ type: 'bar', data }]
-  })
+  }
+  try {
+    chart.setOption(option, true)
+    chart.resize()
+    return chart
+  } catch {
+    const dom = chart.getDom?.()
+    try {
+      chart.dispose()
+      if (!dom) return null
+      const recreated = echarts.init(dom, null, { renderer: 'svg' })
+      recreated.setOption(option, true)
+      recreated.resize()
+      return recreated
+    } catch {
+      return null
+    }
+  }
 }
 
 const renderTopCharts = () => {
+  if (!panelVisible('top')) return
   ensureCharts()
   if (!topCpuChart || !topMemChart) return
   const topCpu = [...filteredRows.value].sort((a, b) => Number(b.cpu || 0) - Number(a.cpu || 0)).slice(0, 10)
   const topMem = [...filteredRows.value].sort((a, b) => Number(b.memory || 0) - Number(a.memory || 0)).slice(0, 10)
-  renderBarChart(topCpuChart, 'CPU Top 10 (%)', topCpu, 'cpu', '%')
-  renderBarChart(topMemChart, '内存 Top 10 (%)', topMem, 'memory', '%')
+  topCpuChart = renderBarChart(topCpuChart, 'CPU Top 10 (%)', topCpu, 'cpu', '%')
+  topMemChart = renderBarChart(topMemChart, '内存 Top 10 (%)', topMem, 'memory', '%')
 }
 
 const onDragStart = (idx) => {
@@ -562,6 +621,7 @@ const fetchTable = async () => {
 }
 
 const fetchCharts = async () => {
+  if (!panelVisible('trend')) return
   chartLoading.value = true
   try {
     await nextTick()
@@ -598,15 +658,24 @@ const fetchCharts = async () => {
     const seriesDisk = diskRes.map(item => ({ name: item.metric?.instance || 'disk', type: 'line', showSymbol: false, data: item.values.map(v => Number(v[1])) }))
     const seriesNet = netRes.map(item => ({ name: item.metric?.instance || 'net', type: 'line', showSymbol: false, data: item.values.map(v => Number(v[1])) }))
 
-    renderChart(cpuChart, 'CPU 使用率(%)', labels, seriesCpu, '%')
-    renderChart(memChart, '内存 使用率(%)', labels, seriesMem, '%')
-    renderChart(diskChart, '磁盘 使用率(%)', labels, seriesDisk, '%')
-    renderChart(netChart, '网络 吞吐(MB/s)', labels, seriesNet, 'MB/s')
+    cpuChart = renderChart(cpuChart, 'CPU 使用率(%)', labels, seriesCpu, '%')
+    memChart = renderChart(memChart, '内存 使用率(%)', labels, seriesMem, '%')
+    diskChart = renderChart(diskChart, '磁盘 使用率(%)', labels, seriesDisk, '%')
+    netChart = renderChart(netChart, '网络 吞吐(MB/s)', labels, seriesNet, 'MB/s')
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '趋势图加载失败'))
   } finally {
     chartLoading.value = false
   }
+}
+
+const onResize = () => {
+  if (cpuChart) cpuChart.resize()
+  if (memChart) memChart.resize()
+  if (diskChart) diskChart.resize()
+  if (netChart) netChart.resize()
+  if (topCpuChart) topCpuChart.resize()
+  if (topMemChart) topMemChart.resize()
 }
 
 const refreshAll = async () => {
@@ -697,9 +766,11 @@ watch([companyFilter, envFilter], () => {
 onMounted(() => {
   fetchLayouts()
   refreshAll()
+  window.addEventListener('resize', onResize)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
   if (cpuChart) cpuChart.dispose()
   if (memChart) memChart.dispose()
   if (diskChart) diskChart.dispose()

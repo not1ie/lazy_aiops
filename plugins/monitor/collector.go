@@ -18,22 +18,26 @@ import (
 
 // Collector 监控数据采集器
 type Collector struct {
-	db       *gorm.DB
-	ctx      context.Context
-	cancel   context.CancelFunc
-	interval time.Duration
-	mu       sync.RWMutex
-	metrics  *SystemMetrics
+	db         *gorm.DB
+	ctx        context.Context
+	cancel     context.CancelFunc
+	interval   time.Duration
+	mu         sync.RWMutex
+	metrics    *SystemMetrics
+	netMu      sync.Mutex
+	netPrevIn  uint64
+	netPrevOut uint64
+	netPrevAt  time.Time
 }
 
 // SystemMetrics 系统指标
 type SystemMetrics struct {
-	Timestamp   time.Time          `json:"timestamp"`
-	CPU         CPUMetrics         `json:"cpu"`
-	Memory      MemoryMetrics      `json:"memory"`
-	Disk        DiskMetrics        `json:"disk"`
-	Network     NetworkMetrics     `json:"network"`
-	Hosts       []HostMetrics      `json:"hosts"`
+	Timestamp time.Time      `json:"timestamp"`
+	CPU       CPUMetrics     `json:"cpu"`
+	Memory    MemoryMetrics  `json:"memory"`
+	Disk      DiskMetrics    `json:"disk"`
+	Network   NetworkMetrics `json:"network"`
+	Hosts     []HostMetrics  `json:"hosts"`
 }
 
 // CPUMetrics CPU指标
@@ -66,23 +70,23 @@ type DiskMetrics struct {
 
 // NetworkMetrics 网络指标
 type NetworkMetrics struct {
-	InboundRate  uint64 `json:"inbound_rate"`  // 入站速率 (bytes/s)
-	OutboundRate uint64 `json:"outbound_rate"` // 出站速率 (bytes/s)
-	InboundTotal uint64 `json:"inbound_total"` // 入站总量 (bytes)
+	InboundRate   uint64 `json:"inbound_rate"`   // 入站速率 (bytes/s)
+	OutboundRate  uint64 `json:"outbound_rate"`  // 出站速率 (bytes/s)
+	InboundTotal  uint64 `json:"inbound_total"`  // 入站总量 (bytes)
 	OutboundTotal uint64 `json:"outbound_total"` // 出站总量 (bytes)
-	Connections  int    `json:"connections"`   // 连接数
+	Connections   int    `json:"connections"`    // 连接数
 }
 
 // HostMetrics 主机指标
 type HostMetrics struct {
-	HostID   string  `json:"host_id"`
-	Hostname string  `json:"hostname"`
-	IP       string  `json:"ip"`
-	Status   string  `json:"status"` // online, offline, warning
-	CPU      float64 `json:"cpu"`
-	Memory   float64 `json:"memory"`
-	Disk     float64 `json:"disk"`
-	Uptime   string  `json:"uptime"`
+	HostID   string    `json:"host_id"`
+	Hostname string    `json:"hostname"`
+	IP       string    `json:"ip"`
+	Status   string    `json:"status"` // online, offline, warning
+	CPU      float64   `json:"cpu"`
+	Memory   float64   `json:"memory"`
+	Disk     float64   `json:"disk"`
+	Uptime   string    `json:"uptime"`
 	LastSeen time.Time `json:"last_seen"`
 }
 
@@ -101,13 +105,13 @@ func NewCollector(db *gorm.DB, interval time.Duration) *Collector {
 // Start 启动采集器
 func (c *Collector) Start() error {
 	log.Println("[Monitor Collector] Starting...")
-	
+
 	// 立即采集一次
 	c.collect()
-	
+
 	// 启动定期采集
 	go c.collectLoop()
-	
+
 	log.Println("[Monitor Collector] Started successfully")
 	return nil
 }
@@ -131,7 +135,7 @@ func (c *Collector) GetMetrics() *SystemMetrics {
 func (c *Collector) collectLoop() {
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -147,47 +151,47 @@ func (c *Collector) collect() {
 	metrics := &SystemMetrics{
 		Timestamp: time.Now(),
 	}
-	
+
 	// 并发采集各项指标
 	var wg sync.WaitGroup
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		metrics.CPU = c.collectCPU()
 	}()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		metrics.Memory = c.collectMemory()
 	}()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		metrics.Disk = c.collectDisk()
 	}()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		metrics.Network = c.collectNetwork()
 	}()
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		metrics.Hosts = c.collectHosts()
 	}()
-	
+
 	wg.Wait()
-	
+
 	// 更新指标
 	c.mu.Lock()
 	c.metrics = metrics
 	c.mu.Unlock()
-	
+
 	// 保存到数据库（可选）
 	c.saveMetrics(metrics)
 }
@@ -197,7 +201,7 @@ func (c *Collector) collectCPU() CPUMetrics {
 	metrics := CPUMetrics{
 		Cores: runtime.NumCPU(),
 	}
-	
+
 	switch runtime.GOOS {
 	case "linux":
 		// Linux: 读取 /proc/stat 和 /proc/loadavg
@@ -223,14 +227,14 @@ func (c *Collector) collectCPU() CPUMetrics {
 		metrics.LoadAvg1 = 1.5
 		metrics.LoadAvg5 = 1.2
 	}
-	
+
 	return metrics
 }
 
 // collectMemory 采集内存指标
 func (c *Collector) collectMemory() MemoryMetrics {
 	metrics := MemoryMetrics{}
-	
+
 	switch runtime.GOOS {
 	case "linux":
 		if mem, err := c.getMemoryLinux(); err == nil {
@@ -247,14 +251,14 @@ func (c *Collector) collectMemory() MemoryMetrics {
 		metrics.Free = 4 * 1024 * 1024 * 1024   // 4GB
 		metrics.Usage = 75.0
 	}
-	
+
 	return metrics
 }
 
 // collectDisk 采集磁盘指标
 func (c *Collector) collectDisk() DiskMetrics {
 	metrics := DiskMetrics{}
-	
+
 	switch runtime.GOOS {
 	case "linux", "darwin":
 		if disk, err := c.getDiskUsage("/"); err == nil {
@@ -267,14 +271,14 @@ func (c *Collector) collectDisk() DiskMetrics {
 		metrics.Free = 275 * 1024 * 1024 * 1024  // 275GB
 		metrics.Usage = 45.0
 	}
-	
+
 	return metrics
 }
 
 // collectNetwork 采集网络指标
 func (c *Collector) collectNetwork() NetworkMetrics {
 	metrics := NetworkMetrics{}
-	
+
 	switch runtime.GOOS {
 	case "linux":
 		if net, err := c.getNetworkLinux(); err == nil {
@@ -286,11 +290,11 @@ func (c *Collector) collectNetwork() NetworkMetrics {
 		}
 	default:
 		// 模拟数据
-		metrics.InboundRate = 125 * 1024 * 1024  // 125 MB/s
-		metrics.OutboundRate = 80 * 1024 * 1024  // 80 MB/s
+		metrics.InboundRate = 125 * 1024 * 1024 // 125 MB/s
+		metrics.OutboundRate = 80 * 1024 * 1024 // 80 MB/s
 		metrics.Connections = 150
 	}
-	
+
 	return metrics
 }
 
@@ -309,7 +313,7 @@ func (c *Collector) collectHosts() []HostMetrics {
 		wg.Add(1)
 		go func(h cmdb.Host) {
 			defer wg.Done()
-			
+
 			// 探测主机是否在线 (TCP Ping)
 			start := time.Now()
 			status := "offline"
@@ -317,13 +321,13 @@ func (c *Collector) collectHosts() []HostMetrics {
 			if port == 0 {
 				port = 22
 			}
-			
+
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", h.IP, port), 2*time.Second)
 			if err == nil {
 				conn.Close()
 				status = "online"
 			}
-			
+
 			// 更新 CMDB 状态
 			newStatusInt := 0
 			if status == "online" {
@@ -345,7 +349,7 @@ func (c *Collector) collectHosts() []HostMetrics {
 			mu.Unlock()
 		}(host)
 	}
-	
+
 	wg.Wait()
 	return metrics
 }
@@ -357,12 +361,12 @@ func (c *Collector) getCPUUsageLinux() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	
+
 	usage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	return usage, nil
 }
 
@@ -373,12 +377,12 @@ func (c *Collector) getCPUUsageDarwin() (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	
+
 	usage, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	return usage, nil
 }
 
@@ -389,15 +393,15 @@ func (c *Collector) getLoadAvgLinux() (float64, float64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	
+
 	fields := strings.Fields(string(output))
 	if len(fields) < 2 {
 		return 0, 0, fmt.Errorf("invalid loadavg format")
 	}
-	
+
 	load1, _ := strconv.ParseFloat(fields[0], 64)
 	load5, _ := strconv.ParseFloat(fields[1], 64)
-	
+
 	return load1, load5, nil
 }
 
@@ -408,17 +412,17 @@ func (c *Collector) getLoadAvgDarwin() (float64, float64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	
+
 	// 输出格式: { 1.5 1.2 1.0 }
 	str := strings.Trim(string(output), "{ }\n")
 	fields := strings.Fields(str)
 	if len(fields) < 2 {
 		return 0, 0, fmt.Errorf("invalid loadavg format")
 	}
-	
+
 	load1, _ := strconv.ParseFloat(fields[0], 64)
 	load5, _ := strconv.ParseFloat(fields[1], 64)
-	
+
 	return load1, load5, nil
 }
 
@@ -429,22 +433,22 @@ func (c *Collector) getMemoryLinux() (MemoryMetrics, error) {
 	if err != nil {
 		return MemoryMetrics{}, err
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	if len(lines) < 2 {
 		return MemoryMetrics{}, fmt.Errorf("invalid free output")
 	}
-	
+
 	fields := strings.Fields(lines[1])
 	if len(fields) < 3 {
 		return MemoryMetrics{}, fmt.Errorf("invalid free format")
 	}
-	
+
 	total, _ := strconv.ParseUint(fields[1], 10, 64)
 	used, _ := strconv.ParseUint(fields[2], 10, 64)
 	free := total - used
 	usage := float64(used) / float64(total) * 100
-	
+
 	return MemoryMetrics{
 		Total: total,
 		Used:  used,
@@ -461,21 +465,21 @@ func (c *Collector) getMemoryDarwin() (MemoryMetrics, error) {
 	if err != nil {
 		return MemoryMetrics{}, err
 	}
-	
+
 	total, _ := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64)
-	
+
 	// 获取已使用内存（简化计算）
 	cmd = exec.Command("sh", "-c", "vm_stat | grep 'Pages active' | awk '{print $3}' | tr -d '.'")
 	output, err = cmd.Output()
 	if err != nil {
 		return MemoryMetrics{}, err
 	}
-	
+
 	activePages, _ := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64)
 	used := activePages * 4096 // 页面大小通常是4KB
 	free := total - used
 	usage := float64(used) / float64(total) * 100
-	
+
 	return MemoryMetrics{
 		Total: total,
 		Used:  used,
@@ -491,23 +495,23 @@ func (c *Collector) getDiskUsage(path string) (DiskMetrics, error) {
 	if err != nil {
 		return DiskMetrics{}, err
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	if len(lines) < 2 {
 		return DiskMetrics{}, fmt.Errorf("invalid df output")
 	}
-	
+
 	fields := strings.Fields(lines[1])
 	if len(fields) < 5 {
 		return DiskMetrics{}, fmt.Errorf("invalid df format")
 	}
-	
+
 	total, _ := strconv.ParseUint(fields[1], 10, 64)
 	used, _ := strconv.ParseUint(fields[2], 10, 64)
 	free, _ := strconv.ParseUint(fields[3], 10, 64)
 	usageStr := strings.TrimSuffix(fields[4], "%")
 	usage, _ := strconv.ParseFloat(usageStr, 64)
-	
+
 	return DiskMetrics{
 		Total: total,
 		Used:  used,
@@ -523,10 +527,10 @@ func (c *Collector) getNetworkLinux() (NetworkMetrics, error) {
 	if err != nil {
 		return NetworkMetrics{}, err
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	var totalIn, totalOut uint64
-	
+
 	for _, line := range lines {
 		if strings.Contains(line, ":") {
 			fields := strings.Fields(strings.Split(line, ":")[1])
@@ -538,14 +542,33 @@ func (c *Collector) getNetworkLinux() (NetworkMetrics, error) {
 			}
 		}
 	}
-	
-	// 计算速率 (简单实现：本次总量 - 上次总量 / 间隔)
-	// 这里简化为返回总量，生产环境需记录上次值
+
+	// 使用上一次采样点计算吞吐速率，避免固定值导致面板始终不变
+	now := time.Now()
+	var inboundRate uint64
+	var outboundRate uint64
+	c.netMu.Lock()
+	if !c.netPrevAt.IsZero() {
+		elapsed := now.Sub(c.netPrevAt).Seconds()
+		if elapsed > 0 {
+			if totalIn >= c.netPrevIn {
+				inboundRate = uint64(float64(totalIn-c.netPrevIn) / elapsed)
+			}
+			if totalOut >= c.netPrevOut {
+				outboundRate = uint64(float64(totalOut-c.netPrevOut) / elapsed)
+			}
+		}
+	}
+	c.netPrevIn = totalIn
+	c.netPrevOut = totalOut
+	c.netPrevAt = now
+	c.netMu.Unlock()
+
 	return NetworkMetrics{
 		InboundTotal:  totalIn,
 		OutboundTotal: totalOut,
-		InboundRate:   1024 * 1024, // 1MB/s 模拟
-		OutboundRate:  512 * 1024,  // 512KB/s 模拟
+		InboundRate:   inboundRate,
+		OutboundRate:  outboundRate,
 		Connections:   c.countConnections(),
 	}, nil
 }
@@ -571,19 +594,19 @@ func (c *Collector) getNetworkDarwin() (NetworkMetrics, error) {
 func (c *Collector) saveMetrics(metrics *SystemMetrics) {
 	// 创建指标记录
 	record := MetricRecord{
-		Timestamp:    metrics.Timestamp,
-		CPUUsage:     metrics.CPU.Usage,
-		MemoryUsage:  metrics.Memory.Usage,
-		DiskUsage:    metrics.Disk.Usage,
-		NetworkIn:    metrics.Network.InboundRate,
-		NetworkOut:   metrics.Network.OutboundRate,
+		Timestamp:   metrics.Timestamp,
+		CPUUsage:    metrics.CPU.Usage,
+		MemoryUsage: metrics.Memory.Usage,
+		DiskUsage:   metrics.Disk.Usage,
+		NetworkIn:   metrics.Network.InboundRate,
+		NetworkOut:  metrics.Network.OutboundRate,
 	}
-	
+
 	// 保存到数据库
 	if err := c.db.Create(&record).Error; err != nil {
 		log.Printf("[Monitor Collector] Failed to save metrics: %v", err)
 	}
-	
+
 	// 清理旧数据（保留最近24小时）
 	cutoff := time.Now().Add(-24 * time.Hour)
 	c.db.Where("timestamp < ?", cutoff).Delete(&MetricRecord{})
