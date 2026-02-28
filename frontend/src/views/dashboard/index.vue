@@ -201,9 +201,12 @@ const router = useRouter()
 const loading = ref(false)
 const refreshing = ref(false)
 const lastUpdated = ref('')
+const realtimeRefreshing = ref(false)
 
 const trendRef = ref(null)
 let trendChart = null
+let realtimeTimer = null
+let overviewTimer = null
 
 const realtime = reactive({
   cpu: 0,
@@ -364,6 +367,26 @@ const refreshTopHosts = async () => {
   }
 }
 
+const refreshRealtimeMetrics = async () => {
+  if (realtimeRefreshing.value) return
+  realtimeRefreshing.value = true
+  try {
+    const res = await axios.get('/api/v1/monitor/metrics', { headers: authHeaders() })
+    const payload = res.data?.code === 0 ? res.data.data : null
+    if (payload && typeof payload === 'object') {
+      realtime.cpu = toNumber(payload.cpu)
+      realtime.memory = toNumber(payload.memory)
+      realtime.disk = toNumber(payload.disk)
+      realtime.network = toNumber(payload.network)
+      moduleStatus.monitor = 'ok'
+    }
+  } catch (e) {
+    moduleStatus.monitor = 'error'
+  } finally {
+    realtimeRefreshing.value = false
+  }
+}
+
 const refreshDashboard = async () => {
   if (refreshing.value) return
   refreshing.value = true
@@ -485,14 +508,42 @@ const onResize = () => {
   if (trendChart) trendChart.resize()
 }
 
+const startAutoRefresh = () => {
+  if (!realtimeTimer) {
+    realtimeTimer = setInterval(() => {
+      if (document.hidden) return
+      refreshRealtimeMetrics()
+    }, 10000)
+  }
+  if (!overviewTimer) {
+    overviewTimer = setInterval(() => {
+      if (document.hidden) return
+      refreshDashboard()
+    }, 60000)
+  }
+}
+
+const stopAutoRefresh = () => {
+  if (realtimeTimer) {
+    clearInterval(realtimeTimer)
+    realtimeTimer = null
+  }
+  if (overviewTimer) {
+    clearInterval(overviewTimer)
+    overviewTimer = null
+  }
+}
+
 onMounted(async () => {
   loading.value = true
   await refreshDashboard()
   loading.value = false
+  startAutoRefresh()
   window.addEventListener('resize', onResize)
 })
 
 onBeforeUnmount(() => {
+  stopAutoRefresh()
   window.removeEventListener('resize', onResize)
   if (trendChart) {
     trendChart.dispose()
