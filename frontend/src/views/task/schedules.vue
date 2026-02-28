@@ -139,7 +139,7 @@ const fetchHosts = async () => {
 const fetchTasks = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/v1/tasks', { headers: headers() })
+    const res = await axios.get('/api/v1/task/tasks', { headers: headers() })
     if (res.data.code === 0) {
       tasks.value = res.data.data
     }
@@ -153,7 +153,7 @@ const fetchTasks = async () => {
 const fetchExecutions = async () => {
   loadingExecutions.value = true
   try {
-    const res = await axios.get('/api/v1/executions', {
+    const res = await axios.get('/api/v1/task/executions', {
       headers: headers(),
       params: { task_id: currentTask.value ? currentTask.value.id : '' }
     })
@@ -213,7 +213,7 @@ const saveTask = async () => {
       ...form,
       targets: form.targets.join(',')
     }
-    const url = isEdit.value ? `/api/v1/tasks/${currentId.value}` : '/api/v1/tasks'
+    const url = isEdit.value ? `/api/v1/task/tasks/${currentId.value}` : '/api/v1/task/tasks'
     const method = isEdit.value ? 'put' : 'post'
     const res = await axios({ url, method, data: payload, headers: headers() })
     if (res.data.code === 0) {
@@ -229,21 +229,21 @@ const saveTask = async () => {
 }
 
 const runTask = async (row) => {
-  await axios.post(`/api/v1/tasks/${row.id}/run`, {}, { headers: headers() })
+  await axios.post(`/api/v1/task/tasks/${row.id}/run`, {}, { headers: headers() })
   ElMessage.success('已提交执行')
   fetchExecutions()
 }
 
 const toggleTask = async (row) => {
   const action = row.enabled ? 'disable' : 'enable'
-  await axios.post(`/api/v1/tasks/${row.id}/${action}`, {}, { headers: headers() })
+  await axios.post(`/api/v1/task/tasks/${row.id}/${action}`, {}, { headers: headers() })
   ElMessage.success(row.enabled ? '已停用' : '已启用')
   fetchTasks()
 }
 
 const deleteTask = (row) => {
   ElMessageBox.confirm(`确定删除任务“${row.name}”吗？`, '提示', { type: 'warning' }).then(async () => {
-    await axios.delete(`/api/v1/tasks/${row.id}`, { headers: headers() })
+    await axios.delete(`/api/v1/task/tasks/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
     fetchTasks()
   })
