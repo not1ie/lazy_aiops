@@ -1531,7 +1531,12 @@
           <el-option label="/bin/bash" value="/bin/bash" />
           <el-option label="/bin/ash" value="/bin/ash" />
         </el-select>
-        <el-button type="primary" :disabled="!terminalContainerId" @click="toggleTerminal">
+        <el-button
+          type="primary"
+          :disabled="!terminalContainerId"
+          :loading="terminalConnecting"
+          @click="toggleTerminal"
+        >
           {{ terminalConnected ? '断开' : '连接' }}
         </el-button>
       </div>
@@ -1708,6 +1713,7 @@ const terminalContainerId = ref('')
 const terminalContainerName = ref('')
 const terminalShell = ref('/bin/sh')
 const terminalConnected = ref(false)
+const terminalConnecting = ref(false)
 const terminalRef = ref(null)
 let terminal = null
 let terminalFit = null
@@ -4477,16 +4483,23 @@ const handleWindowResize = () => {
 
 const connectTerminal = () => {
   if (!terminalContainerId.value || !activeHost.value) return
+  if (terminalConnected.value || terminalConnecting.value) return
   const token = localStorage.getItem('token') || ''
   if (!token) {
     ElMessage.error('登录状态失效，请重新登录')
     return
   }
+  if (terminalWs) {
+    terminalWs.close()
+    terminalWs = null
+  }
+  terminalConnecting.value = true
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const wsUrl = `${wsProto}://${window.location.host}/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(terminalContainerId.value)}/exec/ws?token=${encodeURIComponent(token)}&shell=${encodeURIComponent(terminalShell.value)}`
   terminalWs = new WebSocket(wsUrl)
   terminalWs.binaryType = 'arraybuffer'
   terminalWs.onopen = () => {
+    terminalConnecting.value = false
     terminalConnected.value = true
     terminal?.writeln('连接成功。')
     sendTerminalResize()
@@ -4500,17 +4513,21 @@ const connectTerminal = () => {
     terminal?.write(evt.data)
   }
   terminalWs.onclose = (evt) => {
+    terminalConnecting.value = false
     terminalConnected.value = false
     const reason = evt?.reason ? ` (${evt.reason})` : ''
     terminal?.writeln(`\r\n连接已关闭 [${evt?.code ?? '-'}]${reason}。`)
+    terminalWs = null
   }
   terminalWs.onerror = (evt) => {
+    terminalConnecting.value = false
     console.error('[Docker Terminal] websocket error', evt)
     ElMessage.error('连接失败')
   }
 }
 
 const closeTerminal = () => {
+  terminalConnecting.value = false
   if (terminalWs) {
     terminalWs.close()
     terminalWs = null
