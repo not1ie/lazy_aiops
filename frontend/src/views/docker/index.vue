@@ -153,9 +153,9 @@
                 <el-space size="8">
                   <el-button size="small" @click="openLogs(row)">日志</el-button>
                   <el-button size="small" type="primary" plain @click="openInspect(row)">详情</el-button>
-                  <el-button size="small" type="info" plain @click="openExec(row)">执行命令</el-button>
-                  <el-button size="small" type="success" plain @click="openTerminal(row)">终端</el-button>
-                  <el-button size="small" type="primary" plain @click="openStatsChart(row)">趋势</el-button>
+                  <el-button size="small" type="info" plain :disabled="!isContainerRunning(row)" @click="openExec(row)">执行命令</el-button>
+                  <el-button size="small" type="success" plain :disabled="!isContainerRunning(row)" @click="openTerminal(row)">终端</el-button>
+                  <el-button size="small" type="primary" plain :disabled="!isContainerRunning(row)" @click="openStatsChart(row)">趋势</el-button>
                   <el-button size="small" type="success" plain @click="containerAction(row, 'start')">启动</el-button>
                   <el-button size="small" type="warning" plain @click="containerAction(row, 'stop')">停止</el-button>
                   <el-button size="small" type="primary" plain @click="containerAction(row, 'restart')">重启</el-button>
@@ -1039,7 +1039,7 @@
     </el-dialog>
 
     <!-- 容器日志弹窗 -->
-    <el-dialog v-model="logVisible" title="容器日志" width="720px">
+    <el-dialog v-model="logVisible" title="容器日志" width="720px" append-to-body>
       <div class="log-controls">
         <el-input v-model="logTail" placeholder="tail" style="width: 120px" />
         <el-button icon="Refresh" @click="loadLogs" :loading="logLoading">刷新</el-button>
@@ -1050,7 +1050,7 @@
     </el-dialog>
 
     <!-- Service 日志弹窗 -->
-    <el-dialog v-model="serviceLogVisible" title="Service 日志" width="760px">
+    <el-dialog v-model="serviceLogVisible" title="Service 日志" width="760px" append-to-body>
       <div class="log-controls">
         <el-input v-model="serviceLogTail" placeholder="tail" style="width: 120px" />
         <el-button icon="Refresh" @click="loadServiceLogs" :loading="serviceLogLoading">刷新</el-button>
@@ -1061,7 +1061,7 @@
     </el-dialog>
 
     <!-- 容器资源趋势 -->
-    <el-dialog v-model="statsChartVisible" title="容器资源趋势" width="880px">
+    <el-dialog v-model="statsChartVisible" title="容器资源趋势" width="880px" append-to-body>
       <div ref="statsChartRef" style="height: 360px"></div>
     </el-dialog>
 
@@ -1207,7 +1207,7 @@
     </el-dialog>
 
     <!-- 容器执行命令弹窗 -->
-    <el-dialog v-model="execVisible" title="执行容器命令" width="720px">
+    <el-dialog v-model="execVisible" title="执行容器命令" width="720px" append-to-body>
       <el-alert type="info" :closable="false" show-icon>该功能为非交互命令执行（需要容器内存在 /bin/sh）。</el-alert>
       <div class="log-controls">
         <el-input v-model="execCommand" placeholder="例如: ls / 或 ps aux" />
@@ -1523,7 +1523,7 @@
     </el-dialog>
 
     <!-- 容器 WebShell -->
-    <el-dialog v-model="terminalVisible" title="容器终端" width="920px" @closed="closeTerminal">
+    <el-dialog v-model="terminalVisible" title="容器终端" width="920px" append-to-body @closed="closeTerminal">
       <div class="terminal-toolbar">
         <span class="terminal-title">{{ terminalContainerName || terminalContainerId }}</span>
         <el-select v-model="terminalShell" class="w-28">
@@ -2391,18 +2391,18 @@ const loadContainerStats = async () => {
       const map = {}
       const list = res.data.data || []
       list.forEach((row) => {
-        const id = row.Container || row.ID || row.Id || row.id
-        const name = row.Name || row.name
+        const id = String(row.Container || row.ID || row.Id || row.id || '').trim()
+        const shortID = id.length > 12 ? id.slice(0, 12) : id
+        const name = String(row.Name || row.name || '').trim()
         const item = {
           cpu: row.CPUPerc || row.CPU || '-',
           mem: row.MemUsage || row.Memory || '-',
           net: row.NetIO || row.Network || '-'
         }
         if (id) map[id] = item
+        if (shortID) map[shortID] = item
         if (name) map[name] = item
-        if (id) {
-          updateStatsHistory(id, row)
-        }
+        updateStatsHistory([id, shortID, name], row)
       })
       containerStats.value = map
       if (statsChartVisible.value && statsChartContainerId.value) {
@@ -2442,8 +2442,19 @@ const parseNetPair = (value) => {
   }
 }
 
-const updateStatsHistory = (id, row) => {
-  const history = containerStatsHistory.value[id] || []
+const updateStatsHistory = (keys, row) => {
+  const aliases = (Array.isArray(keys) ? keys : [keys]).map(v => String(v || '').trim()).filter(Boolean)
+  if (aliases.length === 0) return
+
+  let history = null
+  for (const key of aliases) {
+    if (containerStatsHistory.value[key]?.length) {
+      history = containerStatsHistory.value[key]
+      break
+    }
+  }
+  if (!history) history = []
+
   const mem = parseUsagePair(row.MemUsage || row.Memory || '')
   const net = parseNetPair(row.NetIO || row.Network || '')
   history.push({
@@ -2456,32 +2467,58 @@ const updateStatsHistory = (id, row) => {
   if (history.length > 60) {
     history.splice(0, history.length - 60)
   }
-  containerStatsHistory.value[id] = history
+  aliases.forEach((key) => {
+    containerStatsHistory.value[key] = history
+  })
+}
+
+const getContainerAliases = (row) => {
+  const aliases = new Set()
+  const id = String(row?.id || '').trim()
+  if (id) {
+    aliases.add(id)
+    if (id.length > 12) aliases.add(id.slice(0, 12))
+  }
+  String(row?.names || '')
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean)
+    .forEach((name) => aliases.add(name))
+  return Array.from(aliases)
+}
+
+const isContainerRunning = (row) => {
+  const state = String(row?.state || '').toLowerCase()
+  const status = String(row?.status || '').toLowerCase()
+  return state === 'running' || status.includes('up')
 }
 
 const getContainerStats = (row) => {
-  const id = row.id
-  const names = (row.names || '').split(',').map(v => v.trim()).filter(Boolean)
-  if (id && containerStats.value[id]) return containerStats.value[id]
-  for (const n of names) {
-    if (containerStats.value[n]) return containerStats.value[n]
+  const aliases = getContainerAliases(row)
+  for (const key of aliases) {
+    if (containerStats.value[key]) return containerStats.value[key]
   }
   return { cpu: '-', mem: '-', net: '-' }
 }
 
-const getContainerRef = (row) => {
-  const id = String(row?.id || '').trim()
-  if (id) return id
-  const names = String(row?.names || '')
-    .split(',')
-    .map(v => v.trim())
-    .filter(Boolean)
-  return names[0] || ''
+const getContainerRef = (row) => getContainerAliases(row)[0] || ''
+
+const getContainerHistory = (row) => {
+  const aliases = getContainerAliases(row)
+  for (const key of aliases) {
+    if (containerStatsHistory.value[key]?.length) return containerStatsHistory.value[key]
+  }
+  return []
 }
 
 const openStatsChart = async (row) => {
+  if (!isContainerRunning(row)) {
+    ElMessage.warning('容器未运行，暂无实时趋势')
+    return
+  }
   const id = getContainerRef(row)
   if (!id) return
+  await loadContainerStats()
   statsChartContainerId.value = id
   statsChartVisible.value = true
   await nextTick()
@@ -2496,7 +2533,7 @@ const initStatsChart = () => {
 
 const renderStatsChart = () => {
   if (!statsChartInstance.value || !statsChartContainerId.value) return
-  const history = containerStatsHistory.value[statsChartContainerId.value] || []
+  const history = getContainerHistory({ id: statsChartContainerId.value }) || []
   const times = history.map(h => formatTime(h.t))
   const cpu = history.map(h => h.cpu)
   const mem = history.map(h => h.mem)
@@ -4223,7 +4260,7 @@ const submitCreate = async () => {
 
 const containerAction = async (row, action) => {
   if (!activeHost.value) return
-  const id = row.id
+  const id = getContainerRef(row)
   if (!id) return
   try {
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(id)}/${action}`, {}, { headers: authHeaders() })
@@ -4244,7 +4281,7 @@ const openLogs = (row) => {
 }
 
 const openInspect = async (row) => {
-  const id = row.id
+  const id = getContainerRef(row)
   if (!activeHost.value || !id) return
   inspectVisible.value = true
   inspectLoading.value = true
@@ -4374,6 +4411,10 @@ const openInspect = async (row) => {
 }
 
 const openExec = (row) => {
+  if (!isContainerRunning(row)) {
+    ElMessage.warning('容器未运行，无法执行命令')
+    return
+  }
   const id = getContainerRef(row)
   if (!id) return
   execContainerId.value = id
@@ -4383,6 +4424,10 @@ const openExec = (row) => {
 }
 
 const openTerminal = async (row) => {
+  if (!isContainerRunning(row)) {
+    ElMessage.warning('容器未运行，无法打开终端')
+    return
+  }
   const id = getContainerRef(row)
   if (!id) return
   terminalContainerId.value = id

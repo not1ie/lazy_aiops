@@ -338,7 +338,7 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 	}
 
 	// 远程执行 docker ps
-	stdout, stderr, err := client.Execute("docker ps -a --format '{{json .}}'")
+	stdout, stderr, err := client.Execute("docker ps -a --no-trunc --format '{{json .}}'")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("执行失败: %s | %s", err.Error(), stderr)})
 		return
@@ -397,9 +397,13 @@ func (h *DockerHandler) InspectContainer(c *gin.Context) {
 		return
 	}
 
-	stdout, _, err := client.Execute(fmt.Sprintf("docker inspect %s", containerID))
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker inspect %s", shellEscape(containerID)))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
 		return
 	}
 
@@ -666,9 +670,9 @@ func (h *DockerHandler) ContainerAction(c *gin.Context) {
 	var cmd string
 	switch action {
 	case "start", "stop", "restart":
-		cmd = fmt.Sprintf("docker %s %s", action, containerID)
+		cmd = fmt.Sprintf("docker %s %s", action, shellEscape(containerID))
 	case "remove":
-		cmd = fmt.Sprintf("docker rm -f %s", containerID)
+		cmd = fmt.Sprintf("docker rm -f %s", shellEscape(containerID))
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "不支持的操作"})
 		return
@@ -692,7 +696,7 @@ func (h *DockerHandler) ListContainerStats(c *gin.Context) {
 		return
 	}
 
-	stdout, stderr, err := client.Execute("docker stats --no-stream --format '{{json .}}'")
+	stdout, stderr, err := client.Execute("docker stats --no-stream --no-trunc --format '{{json .}}'")
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
