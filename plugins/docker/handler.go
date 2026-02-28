@@ -231,10 +231,17 @@ func (h *DockerHandler) ContainerLogs(c *gin.Context) {
 	if timestamps == "1" || strings.ToLower(timestamps) == "true" {
 		cmd += " --timestamps"
 	}
-	cmd = fmt.Sprintf("%s %s 2>&1", cmd, containerID)
-	stdout, _, err := client.Execute(cmd)
+	cmd = fmt.Sprintf("%s %s 2>&1", cmd, shellEscape(containerID))
+	stdout, stderr, err := client.Execute(cmd)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = strings.TrimSpace(stdout)
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
 		return
 	}
 
@@ -259,10 +266,17 @@ func (h *DockerHandler) ExecContainer(c *gin.Context) {
 		return
 	}
 
-	cmd := fmt.Sprintf("docker exec %s sh -c %q 2>&1", containerID, req.Command)
-	stdout, _, err := client.Execute(cmd)
+	cmd := fmt.Sprintf("docker exec %s sh -c %q 2>&1", shellEscape(containerID), req.Command)
+	stdout, stderr, err := client.Execute(cmd)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error(), "data": stdout})
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = strings.TrimSpace(stdout)
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg, "data": stdout})
 		return
 	}
 
@@ -273,19 +287,7 @@ func (h *DockerHandler) ExecContainer(c *gin.Context) {
 func (h *DockerHandler) ExecContainerWS(c *gin.Context) {
 	id := c.Param("id")
 	containerID := c.Param("container_id")
-	token := c.Query("token")
 	shell := c.DefaultQuery("shell", "/bin/sh")
-
-	if token == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
-		return
-	}
-	if h.auth != nil {
-		if _, err := h.auth.ValidateToken(token); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "Token无效"})
-			return
-		}
-	}
 
 	if !isAllowedShell(shell) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Shell不支持"})
@@ -2652,7 +2654,7 @@ func isAllowedShell(shell string) bool {
 
 func (h *DockerHandler) handleLocalExecWS(conn *websocket.Conn, containerID, shell string) {
 	defer conn.Close()
-	cmd := fmt.Sprintf("docker exec -i %s %s", containerID, shell)
+	cmd := fmt.Sprintf("docker exec -i %s %s", shellEscape(containerID), shellEscape(shell))
 	proc := exec.Command("sh", "-c", cmd)
 	stdin, err := proc.StdinPipe()
 	if err != nil {
@@ -2732,7 +2734,7 @@ func (h *DockerHandler) handleSSHExecWS(conn *websocket.Conn, host *cmdb.Host, c
 		return
 	}
 
-	cmd := fmt.Sprintf("docker exec -it %s %s", containerID, shell)
+	cmd := fmt.Sprintf("docker exec -it %s %s", shellEscape(containerID), shellEscape(shell))
 	if err := session.Start(cmd); err != nil {
 		conn.WriteMessage(websocket.TextMessage, []byte("执行失败: "+err.Error()))
 		return

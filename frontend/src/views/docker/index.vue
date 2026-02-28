@@ -2469,8 +2469,18 @@ const getContainerStats = (row) => {
   return { cpu: '-', mem: '-', net: '-' }
 }
 
+const getContainerRef = (row) => {
+  const id = String(row?.id || '').trim()
+  if (id) return id
+  const names = String(row?.names || '')
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean)
+  return names[0] || ''
+}
+
 const openStatsChart = async (row) => {
-  const id = row.id
+  const id = getContainerRef(row)
   if (!id) return
   statsChartContainerId.value = id
   statsChartVisible.value = true
@@ -4225,7 +4235,7 @@ const containerAction = async (row, action) => {
 }
 
 const openLogs = (row) => {
-  const id = row.id
+  const id = getContainerRef(row)
   if (!id) return
   logContainerId.value = id
   logText.value = ''
@@ -4364,7 +4374,7 @@ const openInspect = async (row) => {
 }
 
 const openExec = (row) => {
-  const id = row.id
+  const id = getContainerRef(row)
   if (!id) return
   execContainerId.value = id
   execCommand.value = 'ls /'
@@ -4373,7 +4383,7 @@ const openExec = (row) => {
 }
 
 const openTerminal = async (row) => {
-  const id = row.id
+  const id = getContainerRef(row)
   if (!id) return
   terminalContainerId.value = id
   terminalContainerName.value = row.names || id
@@ -4423,6 +4433,10 @@ const handleWindowResize = () => {
 const connectTerminal = () => {
   if (!terminalContainerId.value || !activeHost.value) return
   const token = localStorage.getItem('token') || ''
+  if (!token) {
+    ElMessage.error('登录状态失效，请重新登录')
+    return
+  }
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const wsUrl = `${wsProto}://${window.location.host}/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(terminalContainerId.value)}/exec/ws?token=${encodeURIComponent(token)}&shell=${encodeURIComponent(terminalShell.value)}`
   terminalWs = new WebSocket(wsUrl)
@@ -4440,11 +4454,13 @@ const connectTerminal = () => {
     }
     terminal?.write(evt.data)
   }
-  terminalWs.onclose = () => {
+  terminalWs.onclose = (evt) => {
     terminalConnected.value = false
-    terminal?.writeln('\r\n连接已关闭。')
+    const reason = evt?.reason ? ` (${evt.reason})` : ''
+    terminal?.writeln(`\r\n连接已关闭 [${evt?.code ?? '-'}]${reason}。`)
   }
-  terminalWs.onerror = () => {
+  terminalWs.onerror = (evt) => {
+    console.error('[Docker Terminal] websocket error', evt)
     ElMessage.error('连接失败')
   }
 }
@@ -4515,7 +4531,8 @@ const runExec = async () => {
       execOutput.value = res.data.message || '执行失败'
     }
   } catch (e) {
-    execOutput.value = '执行失败'
+    execOutput.value = extractErrorMessage(e)
+    ElMessage.error(execOutput.value)
   } finally {
     execLoading.value = false
   }
@@ -4541,6 +4558,10 @@ const loadLogs = async () => {
         logText.value = res.data.data || ''
       }
     }
+  } catch (e) {
+    const msg = extractErrorMessage(e)
+    logText.value = msg
+    ElMessage.error(msg)
   } finally {
     if (logFollow.value) {
       logSince = Math.floor(Date.now() / 1000)

@@ -133,10 +133,14 @@ const handleClusterChange = async () => {
 
 const connect = () => {
   if (!canConnect.value) return
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('token') || ''
+  if (!token) {
+    ElMessage.error('登录状态失效，请重新登录')
+    return
+  }
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const cmd = shell.value ? `/bin/${shell.value}` : ''
-  const wsUrl = `${wsProto}://${window.location.host}/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/exec?container=${encodeURIComponent(container.value)}&token=${encodeURIComponent(token)}&command=${encodeURIComponent(cmd)}`
+  const wsUrl = `${wsProto}://${window.location.host}/api/v1/k8s/clusters/${encodeURIComponent(clusterId.value)}/namespaces/${encodeURIComponent(namespace.value)}/pods/${encodeURIComponent(podName.value)}/exec?container=${encodeURIComponent(container.value)}&token=${encodeURIComponent(token)}&command=${encodeURIComponent(cmd)}`
 
   ws = new WebSocket(wsUrl)
   ws.binaryType = 'arraybuffer'
@@ -153,11 +157,13 @@ const connect = () => {
     }
     term?.write(evt.data)
   }
-  ws.onclose = () => {
+  ws.onclose = (evt) => {
     connected.value = false
-    term?.writeln('\r\n连接已关闭。')
+    const reason = evt?.reason ? ` (${evt.reason})` : ''
+    term?.writeln(`\r\n连接已关闭 [${evt?.code ?? '-'}]${reason}。`)
   }
-  ws.onerror = () => {
+  ws.onerror = (evt) => {
+    console.error('[K8s WebShell] websocket error', evt)
     ElMessage.error('连接失败')
   }
 }

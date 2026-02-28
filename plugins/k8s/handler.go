@@ -1409,22 +1409,6 @@ func (h *K8sHandler) ExecPod(c *gin.Context) {
 	container := c.Query("container")
 	command := strings.TrimSpace(c.Query("command"))
 
-	token := c.Query("token")
-	if token == "" {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			token = strings.TrimPrefix(authHeader, "Bearer ")
-		}
-	}
-	if token == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
-		return
-	}
-	if _, err := h.auth.ValidateToken(token); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "Token无效"})
-		return
-	}
-
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
