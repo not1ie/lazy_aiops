@@ -1,5 +1,7 @@
 :root {
   --el-color-primary: #0a84ff;
+  --el-color-primary-light-3: #4da3ff;
+  --el-color-primary-light-5: #7abaff;
   --el-border-radius-base: 10px;
   --el-border-radius-small: 8px;
   --el-bg-color-page: #f5f6f8;
@@ -13,11 +15,21 @@
   --glass-bg: rgba(255, 255, 255, 0.72);
   --glass-border: rgba(15, 23, 42, 0.08);
   --surface-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+  --soft-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  --card-bg: rgba(255, 255, 255, 0.82);
+}
+html, body {
+  height: 100%;
 }
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
-  background: radial-gradient(circle at top right, #edf3ff 0%, #f5f6f8 38%, #f3f4f6 100%);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background:
+    radial-gradient(1200px 560px at 95% -10%, rgba(10, 132, 255, 0.18) 0%, rgba(10, 132, 255, 0) 65%),
+    radial-gradient(700px 420px at 0% 100%, rgba(111, 87, 255, 0.08) 0%, rgba(111, 87, 255, 0) 68%),
+    linear-gradient(180deg, #f7f9fc 0%, #f3f5f8 100%);
   color: #1d1d1f;
 }
 #app {
@@ -44,11 +56,14 @@ body {
 .el-card {
   border-radius: 16px;
   border: 1px solid var(--glass-border);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
-  transition: box-shadow 0.24s ease, transform 0.24s ease, border-color 0.24s ease;
+  box-shadow: var(--soft-shadow);
+  background: var(--card-bg);
+  backdrop-filter: blur(8px);
+  transition: box-shadow 0.24s ease, transform 0.24s ease, border-color 0.24s ease, background-color 0.2s ease;
 }
 
 .el-card:hover {
+  transform: translateY(-1px);
   box-shadow: var(--surface-shadow);
 }
 
@@ -59,6 +74,13 @@ body {
 
 .el-button:hover {
   transform: translateY(-1px);
+}
+.el-button:active {
+  transform: translateY(0);
+}
+
+.el-button.is-text:not(.is-disabled) {
+  color: #0a84ff;
 }
 
 .el-input__wrapper,
@@ -74,4 +96,42 @@ body {
 
 .el-table__body tr:hover > td {
   background: #f7fbff !important;
+}
+
+.el-table thead th {
+  background: rgba(248, 250, 252, 0.9) !important;
+  color: #475569 !important;
+  font-weight: 600;
+}
+
+.el-tag {
+  border-radius: 999px;
+}
+
+.el-dialog {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--surface-shadow);
+}
+
+.el-alert {
+  border-radius: 12px;
+}
+
+.el-menu-item,
+.el-sub-menu__title {
+  transition: background-color 0.2s ease, transform 0.2s ease, color 0.2s ease;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: 10px;
+  background: rgba(100, 116, 139, 0.35);
+}
+::-webkit-scrollbar-track {
+  background: rgba(148, 163, 184, 0.08);
 }

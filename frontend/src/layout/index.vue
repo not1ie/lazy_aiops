@@ -175,6 +175,10 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <el-button text type="danger" class="quick-logout" @click="logout">
+            <el-icon><SwitchButton /></el-icon>
+            <span>退出登录</span>
+          </el-button>
           <el-dropdown>
             <span class="el-dropdown-link">
               {{ username }} <el-icon class="el-icon--right"><arrow-down /></el-icon>
@@ -189,9 +193,11 @@
       </el-header>
       <el-main class="main">
         <router-view v-slot="{ Component, route }">
-          <div class="page-view app-fade-in">
-            <component :is="Component" :key="route.fullPath" />
-          </div>
+          <transition name="app-route-fade" mode="out-in">
+            <div class="page-view app-fade-in" :key="route.fullPath">
+              <component :is="Component" />
+            </div>
+          </transition>
         </router-view>
       </el-main>
     </el-container>
@@ -285,7 +291,7 @@ onMounted(fetchUserInfo)
 }
 .el-menu-vertical { border-right: none; }
 .header {
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
   display: flex;
@@ -296,8 +302,27 @@ onMounted(fetchUserInfo)
 }
 .main { background: transparent; padding: 20px; overflow: auto; }
 .page-view { min-height: calc(100vh - 110px); }
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.quick-logout {
+  margin-right: 8px;
+  color: #ef4444;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.quick-logout:hover {
+  color: #dc2626;
+}
+
+.app-route-fade-enter-active,
+.app-route-fade-leave-active {
+  transition: opacity 0.24s ease, transform 0.24s ease;
+}
+.app-route-fade-enter-from,
+.app-route-fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
 
 :deep(.el-menu) { border-right: none; }
 :deep(.el-menu-item),

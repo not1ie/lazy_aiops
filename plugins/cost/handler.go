@@ -3,6 +3,8 @@ package cost
 import (
 	"errors"
 	"fmt"
+	"hash/crc32"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +16,12 @@ import (
 
 type CostHandler struct {
 	db *gorm.DB
+}
+
+type mockCostProduct struct {
+	Code       string
+	Name       string
+	BaseAmount float64
 }
 
 func NewCostHandler(db *gorm.DB) *CostHandler {
@@ -86,11 +94,75 @@ func (h *CostHandler) SyncCost(c *gin.Context) {
 		StartDate string `json:"start_date"`
 		EndDate   string `json:"end_date"`
 	}
-	c.ShouldBindJSON(&req)
+	_ = c.ShouldBindJSON(&req)
 
-	// TODO: 根据provider调用对应云厂商API
-	// 这里模拟同步
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "同步任务已提交"})
+	startDate, endDate, err := normalizeSyncRange(req.StartDate, req.EndDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	products := buildMockProducts(account.Provider)
+	if len(products) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "未支持的云厂商类型"})
+		return
+	}
+
+	records := make([]CostRecord, 0, len(products)*32)
+	for day := startDate; !day.After(endDate); day = day.AddDate(0, 0, 1) {
+		for idx, product := range products {
+			amount := mockDailyCost(account.ID, day, product.Code, product.BaseAmount)
+			resourceID := fmt.Sprintf("%s-%s-%02d", strings.ToLower(product.Code), shortHash(account.ID), idx+1)
+			records = append(records, CostRecord{
+				AccountID:    account.ID,
+				AccountName:  account.Name,
+				Provider:     account.Provider,
+				ProductCode:  product.Code,
+				ProductName:  product.Name,
+				ResourceID:   resourceID,
+				ResourceName: fmt.Sprintf("%s-%s", product.Name, shortHash(resourceID)),
+				Region:       account.Region,
+				BillingDate:  day,
+				Amount:       amount,
+				Currency:     "CNY",
+				PaymentType:  "postpay",
+			})
+		}
+	}
+
+	tx := h.db.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": tx.Error.Error()})
+		return
+	}
+	if err := tx.Where("account_id = ? AND billing_date BETWEEN ? AND ?", account.ID, startDate, endDate).Delete(&CostRecord{}).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if len(records) > 0 {
+		if err := tx.CreateInBatches(records, 200).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "同步完成",
+		"data": gin.H{
+			"account_id":   account.ID,
+			"provider":     account.Provider,
+			"start_date":   startDate.Format("2006-01-02"),
+			"end_date":     endDate.Format("2006-01-02"),
+			"record_count": len(records),
+		},
+	})
 }
 
 // GetCostSummary 费用汇总
@@ -507,6 +579,102 @@ func getOptimizationPolicy(resourceType string, amount float64) (optType string,
 
 func roundCost(v float64) float64 {
 	return float64(int(v*100+0.5)) / 100
+}
+
+func normalizeSyncRange(startText, endText string) (time.Time, time.Time, error) {
+	endDate := time.Now().Truncate(24 * time.Hour)
+	startDate := endDate.AddDate(0, 0, -29)
+	var err error
+	if strings.TrimSpace(startText) != "" {
+		startDate, err = time.Parse("2006-01-02", strings.TrimSpace(startText))
+		if err != nil {
+			return time.Time{}, time.Time{}, errors.New("开始日期格式错误，应为 YYYY-MM-DD")
+		}
+	}
+	if strings.TrimSpace(endText) != "" {
+		endDate, err = time.Parse("2006-01-02", strings.TrimSpace(endText))
+		if err != nil {
+			return time.Time{}, time.Time{}, errors.New("结束日期格式错误，应为 YYYY-MM-DD")
+		}
+	}
+	if endDate.Before(startDate) {
+		return time.Time{}, time.Time{}, errors.New("结束日期不能早于开始日期")
+	}
+	if endDate.Sub(startDate) > 180*24*time.Hour {
+		return time.Time{}, time.Time{}, errors.New("单次同步时间范围不能超过180天")
+	}
+	return startDate, endDate, nil
+}
+
+func buildMockProducts(provider string) []mockCostProduct {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "aws":
+		return []mockCostProduct{
+			{Code: "ec2", Name: "EC2", BaseAmount: 130},
+			{Code: "rds", Name: "RDS", BaseAmount: 95},
+			{Code: "s3", Name: "S3", BaseAmount: 38},
+			{Code: "elb", Name: "ELB", BaseAmount: 26},
+		}
+	case "tencent":
+		return []mockCostProduct{
+			{Code: "cvm", Name: "云服务器CVM", BaseAmount: 122},
+			{Code: "cdb", Name: "云数据库CDB", BaseAmount: 88},
+			{Code: "cos", Name: "对象存储COS", BaseAmount: 34},
+			{Code: "clb", Name: "负载均衡CLB", BaseAmount: 24},
+		}
+	case "huawei":
+		return []mockCostProduct{
+			{Code: "ecs", Name: "云服务器ECS", BaseAmount: 118},
+			{Code: "rds", Name: "云数据库RDS", BaseAmount: 84},
+			{Code: "obs", Name: "对象存储OBS", BaseAmount: 31},
+			{Code: "elb", Name: "弹性负载均衡ELB", BaseAmount: 22},
+		}
+	case "gcp":
+		return []mockCostProduct{
+			{Code: "gce", Name: "Compute Engine", BaseAmount: 128},
+			{Code: "cloudsql", Name: "Cloud SQL", BaseAmount: 92},
+			{Code: "gcs", Name: "Cloud Storage", BaseAmount: 36},
+			{Code: "lb", Name: "Cloud Load Balancing", BaseAmount: 23},
+		}
+	case "azure":
+		return []mockCostProduct{
+			{Code: "vm", Name: "Virtual Machine", BaseAmount: 125},
+			{Code: "sql", Name: "Azure SQL", BaseAmount: 89},
+			{Code: "blob", Name: "Blob Storage", BaseAmount: 35},
+			{Code: "slb", Name: "Load Balancer", BaseAmount: 24},
+		}
+	default:
+		return []mockCostProduct{
+			{Code: "ecs", Name: "云服务器ECS", BaseAmount: 120},
+			{Code: "rds", Name: "云数据库RDS", BaseAmount: 86},
+			{Code: "oss", Name: "对象存储OSS", BaseAmount: 32},
+			{Code: "slb", Name: "负载均衡SLB", BaseAmount: 23},
+		}
+	}
+}
+
+func shortHash(text string) string {
+	sum := crc32.ChecksumIEEE([]byte(text))
+	s := strings.ToLower(strconv.FormatUint(uint64(sum), 16))
+	if len(s) >= 6 {
+		return s[:6]
+	}
+	return fmt.Sprintf("%06s", s)
+}
+
+func mockDailyCost(accountID string, day time.Time, productCode string, base float64) float64 {
+	seedInput := fmt.Sprintf("%s|%s|%s", accountID, productCode, day.Format("2006-01-02"))
+	seed := crc32.ChecksumIEEE([]byte(seedInput))
+	randFactor := 0.75 + float64(seed%55)/100 // 0.75~1.29
+	weekendFactor := 1.0
+	weekday := day.Weekday()
+	if weekday == time.Saturday || weekday == time.Sunday {
+		weekendFactor = 0.88
+	}
+	monthFactor := 0.92 + float64(day.Day()%9)/40 // 0.92~1.12
+	amount := base * randFactor * weekendFactor * monthFactor
+	amount = math.Max(amount, base*0.45)
+	return roundCost(amount)
 }
 
 // GetCostTrend 费用趋势

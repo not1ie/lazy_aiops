@@ -32,10 +32,17 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="visible" :title="isEdit ? '编辑部门' : '新增部门'" width="500px">
+    <el-dialog v-model="visible" :title="isEdit ? '编辑部门' : '新增部门'" width="520px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="上级部门">
-          <el-tree-select v-model="form.parent_id" :data="tableData" :props="{ label: 'name', value: 'id' }" check-strictly placeholder="选择上级部门" />
+          <el-tree-select
+            v-model="form.parent_id"
+            :data="tableData"
+            :props="{ label: 'name', value: 'id' }"
+            check-strictly
+            clearable
+            placeholder="选择上级部门"
+          />
         </el-form-item>
         <el-form-item label="部门名称" required>
           <el-input v-model="form.name" />
@@ -43,8 +50,20 @@
         <el-form-item label="负责人">
           <el-input v-model="form.leader" />
         </el-form-item>
+        <el-form-item label="联系电话">
+          <el-input v-model="form.phone" />
+        </el-form-item>
+        <el-form-item label="邮箱">
+          <el-input v-model="form.email" />
+        </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="form.sort" :min="0" />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-radio-group v-model="form.status">
+            <el-radio :label="1">启用</el-radio>
+            <el-radio :label="0">禁用</el-radio>
+          </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -63,39 +82,92 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const tableData = ref([])
 const visible = ref(false)
 const isEdit = ref(false)
-const form = reactive({ id: '', name: '', parent_id: '', sort: 0, leader: '' })
+const form = reactive({
+  id: '',
+  name: '',
+  parent_id: '',
+  sort: 0,
+  leader: '',
+  phone: '',
+  email: '',
+  status: 1
+})
+const authHeaders = () => ({
+  Authorization: 'Bearer ' + localStorage.getItem('token')
+})
+
+const resetForm = () => {
+  form.id = ''
+  form.name = ''
+  form.parent_id = ''
+  form.sort = 0
+  form.leader = ''
+  form.phone = ''
+  form.email = ''
+  form.status = 1
+}
 
 const fetchData = async () => {
-  const res = await axios.get('/api/v1/system/depts', {
-    headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-  })
+  const res = await axios.get('/api/v1/system/depts', { headers: authHeaders() })
   if (res.data.code === 0) tableData.value = res.data.data
 }
 
 const handleAdd = () => {
   isEdit.value = false
-  form.id = ''
-  form.name = ''
-  form.parent_id = ''
+  resetForm()
   visible.value = true
 }
 
 const handleAddSub = (row) => {
   isEdit.value = false
-  form.id = ''
-  form.name = ''
+  resetForm()
   form.parent_id = row.id
   visible.value = true
 }
 
+const handleEdit = (row) => {
+  isEdit.value = true
+  form.id = row.id || ''
+  form.name = row.name || ''
+  form.parent_id = row.parent_id || ''
+  form.sort = Number(row.sort || 0)
+  form.leader = row.leader || ''
+  form.phone = row.phone || ''
+  form.email = row.email || ''
+  form.status = Number(row.status ?? 1)
+  visible.value = true
+}
+
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除部门 "${row.name}" 吗？`, '删除确认', { type: 'warning' })
+    await axios.delete(`/api/v1/system/depts/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    fetchData()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败')
+  }
+}
+
 const submit = async () => {
   try {
+    const payload = {
+      name: form.name?.trim(),
+      parent_id: form.parent_id || '',
+      sort: Number(form.sort || 0),
+      leader: form.leader?.trim() || '',
+      phone: form.phone?.trim() || '',
+      email: form.email?.trim() || '',
+      status: Number(form.status ?? 1)
+    }
+    if (!payload.name) {
+      ElMessage.warning('部门名称不能为空')
+      return
+    }
     if (isEdit.value) {
-      // TODO: Implement update
+      await axios.put(`/api/v1/system/depts/${form.id}`, payload, { headers: authHeaders() })
     } else {
-      await axios.post('/api/v1/system/depts', form, {
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-      })
+      await axios.post('/api/v1/system/depts', payload, { headers: authHeaders() })
     }
     ElMessage.success('操作成功')
     visible.value = false
