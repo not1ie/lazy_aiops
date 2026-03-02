@@ -99,6 +99,9 @@ plugins:
   # 系统管理
   system:
     enabled: true
+  # RBAC（用户/角色/权限/审计）
+  rbac:
+    enabled: true
   # 应用中心
   application:
     enabled: true

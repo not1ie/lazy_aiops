@@ -36,6 +36,13 @@ body {
   min-height: 100vh;
 }
 
+/* 全局拉伸页面卡片，避免在高分辨率下出现“整体过小” */
+.main .page-card {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+
 .app-surface {
   border: 1px solid var(--glass-border);
   border-radius: 16px;

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -145,7 +146,7 @@ func (h *AnsibleHandler) ExecutePlaybook(c *gin.Context) {
 
 	var req struct {
 		InventoryID string            `json:"inventory_id"`
-		Hosts       string            `json:"hosts"`       // 直接指定主机
+		Hosts       string            `json:"hosts"` // 直接指定主机
 		ExtraVars   map[string]string `json:"extra_vars"`
 		Tags        string            `json:"tags"`
 		Limit       string            `json:"limit"`
@@ -418,21 +419,25 @@ func (h *AnsibleHandler) DeleteInventory(c *gin.Context) {
 // SyncFromCMDB 从CMDB同步主机生成Inventory
 func (h *AnsibleHandler) SyncFromCMDB(c *gin.Context) {
 	var req struct {
-		Name    string   `json:"name" binding:"required"`
+		Name    string   `json:"name"`
 		GroupID string   `json:"group_id"`
 		HostIDs []string `json:"host_ids"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		req.Name = fmt.Sprintf("cmdb-sync-%s", time.Now().Format("20060102-150405"))
 	}
 
 	// 从CMDB获取主机
 	var hosts []struct {
-		Name     string
-		IP       string
-		Port     int
-		Username string
+		Name      string
+		IP        string
+		Port      int
+		Username  string
 		GroupName string
 	}
 
@@ -447,20 +452,50 @@ func (h *AnsibleHandler) SyncFromCMDB(c *gin.Context) {
 	if len(req.HostIDs) > 0 {
 		query = query.Where("hosts.id IN ?", req.HostIDs)
 	}
-	query.Find(&hosts)
+	if err := query.Find(&hosts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "读取CMDB主机失败: " + err.Error()})
+		return
+	}
+	if len(hosts) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "未找到可同步的CMDB主机"})
+		return
+	}
 
 	// 生成INI格式
 	var content strings.Builder
 	groups := make(map[string][]string)
 
 	for _, host := range hosts {
-		groupName := host.GroupName
+		groupName := strings.TrimSpace(host.GroupName)
 		if groupName == "" {
 			groupName = "ungrouped"
 		}
+		groupName = sanitizeInventoryToken(groupName)
+		if groupName == "" {
+			groupName = "ungrouped"
+		}
+		hostName := sanitizeInventoryToken(strings.TrimSpace(host.Name))
+		if hostName == "" {
+			hostName = sanitizeInventoryToken(strings.TrimSpace(host.IP))
+		}
+		if hostName == "" {
+			continue
+		}
+		port := host.Port
+		if port <= 0 {
+			port = 22
+		}
+		user := strings.TrimSpace(host.Username)
+		if user == "" {
+			user = "root"
+		}
 		line := fmt.Sprintf("%s ansible_host=%s ansible_port=%d ansible_user=%s",
-			host.Name, host.IP, host.Port, host.Username)
+			hostName, strings.TrimSpace(host.IP), port, user)
 		groups[groupName] = append(groups[groupName], line)
+	}
+	if len(groups) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "CMDB主机数据无可用IP，无法生成Inventory"})
+		return
 	}
 
 	for group, lines := range groups {
@@ -475,7 +510,10 @@ func (h *AnsibleHandler) SyncFromCMDB(c *gin.Context) {
 	filename := fmt.Sprintf("%s.ini", req.Name)
 	filePath := filepath.Join("inventories", filename)
 	fullPath := filepath.Join(h.workDir, filePath)
-	os.WriteFile(fullPath, []byte(content.String()), 0644)
+	if err := os.WriteFile(fullPath, []byte(content.String()), 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "Inventory写入失败: " + err.Error()})
+		return
+	}
 
 	inventory := &AnsibleInventory{
 		Name:        req.Name,
@@ -484,9 +522,23 @@ func (h *AnsibleHandler) SyncFromCMDB(c *gin.Context) {
 		Content:     content.String(),
 		Source:      "cmdb",
 	}
-	h.db.Create(inventory)
+	if err := h.db.Create(inventory).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存Inventory失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": inventory})
+}
+
+func sanitizeInventoryToken(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.ReplaceAll(raw, " ", "_")
+	raw = strings.ReplaceAll(raw, "/", "_")
+	raw = strings.ReplaceAll(raw, "\\", "_")
+	return raw
 }
 
 // ListRoles Role列表

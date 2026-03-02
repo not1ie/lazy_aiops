@@ -125,9 +125,18 @@ const handleDelete = (row) => {
 }
 
 const syncFromCMDB = async () => {
-  await axios.post('/api/v1/ansible/inventories/sync-cmdb', {}, { headers: headers() })
-  ElMessage.success('同步成功')
-  fetchData()
+  try {
+    const defaultName = `cmdb-sync-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}`
+    const res = await axios.post('/api/v1/ansible/inventories/sync-cmdb', { name: defaultName }, { headers: headers() })
+    if (res.data.code === 0) {
+      ElMessage.success('同步成功')
+      fetchData()
+      return
+    }
+    ElMessage.error(res.data.message || '同步失败')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || '同步失败')
+  }
 }
 
 onMounted(fetchData)

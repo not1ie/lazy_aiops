@@ -340,13 +340,14 @@ func (h *TopologyHandler) applySync(req syncRequest) (*syncStats, error) {
 			for _, item := range staleNodes {
 				ids = append(ids, item.ID)
 			}
-			if err := tx.Where("source_id IN ? OR target_id IN ?", ids, ids).Delete(&ServiceEdge{}).Error; err != nil {
+			if err := tx.Unscoped().Where("source_id IN ? OR target_id IN ?", ids, ids).Delete(&ServiceEdge{}).Error; err != nil {
 				return nil, rollback(err)
 			}
-			if err := tx.Where("service_id IN ?", ids).Delete(&ServiceDependency{}).Error; err != nil {
+			if err := tx.Unscoped().Where("service_id IN ?", ids).Delete(&ServiceDependency{}).Error; err != nil {
 				return nil, rollback(err)
 			}
-			if err := query.Delete(&ServiceNode{}).Error; err != nil {
+			// 这里必须硬删除，否则软删除记录仍会占用 name 唯一索引，下一次自动发现会触发 UNIQUE 约束错误。
+			if err := query.Unscoped().Delete(&ServiceNode{}).Error; err != nil {
 				return nil, rollback(err)
 			}
 		}
@@ -390,7 +391,7 @@ func (h *TopologyHandler) applySync(req syncRequest) (*syncStats, error) {
 		}
 
 		var existing ServiceNode
-		err := tx.Where("name = ?", name).First(&existing).Error
+		err := tx.Unscoped().Where("name = ?", name).First(&existing).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				if createErr := tx.Create(&node).Error; createErr != nil {
@@ -409,6 +410,7 @@ func (h *TopologyHandler) applySync(req syncRequest) (*syncStats, error) {
 			"cluster":     node.Cluster,
 			"status":      node.Status,
 			"description": node.Description,
+			"deleted_at":  nil,
 		}
 		if node.Endpoints != "" {
 			updates["endpoints"] = node.Endpoints
@@ -419,7 +421,7 @@ func (h *TopologyHandler) applySync(req syncRequest) (*syncStats, error) {
 		if node.HealthURL != "" {
 			updates["health_url"] = node.HealthURL
 		}
-		if updateErr := tx.Model(&existing).Updates(updates).Error; updateErr != nil {
+		if updateErr := tx.Unscoped().Model(&ServiceNode{}).Where("id = ?", existing.ID).Updates(updates).Error; updateErr != nil {
 			return nil, rollback(updateErr)
 		}
 		nodeUpdated++
