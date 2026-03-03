@@ -2,8 +2,10 @@ package k8s
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1506,40 +1508,42 @@ func (h *K8sHandler) ExecPod(c *gin.Context) {
 	}
 	container := c.Query("container")
 	command := strings.TrimSpace(c.Query("command"))
-
-	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		return
-	}
+	dryRun := isTruthy(c.Query("dry_run"))
 
 	cfg, err := h.getRestConfig(id)
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("获取集群配置失败: "+err.Error()))
-		conn.Close()
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "获取集群配置失败: " + err.Error()})
 		return
 	}
 
 	client, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("创建客户端失败: "+err.Error()))
-		conn.Close()
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "创建客户端失败: " + err.Error()})
 		return
 	}
 
-	if container == "" {
-		podObj, err := client.CoreV1().Pods(ns).Get(context.Background(), pod, metav1.GetOptions{})
-		if err != nil {
-			conn.WriteMessage(websocket.TextMessage, []byte("获取Pod信息失败: "+err.Error()))
-			conn.Close()
-			return
-		}
-		if len(podObj.Spec.Containers) == 0 {
-			conn.WriteMessage(websocket.TextMessage, []byte("Pod没有可用容器"))
-			conn.Close()
-			return
-		}
-		container = podObj.Spec.Containers[0].Name
+	resolvedContainer, preflightErr := h.preflightPodExec(cfg, client, ns, pod, container, command)
+	if preflightErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": preflightErr.Error()})
+		return
+	}
+	container = resolvedContainer
+	if dryRun {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    0,
+			"message": "终端预检查通过",
+			"data": gin.H{
+				"container": container,
+				"command":   command,
+			},
+		})
+		return
+	}
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
 	}
 
 	stdinReader, stdinWriter := io.Pipe()
@@ -1627,6 +1631,84 @@ func (h *K8sHandler) ExecPod(c *gin.Context) {
 	conn.Close()
 }
 
+func (h *K8sHandler) preflightPodExec(cfg *rest.Config, client *kubernetes.Clientset, ns, pod, container, command string) (string, error) {
+	podObj, err := client.CoreV1().Pods(ns).Get(context.Background(), pod, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("获取Pod信息失败: %v", err)
+	}
+	if len(podObj.Spec.Containers) == 0 {
+		return "", errors.New("Pod没有可用容器")
+	}
+	if string(podObj.Status.Phase) != string(corev1.PodRunning) {
+		return "", fmt.Errorf("Pod当前状态为 %s，无法打开终端", podObj.Status.Phase)
+	}
+
+	if strings.TrimSpace(container) == "" {
+		container = podObj.Spec.Containers[0].Name
+	}
+	containerExists := false
+	for _, item := range podObj.Spec.Containers {
+		if item.Name == container {
+			containerExists = true
+			break
+		}
+	}
+	if !containerExists {
+		return "", fmt.Errorf("容器 %s 不存在", container)
+	}
+
+	shellCmd := strings.TrimSpace(command)
+	if shellCmd == "" {
+		shellCmd = "/bin/sh"
+	}
+
+	stdout, stderr, execErr := runPodExecCommandOnce(cfg, client, ns, pod, container, []string{shellCmd, "-c", "echo __lazy_aiops_exec_probe__"})
+	if execErr != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = strings.TrimSpace(stdout)
+		}
+		if msg == "" {
+			msg = execErr.Error()
+		}
+		return "", fmt.Errorf("容器终端预检查失败: %s (可尝试 /bin/sh、/bin/bash、/bin/ash)", msg)
+	}
+
+	return container, nil
+}
+
+func runPodExecCommandOnce(cfg *rest.Config, client *kubernetes.Clientset, ns, pod, container string, command []string) (string, string, error) {
+	req := client.CoreV1().RESTClient().
+		Post().
+		Resource("pods").
+		Name(pod).
+		Namespace(ns).
+		SubResource("exec")
+
+	req.VersionedParams(&corev1.PodExecOptions{
+		Container: container,
+		Command:   command,
+		Stdin:     false,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       false,
+	}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+	if err != nil {
+		return "", "", err
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err = exec.Stream(remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
+	})
+	return stdout.String(), stderr.String(), err
+}
+
 type wsWriter struct {
 	conn *websocket.Conn
 }
@@ -1676,6 +1758,15 @@ func isCommandNotFound(err error) bool {
 	return strings.Contains(msg, "not found") ||
 		strings.Contains(msg, "no such file") ||
 		strings.Contains(msg, "executable file not found")
+}
+
+func isTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // ListServices Service列表

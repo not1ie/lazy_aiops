@@ -288,9 +288,19 @@ func (h *DockerHandler) ExecContainerWS(c *gin.Context) {
 	id := c.Param("id")
 	containerID := c.Param("container_id")
 	shell := c.DefaultQuery("shell", "/bin/sh")
+	dryRun := isTruthy(c.Query("dry_run"))
 
 	if !isAllowedShell(shell) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Shell不支持"})
+		return
+	}
+
+	if err := h.preflightContainerExec(id, containerID, shell); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if dryRun {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "终端预检查通过"})
 		return
 	}
 
@@ -299,31 +309,19 @@ func (h *DockerHandler) ExecContainerWS(c *gin.Context) {
 		return
 	}
 
-	var dHost DockerHost
-	if err := h.db.First(&dHost, "id = ?", id).Error; err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("Docker主机不存在"))
+	dHost, host, err := h.resolveDockerExecHost(id)
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(err.Error()))
 		conn.Close()
 		return
 	}
 
-	if dHost.HostID == "local" {
+	if dHost.HostID == "local" || host == nil {
 		h.handleLocalExecWS(conn, containerID, shell)
 		return
 	}
 
-	var host cmdb.Host
-	if err := h.db.Preload("Credential").First(&host, "id = ?", dHost.HostID).Error; err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("关联主机不存在"))
-		conn.Close()
-		return
-	}
-	if host.Credential == nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("主机未配置凭据"))
-		conn.Close()
-		return
-	}
-
-	h.handleSSHExecWS(conn, &host, containerID, shell)
+	h.handleSSHExecWS(conn, host, containerID, shell)
 }
 
 // ================= Container Management =================
@@ -698,11 +696,19 @@ func (h *DockerHandler) ListContainerStats(c *gin.Context) {
 
 	stdout, stderr, err := client.Execute("docker stats --no-stream --no-trunc --format '{{json .}}'")
 	if err != nil {
-		msg := strings.TrimSpace(stderr)
-		if msg == "" {
-			msg = err.Error()
+		msg := commandErrorMessage(stdout, stderr, err)
+		msgLower := strings.ToLower(msg)
+		if strings.Contains(msgLower, "no running") ||
+			strings.Contains(msgLower, "container is not running") ||
+			strings.Contains(msgLower, "no such container") {
+			c.JSON(http.StatusOK, gin.H{"code": 0, "data": []map[string]interface{}{}})
+			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": msg})
+		return
+	}
+	if strings.TrimSpace(stdout) == "" {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": []map[string]interface{}{}})
 		return
 	}
 
@@ -2645,6 +2651,78 @@ func shellEscape(value string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func isTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandErrorMessage(stdout, stderr string, err error) string {
+	msg := strings.TrimSpace(stderr)
+	if msg == "" {
+		msg = strings.TrimSpace(stdout)
+	}
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	if msg == "" {
+		msg = "命令执行失败"
+	}
+	return msg
+}
+
+func (h *DockerHandler) resolveDockerExecHost(id string) (*DockerHost, *cmdb.Host, error) {
+	var dHost DockerHost
+	if err := h.db.First(&dHost, "id = ?", id).Error; err != nil {
+		return nil, nil, errors.New("Docker主机不存在")
+	}
+
+	if dHost.HostID == "local" {
+		return &dHost, nil, nil
+	}
+
+	var host cmdb.Host
+	if err := h.db.Preload("Credential").First(&host, "id = ?", dHost.HostID).Error; err != nil {
+		return nil, nil, errors.New("关联主机不存在")
+	}
+	if host.Credential == nil {
+		return nil, nil, errors.New("主机未配置凭据")
+	}
+	return &dHost, &host, nil
+}
+
+func (h *DockerHandler) preflightContainerExec(id, containerID, shell string) error {
+	if _, _, err := h.resolveDockerExecHost(id); err != nil {
+		return err
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		return err
+	}
+
+	stateCmd := fmt.Sprintf("docker inspect --format '{{.State.Running}}' %s", shellEscape(containerID))
+	stdout, stderr, stateErr := client.Execute(stateCmd)
+	if stateErr != nil {
+		return fmt.Errorf("容器不可用: %s", commandErrorMessage(stdout, stderr, stateErr))
+	}
+	if !strings.EqualFold(strings.TrimSpace(stdout), "true") {
+		return errors.New("容器未运行，无法打开终端")
+	}
+
+	script := fmt.Sprintf("if [ -x %s ]; then exit 0; fi; command -v %s >/dev/null 2>&1", shellEscape(shell), shellEscape(shell))
+	checkCmd := fmt.Sprintf("docker exec %s sh -c %s", shellEscape(containerID), shellEscape(script))
+	checkOut, checkErrOut, checkErr := client.Execute(checkCmd)
+	if checkErr != nil {
+		return fmt.Errorf("容器内不可执行 %s: %s", shell, commandErrorMessage(checkOut, checkErrOut, checkErr))
+	}
+
+	return nil
 }
 
 func isAllowedShell(shell string) bool {

@@ -64,7 +64,12 @@ func (s *Server) setupRoutes() {
 
 	// 需要认证的接口
 	auth := v1.Group("")
-	auth.Use(AuthMiddleware(s.core.Auth), OperationLogMiddleware(s.core.DB), RBACMiddleware(s.core.DB))
+	auth.Use(
+		AuthMiddleware(s.core.Auth),
+		OperationLogMiddleware(s.core.DB),
+		ForcePasswordChangeMiddleware(s.core.Auth),
+		RBACMiddleware(s.core.DB),
+	)
 	s.setupAuthRoutes(auth)
 
 	// 注册插件路由

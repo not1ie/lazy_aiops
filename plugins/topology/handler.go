@@ -391,7 +391,9 @@ func (h *TopologyHandler) applySync(req syncRequest) (*syncStats, error) {
 		}
 
 		var existing ServiceNode
-		err := tx.Unscoped().Where("name = ?", name).First(&existing).Error
+		err := tx.Unscoped().
+			Where("name = ? AND namespace = ? AND cluster = ?", name, namespace, cluster).
+			First(&existing).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				if createErr := tx.Create(&node).Error; createErr != nil {

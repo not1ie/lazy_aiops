@@ -17,9 +17,10 @@ type AuthService struct {
 }
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	RoleCode string `json:"role_code"`
+	UserID              string `json:"user_id"`
+	Username            string `json:"username"`
+	RoleCode            string `json:"role_code"`
+	ForcePasswordChange bool   `json:"force_password_change"`
 	jwt.RegisteredClaims
 }
 
@@ -33,6 +34,7 @@ type LoginResponse struct {
 	Expire                  int64  `json:"expire"`
 	UserInfo                *User  `json:"user_info"`
 	RecommendChangePassword bool   `json:"recommend_change_password"`
+	MustChangePassword      bool   `json:"must_change_password"`
 }
 
 func NewAuthService(db *gorm.DB, cfg config.JWTConfig) *AuthService {
@@ -95,6 +97,8 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 		return nil, errors.New("密码错误")
 	}
 
+	mustChangePassword := isDefaultAdminPassword(&user)
+
 	// 生成Token
 	expire := time.Now().Add(time.Duration(s.config.Expire) * time.Hour)
 	roleCode := ""
@@ -103,9 +107,10 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	}
 
 	claims := Claims{
-		UserID:   user.ID,
-		Username: user.Username,
-		RoleCode: roleCode,
+		UserID:              user.ID,
+		Username:            user.Username,
+		RoleCode:            roleCode,
+		ForcePasswordChange: mustChangePassword,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expire),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -122,7 +127,8 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 		Token:                   tokenStr,
 		Expire:                  expire.Unix(),
 		UserInfo:                &user,
-		RecommendChangePassword: strings.EqualFold(user.Username, "admin") && req.Password == "admin123",
+		RecommendChangePassword: mustChangePassword,
+		MustChangePassword:      mustChangePassword,
 	}, nil
 }
 
@@ -148,4 +154,20 @@ func (s *AuthService) GetUserByID(id string) (*User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+// NeedPasswordChange 当前用户是否仍在使用默认密码
+func (s *AuthService) NeedPasswordChange(id string) (bool, error) {
+	var user User
+	if err := s.db.Select("id", "username", "password").First(&user, "id = ?", id).Error; err != nil {
+		return false, err
+	}
+	return isDefaultAdminPassword(&user), nil
+}
+
+func isDefaultAdminPassword(user *User) bool {
+	if user == nil || !strings.EqualFold(user.Username, "admin") {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(user.Password), []byte("admin123")) == nil
 }

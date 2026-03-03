@@ -54,7 +54,56 @@ func AuthMiddleware(auth *core.AuthService) gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role_code", claims.RoleCode)
+		c.Set("force_password_change", claims.ForcePasswordChange)
 		c.Next()
+	}
+}
+
+// ForcePasswordChangeMiddleware 强制默认密码用户先修改密码
+func ForcePasswordChangeMiddleware(auth *core.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		forceChange, _ := c.Get("force_password_change")
+		force, _ := forceChange.(bool)
+		if !force {
+			c.Next()
+			return
+		}
+
+		userID := c.GetString("user_id")
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
+			c.Abort()
+			return
+		}
+
+		// 放行用户信息和本人改密接口
+		path := c.Request.URL.Path
+		method := strings.ToUpper(c.Request.Method)
+		if method == http.MethodGet && path == "/api/v1/user/info" {
+			c.Next()
+			return
+		}
+		if method == http.MethodPut && strings.HasPrefix(path, "/api/v1/rbac/users/") && strings.HasSuffix(path, "/password") && c.Param("id") == userID {
+			c.Next()
+			return
+		}
+
+		need, err := auth.NeedPasswordChange(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "用户状态校验失败"})
+			c.Abort()
+			return
+		}
+		if !need {
+			c.Next()
+			return
+		}
+
+		c.JSON(http.StatusPreconditionRequired, gin.H{
+			"code":    428,
+			"message": "当前账号仍在使用默认密码，请先修改密码后继续操作",
+		})
+		c.Abort()
 	}
 }
 
@@ -168,6 +217,13 @@ func permissionForRequest(c *gin.Context) string {
 		rest := strings.TrimPrefix(path, "/api/v1/rbac/")
 		switch {
 		case strings.HasPrefix(rest, "users"):
+			// 放行本人改密，不要求 system:user 权限
+			if strings.EqualFold(c.Request.Method, http.MethodPut) &&
+				strings.HasPrefix(path, "/api/v1/rbac/users/") &&
+				strings.HasSuffix(path, "/password") &&
+				c.Param("id") == c.GetString("user_id") {
+				return ""
+			}
 			return "system:user"
 		case strings.HasPrefix(rest, "roles"):
 			return "system:role"

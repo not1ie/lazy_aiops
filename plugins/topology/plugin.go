@@ -34,7 +34,24 @@ func (p *TopologyPlugin) Start() error { return nil }
 func (p *TopologyPlugin) Stop() error  { return nil }
 
 func (p *TopologyPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&ServiceNode{}, &ServiceEdge{}, &TopologyView{}, &ServiceDependency{})
+	db := p.core.DB
+	if err := db.AutoMigrate(&ServiceNode{}, &ServiceEdge{}, &TopologyView{}, &ServiceDependency{}); err != nil {
+		return err
+	}
+
+	// 历史版本将 name 设为全局唯一，导致自动发现重复同步时触发 UNIQUE constraint。
+	// 迁移为 (name, namespace, cluster) 组合唯一后，这里清理旧索引。
+	migrator := db.Migrator()
+	if migrator.HasIndex(&ServiceNode{}, "idx_service_nodes_name") {
+		_ = migrator.DropIndex(&ServiceNode{}, "idx_service_nodes_name")
+	}
+	if !migrator.HasIndex(&ServiceNode{}, "idx_service_nodes_lookup") {
+		if err := migrator.CreateIndex(&ServiceNode{}, "idx_service_nodes_lookup"); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (p *TopologyPlugin) RegisterRoutes(r *gin.RouterGroup) {
