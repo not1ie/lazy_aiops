@@ -37,9 +37,12 @@ body {
 }
 
 /* 全局拉伸页面卡片，避免在高分辨率下出现“整体过小” */
-.main .page-card {
+.main .page-card,
+.main .section-card,
+.page-view .page-card,
+.page-view .section-card {
   width: 100% !important;
-  max-width: none !important;
+  max-width: 100% !important;
   margin: 0 !important;
 }
 
@@ -126,6 +129,8 @@ body {
 }
 
 .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 
