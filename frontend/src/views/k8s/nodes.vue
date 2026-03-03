@@ -13,7 +13,7 @@
       </div>
     </div>
 
-    <el-table :data="nodes" stripe style="width: 100%">
+    <el-table :fit="false" :data="nodes" stripe style="width: 100%">
       <el-table-column prop="name" label="节点" min-width="200" />
       <el-table-column prop="status" label="状态" width="120" />
       <el-table-column label="角色" min-width="140">

@@ -80,7 +80,7 @@
           </div>
         </div>
       </template>
-      <el-table :data="accounts" v-loading="accountLoading" stripe>
+      <el-table :fit="false" :data="accounts" v-loading="accountLoading" stripe>
         <el-table-column prop="name" label="账号" min-width="140" />
         <el-table-column prop="provider" label="云厂商" width="120" />
         <el-table-column prop="region" label="Region" width="140" />
@@ -106,7 +106,7 @@
           <template #header>
             <div class="card-title">成本 Top 资源</div>
           </template>
-          <el-table :data="topResources" v-loading="resourceLoading" stripe height="320">
+          <el-table :fit="false" :data="topResources" v-loading="resourceLoading" stripe height="320">
             <el-table-column prop="resource_name" label="资源" min-width="170" show-overflow-tooltip />
             <el-table-column prop="product_name" label="产品" min-width="130" show-overflow-tooltip />
             <el-table-column prop="amount" label="成本" width="120">
@@ -120,7 +120,7 @@
           <template #header>
             <div class="card-title">最近费用记录（最多200条）</div>
           </template>
-          <el-table :data="records" v-loading="recordLoading" stripe height="320">
+          <el-table :fit="false" :data="records" v-loading="recordLoading" stripe height="320">
             <el-table-column prop="billing_date" label="账期" width="120">
               <template #default="{ row }">{{ formatDay(row.billing_date) }}</template>
             </el-table-column>

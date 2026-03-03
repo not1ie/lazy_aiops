@@ -30,7 +30,7 @@
           <el-button type="primary" icon="Search" @click="fetchOrders">查询</el-button>
         </div>
 
-        <el-table :data="orders" v-loading="orderLoading" stripe>
+        <el-table :fit="false" :data="orders" v-loading="orderLoading" stripe>
           <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
           <el-table-column label="实例" min-width="140">
             <template #default="{ row }">{{ row.instance?.name || '-' }}</template>
@@ -67,7 +67,7 @@
           <el-button type="primary" icon="Plus" @click="openCreateInstance">新增实例</el-button>
           <el-button icon="Refresh" @click="fetchInstances">刷新</el-button>
         </div>
-        <el-table :data="instances" v-loading="instanceLoading" stripe>
+        <el-table :fit="false" :data="instances" v-loading="instanceLoading" stripe>
           <el-table-column prop="name" label="名称" min-width="140" />
           <el-table-column prop="type" label="类型" width="100" />
           <el-table-column prop="host" label="地址" min-width="160" />
@@ -102,7 +102,7 @@
           </el-select>
           <el-button type="primary" icon="Search" @click="fetchLogs">查询</el-button>
         </div>
-        <el-table :data="logs" v-loading="logLoading" stripe>
+        <el-table :fit="false" :data="logs" v-loading="logLoading" stripe>
           <el-table-column prop="executed_at" label="执行时间" width="170">
             <template #default="{ row }">{{ formatTime(row.executed_at) }}</template>
           </el-table-column>

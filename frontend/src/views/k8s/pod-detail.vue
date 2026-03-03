@@ -47,7 +47,7 @@
         <el-divider />
 
         <h3 class="section-title">容器</h3>
-        <el-table :data="pod.containers || []" stripe style="width: 100%">
+        <el-table :fit="false" :data="pod.containers || []" stripe style="width: 100%">
           <el-table-column prop="name" label="容器" min-width="180" />
           <el-table-column prop="image" label="镜像" min-width="220" />
           <el-table-column prop="state" label="状态" width="140" />
@@ -92,7 +92,7 @@
           <el-input v-model="eventKeyword" placeholder="关键词 (reason/message)" class="w-52" clearable />
           <el-button icon="Refresh" @click="fetchEvents">刷新</el-button>
         </div>
-        <el-table :data="events" stripe style="width: 100%">
+        <el-table :fit="false" :data="events" stripe style="width: 100%">
           <el-table-column prop="type" label="类型" width="100" />
           <el-table-column prop="reason" label="原因" width="160" />
           <el-table-column prop="message" label="信息" min-width="260" />

@@ -31,7 +31,7 @@
       </el-select>
     </div>
 
-    <el-table :data="items" v-loading="loading" stripe @selection-change="selectedRows = $event">
+    <el-table :fit="false" :data="items" v-loading="loading" stripe @selection-change="selectedRows = $event">
       <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="type" label="类型" width="120" />

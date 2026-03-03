@@ -129,7 +129,7 @@
       </el-card>
     </template>
 
-    <el-table class="motion-up delay-8" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px" @row-click="selectInstance">
+    <el-table :fit="false" class="motion-up delay-8" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px" @row-click="selectInstance">
       <el-table-column prop="instance" label="主机" min-width="200" />
       <el-table-column prop="cpu" label="CPU(%)" width="120" sortable />
       <el-table-column prop="memory" label="内存(%)" width="120" sortable />

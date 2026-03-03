@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :data="rules" stripe style="width: 100%">
+    <el-table :fit="false" :data="rules" stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="type" label="类型" width="120" />
       <el-table-column prop="target" label="目标" min-width="200" />

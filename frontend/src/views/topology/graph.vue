@@ -82,7 +82,7 @@
             </div>
           </template>
           <el-empty v-if="!dependencyInsights.length" description="暂无分析结果" :image-size="72" />
-          <el-table v-else :data="dependencyInsights.slice(0, 6)" size="small" border>
+          <el-table :fit="false" v-else :data="dependencyInsights.slice(0, 6)" size="small" border>
             <el-table-column prop="service_name" label="服务" min-width="160" show-overflow-tooltip />
             <el-table-column prop="impact_score" label="影响分" width="84" />
             <el-table-column label="关键路径" width="92">
@@ -206,7 +206,7 @@
             <el-checkbox v-model="nodeFilter.alert_chain_only" class="filter-toggle">告警链路</el-checkbox>
             <el-checkbox v-model="nodeFilter.neighbor_only" class="filter-toggle">一跳邻居</el-checkbox>
           </div>
-          <el-table :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode" :row-class-name="nodeRowClassName">
+          <el-table :fit="false" :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode" :row-class-name="nodeRowClassName">
             <el-table-column prop="name" label="名称" min-width="160" />
             <el-table-column label="来源" width="120">
               <template #default="{ row }">
@@ -244,7 +244,7 @@
               <el-button size="small" type="primary" icon="Plus" @click="openEdgeDialog">新增关系</el-button>
             </div>
           </template>
-          <el-table :data="filteredEdges" stripe size="small">
+          <el-table :fit="false" :data="filteredEdges" stripe size="small">
             <el-table-column label="源服务" min-width="120">
               <template #default="{ row }">{{ row.source_name || nodeName(row.source_id) }}</template>
             </el-table-column>

@@ -67,7 +67,7 @@
         <el-divider />
 
         <h3 class="section-title">关联 Pods</h3>
-        <el-table :data="pods" stripe style="width: 100%">
+        <el-table :fit="false" :data="pods" stripe style="width: 100%">
           <el-table-column prop="name" label="Pod" min-width="200" />
           <el-table-column label="状态" width="120">
             <template #default="scope">
@@ -95,7 +95,7 @@
           <el-input v-model="eventKeyword" placeholder="关键词 (reason/message)" class="w-52" clearable />
           <el-button icon="Refresh" @click="fetchEvents">刷新</el-button>
         </div>
-        <el-table :data="events" stripe style="width: 100%">
+        <el-table :fit="false" :data="events" stripe style="width: 100%">
           <el-table-column prop="type" label="类型" width="100" />
           <el-table-column prop="reason" label="原因" width="160" />
           <el-table-column prop="message" label="信息" min-width="260" />

@@ -12,7 +12,7 @@
       </div>
     </template>
 
-    <el-table :data="executions" v-loading="loading" stripe>
+    <el-table :fit="false" :data="executions" v-loading="loading" stripe>
       <el-table-column prop="pipeline_name" label="流水线" min-width="200" />
       <el-table-column prop="provider" label="Provider" width="120" />
       <el-table-column prop="status" label="状态" width="120">

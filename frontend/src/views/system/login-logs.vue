@@ -26,7 +26,7 @@
       </div>
     </div>
 
-    <el-table :data="logs" v-loading="loading" stripe>
+    <el-table :fit="false" :data="logs" v-loading="loading" stripe>
       <el-table-column prop="username" label="用户名" width="140" />
       <el-table-column prop="ip" label="IP" width="150" />
       <el-table-column label="状态" width="90">

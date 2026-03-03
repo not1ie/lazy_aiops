@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :data="repos" v-loading="loading" stripe>
+    <el-table :fit="false" :data="repos" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="140" />
       <el-table-column prop="url" label="URL" min-width="260" show-overflow-tooltip />
       <el-table-column prop="branch" label="分支" width="120" />

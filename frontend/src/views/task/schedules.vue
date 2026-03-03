@@ -14,7 +14,7 @@
         </div>
       </template>
 
-      <el-table :data="tasks" v-loading="loading" @row-click="selectTask" highlight-current-row>
+      <el-table :fit="false" :data="tasks" v-loading="loading" @row-click="selectTask" highlight-current-row>
         <el-table-column prop="name" label="任务名称" min-width="180" />
         <el-table-column prop="type" label="类型" width="120" />
         <el-table-column prop="cron" label="Cron" min-width="180" />
@@ -49,7 +49,7 @@
         </div>
       </template>
 
-      <el-table :data="executions" v-loading="loadingExecutions" stripe>
+      <el-table :fit="false" :data="executions" v-loading="loadingExecutions" stripe>
         <el-table-column prop="task_name" label="任务" min-width="180" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">

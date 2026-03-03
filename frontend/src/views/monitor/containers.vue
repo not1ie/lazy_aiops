@@ -118,7 +118,7 @@
       </el-card>
     </template>
 
-    <el-table class="motion-up delay-8" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
+    <el-table :fit="false" class="motion-up delay-8" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
       <el-table-column prop="container" label="容器" min-width="220" />
       <el-table-column prop="image" label="镜像" min-width="200" />
       <el-table-column prop="instance" label="节点" min-width="160" />

@@ -40,7 +40,7 @@
           <el-button type="primary" plain icon="Plus" @click="openCreateBudget">新增预算</el-button>
         </div>
       </template>
-      <el-table :data="budgets" v-loading="budgetLoading" stripe>
+      <el-table :fit="false" :data="budgets" v-loading="budgetLoading" stripe>
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column prop="budget_type" label="类型" width="120" />
         <el-table-column prop="amount" label="预算金额" width="130">
@@ -74,7 +74,7 @@
           <template #header>
             <div class="card-title">费用告警</div>
           </template>
-          <el-table :data="alerts" v-loading="alertLoading" stripe height="320">
+          <el-table :fit="false" :data="alerts" v-loading="alertLoading" stripe height="320">
             <el-table-column prop="budget_name" label="预算" min-width="130" show-overflow-tooltip />
             <el-table-column prop="message" label="内容" min-width="180" show-overflow-tooltip />
             <el-table-column prop="percentage" label="占比" width="90">
@@ -102,7 +102,7 @@
           <template #header>
             <div class="card-title">优化建议</div>
           </template>
-          <el-table :data="optimizations" v-loading="optimizationLoading" stripe height="320">
+          <el-table :fit="false" :data="optimizations" v-loading="optimizationLoading" stripe height="320">
             <el-table-column prop="resource_name" label="资源" min-width="150" show-overflow-tooltip />
             <el-table-column prop="resource_type" label="类型" width="110" />
             <el-table-column prop="opt_type" label="建议" width="100" />

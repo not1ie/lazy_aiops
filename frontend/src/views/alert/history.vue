@@ -59,7 +59,7 @@
       <el-button type="primary" @click="fetchHistory">筛选</el-button>
     </div>
 
-    <el-table :data="items" stripe style="width: 100%">
+    <el-table :fit="false" :data="items" stripe style="width: 100%">
       <el-table-column v-if="fields.rule_id" prop="rule_id" label="规则ID" min-width="160" />
       <el-table-column v-if="fields.target" prop="target" label="目标" min-width="200" />
       <el-table-column v-if="fields.severity" prop="severity" label="级别" width="120" />

@@ -272,7 +272,7 @@
           <template #header>
             <span>分析历史</span>
           </template>
-          <el-table :data="analysisHistory" v-loading="historyLoading" stripe>
+          <el-table :fit="false" :data="analysisHistory" v-loading="historyLoading" stripe>
             <el-table-column prop="service" label="服务" width="180" />
             <el-table-column label="告警" width="100">
               <template #default="{ row }">
@@ -314,7 +314,7 @@
             <el-descriptions-item label="Base URL" :span="2">{{ runtimeConfig.base_url || '-' }}</el-descriptions-item>
           </el-descriptions>
 
-          <el-table :data="providerConfigs" v-loading="configLoading" stripe>
+          <el-table :fit="false" :data="providerConfigs" v-loading="configLoading" stripe>
             <el-table-column prop="name" label="名称" min-width="140" />
             <el-table-column prop="provider" label="Provider" width="110" />
             <el-table-column prop="base_url" label="Base URL" min-width="240" show-overflow-tooltip />

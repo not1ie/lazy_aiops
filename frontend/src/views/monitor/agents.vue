@@ -10,7 +10,7 @@
       </div>
     </div>
 
-    <el-table :data="agents" stripe style="width: 100%">
+    <el-table :fit="false" :data="agents" stripe style="width: 100%">
       <el-table-column prop="agent_id" label="Agent ID" min-width="160" />
       <el-table-column prop="hostname" label="主机名" min-width="160" />
       <el-table-column prop="ip" label="IP" width="140" />

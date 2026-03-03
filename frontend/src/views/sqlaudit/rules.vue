@@ -17,7 +17,7 @@
           <template #header>
             <div class="card-title">规则列表</div>
           </template>
-          <el-table :data="rules" v-loading="loading" stripe>
+          <el-table :fit="false" :data="rules" v-loading="loading" stripe>
             <el-table-column prop="name" label="名称" min-width="150" />
             <el-table-column prop="type" label="类型" width="110" />
             <el-table-column prop="level" label="级别" width="90">
@@ -58,7 +58,7 @@
             <el-descriptions-item label="问题数">{{ analyzeResult.issues?.length || 0 }}</el-descriptions-item>
           </el-descriptions>
           <el-alert v-if="analyzeResult && (analyzeResult.issues?.length || 0) === 0" type="success" :closable="false" title="未检测到明显风险问题" />
-          <el-table v-if="analyzeResult && (analyzeResult.issues?.length || 0) > 0" :data="analyzeResult.issues" size="small" stripe>
+          <el-table :fit="false" v-if="analyzeResult && (analyzeResult.issues?.length || 0) > 0" :data="analyzeResult.issues" size="small" stripe>
             <el-table-column prop="type" label="类型" width="110" />
             <el-table-column prop="level" label="级别" width="90">
               <template #default="{ row }">

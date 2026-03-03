@@ -40,7 +40,7 @@
         </el-card>
         <el-card class="mt-12">
           <div class="section-title">最近告警</div>
-          <el-table :data="recentAlerts" size="small" style="width: 100%">
+          <el-table :fit="false" :data="recentAlerts" size="small" style="width: 100%">
             <el-table-column prop="rule_name" label="规则" min-width="120" />
             <el-table-column prop="severity" label="级别" width="90" />
             <el-table-column prop="status" label="状态" width="90">
@@ -54,7 +54,7 @@
         </el-card>
         <el-card class="mt-12">
           <div class="section-title">Top 节点</div>
-          <el-table :data="topNodes" size="small" style="width: 100%">
+          <el-table :fit="false" :data="topNodes" size="small" style="width: 100%">
             <el-table-column prop="instance" label="节点" min-width="140" />
             <el-table-column prop="cpu" label="CPU%" width="90" />
             <el-table-column prop="memory" label="内存%" width="90" />

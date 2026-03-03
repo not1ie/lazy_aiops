@@ -13,7 +13,7 @@
       </div>
     </template>
 
-    <el-table :data="groups" v-loading="loading" stripe>
+    <el-table :fit="false" :data="groups" v-loading="loading" stripe>
       <el-table-column prop="name" label="分组名称" min-width="200" />
       <el-table-column prop="description" label="描述" min-width="240" />
       <el-table-column prop="parent_id" label="父级ID" min-width="200" />

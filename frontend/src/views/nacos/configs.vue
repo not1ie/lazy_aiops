@@ -23,7 +23,7 @@
           <el-button type="primary" @click="fetchConfigs">查询</el-button>
         </div>
 
-        <el-table :data="configs" v-loading="loadingConfigs" stripe>
+        <el-table :fit="false" :data="configs" v-loading="loadingConfigs" stripe>
           <el-table-column prop="data_id" label="DataID" min-width="200" />
           <el-table-column prop="group" label="Group" width="140" />
           <el-table-column prop="content_type" label="类型" width="100" />
@@ -41,7 +41,7 @@
         <div class="actions" style="margin-bottom: 12px;">
           <el-button type="primary" icon="Plus" @click="openScheduleCreate">新增计划</el-button>
         </div>
-        <el-table :data="schedules" v-loading="loadingSchedules" stripe>
+        <el-table :fit="false" :data="schedules" v-loading="loadingSchedules" stripe>
           <el-table-column prop="name" label="名称" min-width="160" />
           <el-table-column label="服务器" min-width="180">
             <template #default="{ row }">

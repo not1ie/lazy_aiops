@@ -15,7 +15,7 @@
       <template #header>
         <div class="card-title">在线会话</div>
       </template>
-      <el-table :data="sessions" v-loading="sessionLoading" stripe>
+      <el-table :fit="false" :data="sessions" v-loading="sessionLoading" stripe>
         <el-table-column prop="operator" label="操作人" width="120" />
         <el-table-column prop="host" label="主机" min-width="180" />
         <el-table-column prop="port" label="端口" width="90" />
@@ -42,7 +42,7 @@
       <template #header>
         <div class="card-title">会话录像</div>
       </template>
-      <el-table :data="records" v-loading="recordLoading" stripe>
+      <el-table :fit="false" :data="records" v-loading="recordLoading" stripe>
         <el-table-column prop="operator" label="操作人" width="120" />
         <el-table-column prop="host" label="主机" min-width="180" />
         <el-table-column prop="duration" label="时长(s)" width="90" />

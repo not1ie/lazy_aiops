@@ -22,7 +22,7 @@
       </div>
     </div>
 
-    <el-table :data="posts" v-loading="loading" stripe>
+    <el-table :fit="false" :data="posts" v-loading="loading" stripe>
       <el-table-column prop="name" label="岗位名称" min-width="180" />
       <el-table-column prop="code" label="岗位编码" min-width="180" />
       <el-table-column prop="sort" label="排序" width="100" />

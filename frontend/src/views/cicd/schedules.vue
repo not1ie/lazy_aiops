@@ -13,7 +13,7 @@
       </div>
     </template>
 
-    <el-table :data="schedules" v-loading="loading" stripe>
+    <el-table :fit="false" :data="schedules" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="pipeline_id" label="流水线" min-width="200">
         <template #default="{ row }">
