@@ -40,7 +40,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editing ? '编辑升级策略' : '新增升级策略'" width="700px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="editing ? '编辑升级策略' : '新增升级策略'" width="700px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="策略名称" required>
           <el-input v-model="form.name" />

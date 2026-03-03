@@ -61,7 +61,7 @@
     </el-card>
   </div>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑Playbook' : '新增Playbook'" width="760px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑Playbook' : '新增Playbook'" width="760px">
     <el-form :model="form" label-width="90px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -85,7 +85,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="executeVisible" title="执行Playbook" width="560px">
+  <el-dialog append-to-body v-model="executeVisible" title="执行Playbook" width="560px">
     <el-form :model="executeForm" label-width="90px">
       <el-form-item label="Inventory">
         <el-select v-model="executeForm.inventory_id" style="width: 100%" clearable>
@@ -114,7 +114,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="outputVisible" title="执行输出" width="760px">
+  <el-dialog append-to-body v-model="outputVisible" title="执行输出" width="760px">
     <pre class="log-block">{{ outputText }}</pre>
   </el-dialog>
 </template>

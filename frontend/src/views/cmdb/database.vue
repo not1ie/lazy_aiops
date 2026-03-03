@@ -60,7 +60,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑数据库资产' : '新增数据库资产'" width="560px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑数据库资产' : '新增数据库资产'" width="560px">
     <el-form :model="form" label-width="100px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -115,7 +115,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="importVisible" title="批量导入数据库资产" width="720px">
+  <el-dialog append-to-body v-model="importVisible" title="批量导入数据库资产" width="720px">
     <el-alert type="info" :closable="false" show-icon>
       格式：name,type,host,port,username,password,database,environment,owner,tags,status,description（第一行可写表头）
     </el-alert>
@@ -126,7 +126,7 @@
     </div>
   </el-dialog>
 
-  <el-dialog v-model="testVisible" title="数据库连通性测试" width="560px">
+  <el-dialog append-to-body v-model="testVisible" title="数据库连通性测试" width="560px">
     <el-alert v-if="testError" type="error" :closable="false" show-icon>{{ testError }}</el-alert>
     <el-alert v-if="testSuccess" type="success" :closable="false" show-icon>{{ testSuccess }}</el-alert>
     <template #footer>

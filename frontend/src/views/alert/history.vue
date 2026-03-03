@@ -75,7 +75,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="fieldDialogVisible" title="导出字段选择" width="520px">
+    <el-dialog append-to-body v-model="fieldDialogVisible" title="导出字段选择" width="520px">
       <el-checkbox-group v-model="selectedFieldKeys">
         <el-checkbox label="rule_id">规则ID</el-checkbox>
         <el-checkbox label="target">目标</el-checkbox>

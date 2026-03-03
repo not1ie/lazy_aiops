@@ -74,7 +74,7 @@
     </el-tabs>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="600px">
     <el-form v-if="activeDialog === 'accounts'" :model="accountForm" label-width="110px">
       <el-form-item label="账号名称" required>
         <el-input v-model="accountForm.name" />
@@ -151,7 +151,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="importVisible" title="批量导入" width="720px">
+  <el-dialog append-to-body v-model="importVisible" title="批量导入" width="720px">
     <el-alert type="info" :closable="false" show-icon>
       账号格式：name,provider,access_key,secret_key,region,status,description
       资源格式：account_id,resource_id,name,type,region,zone,ip,status,spec,tags
@@ -163,7 +163,7 @@
     </div>
   </el-dialog>
 
-  <el-dialog v-model="testVisible" title="云账号测试" width="560px">
+  <el-dialog append-to-body v-model="testVisible" title="云账号测试" width="560px">
     <el-alert v-if="testError" type="error" :closable="false" show-icon>{{ testError }}</el-alert>
     <el-alert v-if="testSuccess" type="success" :closable="false" show-icon>{{ testSuccess }}</el-alert>
     <div class="test-tip">仅校验 AccessKey/SecretKey 是否填写，不调用真实云 API。</div>

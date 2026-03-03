@@ -61,7 +61,7 @@
     </el-table>
 
     <!-- 添加/编辑主机弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑主机' : '添加主机'" width="500px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑主机' : '添加主机'" width="500px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="主机名" required>
           <el-input v-model="form.name" />
@@ -95,7 +95,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="testVisible" title="主机测试" width="640px">
+    <el-dialog append-to-body v-model="testVisible" title="主机测试" width="640px">
       <el-alert v-if="testError" type="error" :closable="false" show-icon>{{ testError }}</el-alert>
       <el-skeleton v-if="testLoading" :rows="4" animated />
       <div v-else class="test-block">
@@ -110,7 +110,7 @@
     </el-dialog>
 
     <!-- 批量导入 -->
-    <el-dialog v-model="importVisible" title="批量导入主机" width="720px">
+    <el-dialog append-to-body v-model="importVisible" title="批量导入主机" width="720px">
       <el-alert type="info" :closable="false" show-icon>
         格式：name,ip,port,username,password,group_name,status,os（第一行可写表头）
       </el-alert>
@@ -122,7 +122,7 @@
     </el-dialog>
 
     <!-- 批量状态 -->
-    <el-dialog v-model="batchStatusVisible" title="批量修改状态" width="420px">
+    <el-dialog append-to-body v-model="batchStatusVisible" title="批量修改状态" width="420px">
       <el-form label-width="80px">
         <el-form-item label="状态">
           <el-select v-model="batchStatus" placeholder="选择状态" style="width: 100%">

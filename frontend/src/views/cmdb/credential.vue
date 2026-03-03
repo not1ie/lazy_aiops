@@ -56,7 +56,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑凭据' : '新增凭据'" width="560px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑凭据' : '新增凭据'" width="560px">
     <el-form :model="form" label-width="100px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" placeholder="如：生产SSH" />
@@ -97,7 +97,7 @@
   </el-dialog>
 
   <!-- 批量导入 -->
-  <el-dialog v-model="importVisible" title="批量导入凭据" width="720px">
+  <el-dialog append-to-body v-model="importVisible" title="批量导入凭据" width="720px">
     <el-alert type="info" :closable="false" show-icon>
       格式：name,type,username,password,private_key,passphrase,access_key,secret_key,notes（第一行可写表头）
     </el-alert>
@@ -109,7 +109,7 @@
   </el-dialog>
 
   <!-- 测试凭据 -->
-  <el-dialog v-model="testVisible" title="凭据测试" width="560px">
+  <el-dialog append-to-body v-model="testVisible" title="凭据测试" width="560px">
     <div v-if="testRow?.type === 'api'" class="test-tip">API 凭据仅校验字段是否完整，不做真实调用。</div>
     <el-form v-else label-width="80px">
       <el-form-item label="主机">

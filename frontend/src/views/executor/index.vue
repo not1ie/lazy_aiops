@@ -107,7 +107,7 @@
     </el-card>
   </div>
 
-  <el-dialog v-model="outputVisible" title="执行输出" width="720px">
+  <el-dialog append-to-body v-model="outputVisible" title="执行输出" width="720px">
     <el-tabs v-model="outputTab">
       <el-tab-pane label="Stdout" name="stdout">
         <pre class="log-block">{{ selectedOutput.stdout || '-' }}</pre>

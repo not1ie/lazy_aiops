@@ -32,7 +32,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="visible" :title="isEdit ? '编辑部门' : '新增部门'" width="520px">
+    <el-dialog append-to-body v-model="visible" :title="isEdit ? '编辑部门' : '新增部门'" width="520px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="上级部门">
           <el-tree-select

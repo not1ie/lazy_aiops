@@ -29,7 +29,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="720px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px">
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -93,7 +93,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="testVisible" title="测试通知渠道" width="420px">
+    <el-dialog append-to-body v-model="testVisible" title="测试通知渠道" width="420px">
       <el-form :model="testForm" label-width="80px">
         <el-form-item label="接收人">
           <el-input v-model="testForm.receiver" placeholder="可选：邮箱/手机号/用户ID" />

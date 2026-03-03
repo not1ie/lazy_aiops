@@ -120,6 +120,13 @@ body {
   overflow: hidden;
   border: 1px solid var(--glass-border);
   box-shadow: var(--surface-shadow);
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+
+.el-dialog__body {
+  overflow: auto;
 }
 
 .el-alert {

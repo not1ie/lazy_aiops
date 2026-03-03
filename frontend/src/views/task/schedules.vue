@@ -64,7 +64,7 @@
     </el-card>
   </div>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑任务' : '新增任务'" width="640px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑任务' : '新增任务'" width="640px">
     <el-form :model="form" label-width="110px">
       <el-form-item label="任务名称" required>
         <el-input v-model="form.name" />

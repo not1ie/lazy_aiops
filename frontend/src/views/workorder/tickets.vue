@@ -79,7 +79,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="createVisible" title="新建工单" width="760px">
+    <el-dialog append-to-body v-model="createVisible" title="新建工单" width="760px">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="标题">
           <el-input v-model="createForm.title" />
@@ -107,7 +107,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="approveVisible" :title="approveForm.approved ? '审批通过' : '审批拒绝'" width="560px">
+    <el-dialog append-to-body v-model="approveVisible" :title="approveForm.approved ? '审批通过' : '审批拒绝'" width="560px">
       <el-form :model="approveForm" label-width="80px">
         <el-form-item label="备注">
           <el-input v-model="approveForm.comment" type="textarea" :rows="4" />

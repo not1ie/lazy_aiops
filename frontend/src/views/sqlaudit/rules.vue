@@ -72,7 +72,7 @@
       </el-col>
     </el-row>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="760px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="760px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />

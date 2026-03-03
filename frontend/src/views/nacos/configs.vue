@@ -67,7 +67,7 @@
     </el-tabs>
   </el-card>
 
-  <el-dialog v-model="configDialog" title="配置详情" width="760px">
+  <el-dialog append-to-body v-model="configDialog" title="配置详情" width="760px">
     <el-form :model="currentConfig" label-width="90px">
       <el-form-item label="DataID">
         <el-input v-model="currentConfig.data_id" disabled />
@@ -85,7 +85,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="scheduleDialog" :title="scheduleEdit ? '编辑同步计划' : '新增同步计划'" width="560px">
+  <el-dialog append-to-body v-model="scheduleDialog" :title="scheduleEdit ? '编辑同步计划' : '新增同步计划'" width="560px">
     <el-form :model="scheduleForm" label-width="100px">
       <el-form-item label="名称" required>
         <el-input v-model="scheduleForm.name" />

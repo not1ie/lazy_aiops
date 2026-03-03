@@ -275,7 +275,7 @@
       </el-col>
     </el-row>
 
-    <el-dialog v-model="nodeDialogVisible" :title="nodeEditing ? '编辑节点' : '新增节点'" width="760px">
+    <el-dialog append-to-body v-model="nodeDialogVisible" :title="nodeEditing ? '编辑节点' : '新增节点'" width="760px">
       <el-form :model="nodeForm" label-width="92px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="名称" required><el-input v-model="nodeForm.name" /></el-form-item></el-col>
@@ -296,7 +296,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="edgeDialogVisible" title="新增依赖关系" width="560px">
+    <el-dialog append-to-body v-model="edgeDialogVisible" title="新增依赖关系" width="560px">
       <el-form :model="edgeForm" label-width="96px">
         <el-form-item label="源节点" required>
           <el-select v-model="edgeForm.source_id" filterable style="width: 100%">
@@ -327,7 +327,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="discoverDialogVisible" title="自动发现拓扑" width="620px">
+    <el-dialog append-to-body v-model="discoverDialogVisible" title="自动发现拓扑" width="620px">
       <el-form :model="discoverForm" label-width="110px">
         <el-form-item label="发现源" required>
           <el-checkbox-group v-model="discoverForm.sources">
@@ -369,7 +369,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="importDialogVisible" title="导入拓扑" width="620px">
+    <el-dialog append-to-body v-model="importDialogVisible" title="导入拓扑" width="620px">
       <el-input v-model="importPayload" type="textarea" :rows="14" placeholder='{"nodes":[],"edges":[]}' />
       <template #footer>
         <el-button @click="importDialogVisible = false">取消</el-button>

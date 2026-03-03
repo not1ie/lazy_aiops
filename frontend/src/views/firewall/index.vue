@@ -105,7 +105,7 @@
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="deviceDialogVisible" :title="deviceEditing ? '编辑设备' : '新增设备'" width="760px">
+    <el-dialog append-to-body v-model="deviceDialogVisible" :title="deviceEditing ? '编辑设备' : '新增设备'" width="760px">
       <el-form :model="deviceForm" label-width="96px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="设备名" required><el-input v-model="deviceForm.name" /></el-form-item></el-col>
@@ -128,7 +128,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="ruleDialogVisible" title="新增访问规则" width="700px">
+    <el-dialog append-to-body v-model="ruleDialogVisible" title="新增访问规则" width="700px">
       <el-form :model="ruleForm" label-width="96px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="规则名" required><el-input v-model="ruleForm.name" /></el-form-item></el-col>

@@ -34,7 +34,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="logVisible" title="执行日志" width="760px">
+  <el-dialog append-to-body v-model="logVisible" title="执行日志" width="760px">
     <pre class="log-block">{{ logText }}</pre>
   </el-dialog>
 </template>

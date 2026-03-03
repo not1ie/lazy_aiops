@@ -60,7 +60,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="createVisible" title="创建 Deployment" width="720px">
+    <el-dialog append-to-body v-model="createVisible" title="创建 Deployment" width="720px">
       <el-form :model="form" label-width="120px">
         <el-form-item label="命名空间" required>
           <el-select v-model="form.namespace" style="width: 100%">

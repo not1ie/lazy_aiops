@@ -313,7 +313,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="configDialogVisible" :title="configEditing ? '编辑模型配置' : '新增模型配置'" width="700px">
+    <el-dialog append-to-body v-model="configDialogVisible" :title="configEditing ? '编辑模型配置' : '新增模型配置'" width="700px">
       <el-form :model="configForm" label-width="110px">
         <el-form-item label="配置名称" required>
           <el-input v-model="configForm.name" placeholder="如：OpenAI-Prod" />

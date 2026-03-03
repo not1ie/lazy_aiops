@@ -135,7 +135,7 @@
       </el-col>
     </el-row>
 
-    <el-dialog v-model="accountDialogVisible" :title="accountDialogTitle" width="680px">
+    <el-dialog append-to-body v-model="accountDialogVisible" :title="accountDialogTitle" width="680px">
       <el-form :model="accountForm" label-width="110px">
         <el-form-item label="账号名称">
           <el-input v-model="accountForm.name" placeholder="例如：阿里云生产账号" />

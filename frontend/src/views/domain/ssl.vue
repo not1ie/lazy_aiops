@@ -93,7 +93,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="createCertVisible" title="新增证书监控" width="460px">
+    <el-dialog append-to-body v-model="createCertVisible" title="新增证书监控" width="460px">
       <el-form :model="createCertForm" label-width="80px">
         <el-form-item label="域名">
           <el-input v-model="createCertForm.domain" placeholder="example.com" />
@@ -105,7 +105,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="certDetailVisible" title="证书详情" width="700px">
+    <el-dialog append-to-body v-model="certDetailVisible" title="证书详情" width="700px">
       <el-descriptions :column="2" border v-if="currentCert">
         <el-descriptions-item label="域名">{{ currentCert.domain }}</el-descriptions-item>
         <el-descriptions-item label="颁发者">{{ currentCert.issuer || '-' }}</el-descriptions-item>
@@ -117,7 +117,7 @@
       </el-descriptions>
     </el-dialog>
 
-    <el-dialog v-model="domainCheckVisible" title="域名检测结果" width="760px">
+    <el-dialog append-to-body v-model="domainCheckVisible" title="域名检测结果" width="760px">
       <el-descriptions :column="2" border v-if="domainCheckResult">
         <el-descriptions-item label="域名">{{ domainCheckResult.domain || '-' }}</el-descriptions-item>
         <el-descriptions-item label="DNS解析">{{ domainCheckResult.dns_resolved ? '正常' : '失败' }}</el-descriptions-item>

@@ -57,7 +57,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑用户' : '新增用户'" width="520px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑用户' : '新增用户'" width="520px">
     <el-form :model="form" label-width="90px">
       <el-form-item label="用户名" required>
         <el-input v-model="form.username" :disabled="isEdit" />
@@ -89,7 +89,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="passwordVisible" title="重置密码" width="420px">
+  <el-dialog append-to-body v-model="passwordVisible" title="重置密码" width="420px">
     <el-form :model="passwordForm" label-width="90px">
       <el-form-item label="新密码" required>
         <el-input v-model="passwordForm.new_password" type="password" show-password />

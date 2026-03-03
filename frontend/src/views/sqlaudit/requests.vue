@@ -122,7 +122,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="instanceVisible" :title="instanceDialogTitle" width="760px">
+    <el-dialog append-to-body v-model="instanceVisible" :title="instanceDialogTitle" width="760px">
       <el-form :model="instanceForm" label-width="100px">
         <el-form-item label="名称"><el-input v-model="instanceForm.name" /></el-form-item>
         <el-form-item label="类型">
@@ -145,7 +145,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="orderVisible" title="新建 SQL 工单" width="860px">
+    <el-dialog append-to-body v-model="orderVisible" title="新建 SQL 工单" width="860px">
       <el-form :model="orderForm" label-width="100px">
         <el-form-item label="标题"><el-input v-model="orderForm.title" /></el-form-item>
         <el-form-item label="数据库实例">
@@ -162,7 +162,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="reviewVisible" :title="reviewForm.approved ? '审核通过' : '审核拒绝'" width="560px">
+    <el-dialog append-to-body v-model="reviewVisible" :title="reviewForm.approved ? '审核通过' : '审核拒绝'" width="560px">
       <el-form :model="reviewForm" label-width="80px">
         <el-form-item label="备注"><el-input v-model="reviewForm.remark" type="textarea" :rows="4" /></el-form-item>
       </el-form>

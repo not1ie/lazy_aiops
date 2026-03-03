@@ -48,7 +48,7 @@
     </el-table>
 
     <!-- 添加主机弹窗 -->
-    <el-dialog v-model="dialogVisible" title="添加 Docker 环境" width="500px">
+    <el-dialog append-to-body v-model="dialogVisible" title="添加 Docker 环境" width="500px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="例如: Local Docker" />
@@ -558,7 +558,7 @@
     </el-drawer>
 
     <!-- 创建容器弹窗 -->
-    <el-dialog v-model="createVisible" title="创建容器" width="640px">
+    <el-dialog append-to-body v-model="createVisible" title="创建容器" width="640px">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="镜像" required>
           <el-input v-model="createForm.image" placeholder="例如 nginx:latest" />
@@ -946,7 +946,7 @@
     </el-dialog>
 
     <!-- 拉取镜像弹窗 -->
-    <el-dialog v-model="pullVisible" title="拉取镜像" width="640px">
+    <el-dialog append-to-body v-model="pullVisible" title="拉取镜像" width="640px">
       <el-form label-width="100px">
         <el-form-item label="镜像" required>
           <el-input v-model="pullImage" placeholder="例如 redis:7" />
@@ -960,7 +960,7 @@
     </el-dialog>
 
     <!-- 构建镜像弹窗 -->
-    <el-dialog v-model="buildVisible" title="构建镜像" width="760px">
+    <el-dialog append-to-body v-model="buildVisible" title="构建镜像" width="760px">
       <el-form :model="buildForm" label-width="120px">
         <el-form-item label="镜像标签" required>
           <el-input v-model="buildForm.tag" placeholder="例如 myapp:latest" />
@@ -986,7 +986,7 @@
     </el-dialog>
 
     <!-- 导入镜像弹窗 -->
-    <el-dialog v-model="loadVisible" title="导入镜像" width="640px">
+    <el-dialog append-to-body v-model="loadVisible" title="导入镜像" width="640px">
       <el-upload :auto-upload="false" :limit="1" :on-change="handleLoadTarChange">
         <el-button>选择 docker save 的 tar 包</el-button>
       </el-upload>
@@ -998,7 +998,7 @@
     </el-dialog>
 
     <!-- 批量删除结果 -->
-    <el-dialog v-model="batchResultVisible" title="批量删除结果" width="720px">
+    <el-dialog append-to-body v-model="batchResultVisible" title="批量删除结果" width="720px">
       <el-table :data="batchResultRows" style="width: 100%">
         <el-table-column prop="label" label="镜像" min-width="220" />
         <el-table-column prop="status" label="状态" width="120">
@@ -1014,7 +1014,7 @@
     </el-dialog>
 
     <!-- 清理悬挂镜像结果 -->
-    <el-dialog v-model="pruneVisible" title="清理结果" width="720px">
+    <el-dialog append-to-body v-model="pruneVisible" title="清理结果" width="720px">
       <el-input v-model="pruneOutput" type="textarea" :rows="10" readonly placeholder="输出" />
       <template #footer>
         <el-button type="primary" @click="pruneVisible = false">关闭</el-button>
@@ -1022,7 +1022,7 @@
     </el-dialog>
 
     <!-- 诊断弹窗 -->
-    <el-dialog v-model="diagnoseVisible" title="Docker 诊断" width="720px">
+    <el-dialog append-to-body v-model="diagnoseVisible" title="Docker 诊断" width="720px">
       <el-alert v-if="diagnoseError" type="error" :closable="false" show-icon>{{ diagnoseError }}</el-alert>
       <el-skeleton v-if="diagnoseLoading" :rows="6" animated />
       <div v-else class="diagnose-block">
@@ -1347,7 +1347,7 @@
     </el-dialog>
 
     <!-- Git 部署 Stack -->
-    <el-dialog v-model="gitDeployVisible" title="Git 部署 Stack" width="720px">
+    <el-dialog append-to-body v-model="gitDeployVisible" title="Git 部署 Stack" width="720px">
       <el-form :model="gitDeployForm" label-width="120px">
         <el-form-item label="Stack 名称" required>
           <el-input v-model="gitDeployForm.name" placeholder="例如 my-stack" />
@@ -1386,7 +1386,7 @@
     </el-dialog>
 
     <!-- 创建卷 -->
-    <el-dialog v-model="createVolumeVisible" title="创建卷" width="520px">
+    <el-dialog append-to-body v-model="createVolumeVisible" title="创建卷" width="520px">
       <el-form :model="volumeForm" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="volumeForm.name" />
@@ -1405,7 +1405,7 @@
     </el-dialog>
 
     <!-- 卷详情 -->
-    <el-dialog v-model="volumeInspectVisible" title="卷详情" width="760px">
+    <el-dialog append-to-body v-model="volumeInspectVisible" title="卷详情" width="760px">
       <el-input v-model="volumeInspectJson" type="textarea" :rows="14" readonly />
       <template #footer>
         <el-button @click="copyText(volumeInspectJson)">复制</el-button>
@@ -1414,7 +1414,7 @@
     </el-dialog>
 
     <!-- 卷使用情况 -->
-    <el-dialog v-model="volumeUsageVisible" title="卷使用情况" width="720px">
+    <el-dialog append-to-body v-model="volumeUsageVisible" title="卷使用情况" width="720px">
       <el-table :data="volumeUsage" v-loading="volumeUsageLoading" style="width: 100%">
         <el-table-column prop="name" label="卷" min-width="200" />
         <el-table-column label="容器" min-width="240">
@@ -1427,7 +1427,7 @@
     </el-dialog>
 
     <!-- 网络详情 -->
-    <el-dialog v-model="networkInspectVisible" title="网络详情" width="760px">
+    <el-dialog append-to-body v-model="networkInspectVisible" title="网络详情" width="760px">
       <div class="mb-3">
         <div class="text-sm mb-2">连接的容器：</div>
         <el-tag v-for="item in networkInspectContainers" :key="item" class="mr-2 mb-2">{{ item }}</el-tag>
@@ -1441,7 +1441,7 @@
     </el-dialog>
 
     <!-- 网络使用情况 -->
-    <el-dialog v-model="networkUsageVisible" title="网络使用情况" width="720px">
+    <el-dialog append-to-body v-model="networkUsageVisible" title="网络使用情况" width="720px">
       <el-table :data="networkUsage" v-loading="networkUsageLoading" style="width: 100%">
         <el-table-column prop="name" label="网络" min-width="200" />
         <el-table-column prop="driver" label="驱动" width="120" />
@@ -1456,7 +1456,7 @@
     </el-dialog>
 
     <!-- 创建 Secret -->
-    <el-dialog v-model="createSecretVisible" title="创建 Secret" width="520px">
+    <el-dialog append-to-body v-model="createSecretVisible" title="创建 Secret" width="520px">
       <el-form :model="secretForm" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="secretForm.name" />
@@ -1472,7 +1472,7 @@
     </el-dialog>
 
     <!-- Secret 详情 -->
-    <el-dialog v-model="secretInspectVisible" title="Secret 详情" width="760px">
+    <el-dialog append-to-body v-model="secretInspectVisible" title="Secret 详情" width="760px">
       <el-input v-model="secretInspectJson" type="textarea" :rows="12" readonly />
       <template #footer>
         <el-button @click="copyText(secretInspectJson)">复制</el-button>
@@ -1481,7 +1481,7 @@
     </el-dialog>
 
     <!-- 创建 Config -->
-    <el-dialog v-model="createConfigVisible" title="创建 Config" width="520px">
+    <el-dialog append-to-body v-model="createConfigVisible" title="创建 Config" width="520px">
       <el-form :model="configForm" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="configForm.name" />
@@ -1497,7 +1497,7 @@
     </el-dialog>
 
     <!-- Config 详情 -->
-    <el-dialog v-model="configInspectVisible" title="Config 详情" width="760px">
+    <el-dialog append-to-body v-model="configInspectVisible" title="Config 详情" width="760px">
       <el-input v-model="configInspectJson" type="textarea" :rows="12" readonly />
       <template #footer>
         <el-button @click="copyText(configInspectJson)">复制</el-button>
@@ -1506,7 +1506,7 @@
     </el-dialog>
 
     <!-- 部署 Stack -->
-    <el-dialog v-model="deployVisible" title="部署 Stack" width="760px">
+    <el-dialog append-to-body v-model="deployVisible" title="部署 Stack" width="760px">
       <el-form :model="deployForm" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="deployForm.name" placeholder="stack 名称" />
@@ -1544,7 +1544,7 @@
     </el-dialog>
 
     <!-- 添加仓库 -->
-    <el-dialog v-model="createRegistryVisible" title="添加仓库" width="520px">
+    <el-dialog append-to-body v-model="createRegistryVisible" title="添加仓库" width="520px">
       <el-form :model="registryForm" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="registryForm.name" />

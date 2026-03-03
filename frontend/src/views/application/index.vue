@@ -26,7 +26,7 @@
       </el-card>
     </div>
 
-    <el-dialog v-model="visible" title="创建应用" width="600px">
+    <el-dialog append-to-body v-model="visible" title="创建应用" width="600px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="应用名称" required>
           <el-input v-model="form.name" placeholder="如: 用户中心" />

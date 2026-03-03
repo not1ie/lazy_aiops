@@ -102,7 +102,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="workflowDialogVisible" :title="workflowEditing ? '编辑流程' : '新建流程'" width="860px">
+    <el-dialog append-to-body v-model="workflowDialogVisible" :title="workflowEditing ? '编辑流程' : '新建流程'" width="860px">
       <el-form :model="workflowForm" label-width="96px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="流程名称" required><el-input v-model="workflowForm.name" /></el-form-item></el-col>
@@ -121,7 +121,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="executeDialogVisible" title="执行流程" width="600px">
+    <el-dialog append-to-body v-model="executeDialogVisible" title="执行流程" width="600px">
       <el-form :model="executeForm" label-width="90px">
         <el-form-item label="流程">
           <el-input :model-value="executeWorkflow?.name || '-'" disabled />

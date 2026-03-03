@@ -50,7 +50,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="createVisible" title="新增配置" width="700px">
+    <el-dialog append-to-body v-model="createVisible" title="新增配置" width="700px">
       <el-form :model="createForm" label-width="110px">
         <el-form-item label="配置名称">
           <el-input v-model="createForm.name" />
@@ -84,7 +84,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editVisible" :title="`编辑配置：${editForm.name || ''}`" width="960px" top="6vh">
+    <el-dialog append-to-body v-model="editVisible" :title="`编辑配置：${editForm.name || ''}`" width="960px" top="6vh">
       <el-alert type="info" :closable="false" class="mb-3">
         <template #default>
           路径：{{ editForm.file_path || '-' }} | 仓库：{{ editForm.repo?.name || '-' }}

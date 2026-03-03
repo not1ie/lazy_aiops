@@ -39,7 +39,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="520px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="520px">
     <el-form :model="form" label-width="90px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -57,7 +57,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="permVisible" title="分配权限" width="640px">
+  <el-dialog append-to-body v-model="permVisible" title="分配权限" width="640px">
     <el-tree
       ref="permTreeRef"
       :data="permissionTree"

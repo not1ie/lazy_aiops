@@ -120,7 +120,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="logVisible" title="Pod 日志" width="880px">
+    <el-dialog append-to-body v-model="logVisible" title="Pod 日志" width="880px">
       <div class="log-controls">
         <el-select v-model="logContainer" placeholder="容器" class="w-52">
           <el-option v-for="c in logContainers" :key="c" :label="c" :value="c" />

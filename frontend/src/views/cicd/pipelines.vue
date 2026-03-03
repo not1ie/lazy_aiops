@@ -32,7 +32,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑流水线' : '新增流水线'" width="720px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑流水线' : '新增流水线'" width="720px">
     <el-form :model="form" label-width="110px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -119,7 +119,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="triggerVisible" title="触发流水线" width="520px">
+  <el-dialog append-to-body v-model="triggerVisible" title="触发流水线" width="520px">
     <el-form :model="triggerForm" label-width="90px">
       <el-form-item label="参数(JSON)">
         <el-input v-model="triggerForm.parameters" type="textarea" :rows="4" placeholder='{"env":"prod"}' />

@@ -57,7 +57,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="createVisible" title="新建终端会话" width="680px">
+    <el-dialog append-to-body v-model="createVisible" title="新建终端会话" width="680px">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="主机地址">
           <el-input v-model="createForm.host" placeholder="例如 10.0.0.10" />
@@ -81,7 +81,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="terminalVisible" :title="`终端: ${currentSession?.host || ''}`" width="980px" top="4vh" @closed="onTerminalDialogClosed">
+    <el-dialog append-to-body v-model="terminalVisible" :title="`终端: ${currentSession?.host || ''}`" width="980px" top="4vh" @closed="onTerminalDialogClosed">
       <div class="terminal-toolbar">
         <el-input v-model="commandInput" placeholder="输入命令后回车发送" @keyup.enter="sendCommand" clearable />
         <el-button type="primary" @click="sendCommand">发送</el-button>
@@ -94,7 +94,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="recordVisible" title="录像回放" width="980px" top="5vh">
+    <el-dialog append-to-body v-model="recordVisible" title="录像回放" width="980px" top="5vh">
       <div class="record-meta">
         <span>主机: {{ currentRecord?.host || '-' }}</span>
         <span>操作人: {{ currentRecord?.operator || '-' }}</span>

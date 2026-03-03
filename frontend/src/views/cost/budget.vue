@@ -133,7 +133,7 @@
       </el-col>
     </el-row>
 
-    <el-dialog v-model="budgetDialogVisible" :title="budgetDialogTitle" width="720px">
+    <el-dialog append-to-body v-model="budgetDialogVisible" :title="budgetDialogTitle" width="720px">
       <el-form :model="budgetForm" label-width="110px">
         <el-form-item label="预算名称">
           <el-input v-model="budgetForm.name" placeholder="例如：生产环境月度预算" />

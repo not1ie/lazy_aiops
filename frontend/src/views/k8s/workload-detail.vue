@@ -138,7 +138,7 @@
     </el-tabs>
   </el-card>
 
-  <el-dialog v-model="applyVisible" title="确认应用变更" width="980px">
+  <el-dialog append-to-body v-model="applyVisible" title="确认应用变更" width="980px">
     <p class="apply-hint">请确认以下变更将会写入集群，操作不可逆。</p>
     <div class="diff-block">
       <div class="apply-title">差异预览</div>

@@ -43,7 +43,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑岗位' : '新增岗位'" width="500px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑岗位' : '新增岗位'" width="500px">
       <el-form :model="form" label-width="88px">
         <el-form-item label="岗位名称" required>
           <el-input v-model="form.name" />

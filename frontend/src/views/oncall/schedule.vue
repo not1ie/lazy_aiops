@@ -104,7 +104,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="scheduleDialogVisible" :title="scheduleEditing ? '编辑排班' : '新增排班'" width="700px">
+    <el-dialog append-to-body v-model="scheduleDialogVisible" :title="scheduleEditing ? '编辑排班' : '新增排班'" width="700px">
       <el-form :model="scheduleForm" label-width="96px">
         <el-form-item label="排班名称" required>
           <el-input v-model="scheduleForm.name" />
@@ -150,7 +150,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="teamDialogVisible" title="新增团队" width="520px">
+    <el-dialog append-to-body v-model="teamDialogVisible" title="新增团队" width="520px">
       <el-form :model="teamForm" label-width="88px">
         <el-form-item label="团队名称" required>
           <el-input v-model="teamForm.name" />
@@ -171,7 +171,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="generateDialogVisible" title="生成班次" width="460px">
+    <el-dialog append-to-body v-model="generateDialogVisible" title="生成班次" width="460px">
       <el-form :model="generateForm" label-width="96px">
         <el-form-item label="开始日期" required>
           <el-date-picker v-model="generateForm.start_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
@@ -186,7 +186,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="swapDialogVisible" title="换班" width="460px">
+    <el-dialog append-to-body v-model="swapDialogVisible" title="换班" width="460px">
       <el-form :model="swapForm" label-width="96px">
         <el-form-item label="接班用户ID" required>
           <el-input v-model="swapForm.override_user_id" />

@@ -34,7 +34,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" title="新增仓库" width="720px">
+    <el-dialog append-to-body v-model="dialogVisible" title="新增仓库" width="720px">
       <el-form :model="form" label-width="110px">
         <el-form-item label="仓库名称">
           <el-input v-model="form.name" placeholder="例如：cmdb-config" />
@@ -58,7 +58,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailVisible" title="仓库详情" width="760px">
+    <el-dialog append-to-body v-model="detailVisible" title="仓库详情" width="760px">
       <el-descriptions :column="1" border>
         <el-descriptions-item label="名称">{{ detailRow?.name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="URL">{{ detailRow?.url || '-' }}</el-descriptions-item>

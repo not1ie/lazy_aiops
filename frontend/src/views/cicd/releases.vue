@@ -34,7 +34,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑发布' : '新增发布'" width="600px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑发布' : '新增发布'" width="600px">
     <el-form :model="form" label-width="100px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
