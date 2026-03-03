@@ -2383,6 +2383,9 @@ const loadContainers = async () => {
       selectedContainers.value = []
       containerTableRef.value?.clearSelection?.()
     }
+  } catch (e) {
+    containers.value = []
+    ElMessage.error(extractErrorMessage(e))
   } finally {
     containersLoading.value = false
   }
@@ -2415,6 +2418,9 @@ const loadContainerStats = async () => {
         renderStatsChart()
       }
     }
+  } catch (e) {
+    containerStats.value = {}
+    ElMessage.error(extractErrorMessage(e, '获取容器资源失败'))
   } finally {
     statsLoading.value = false
   }
@@ -4481,7 +4487,7 @@ const handleWindowResize = () => {
   }
 }
 
-const connectTerminal = () => {
+const connectTerminal = async () => {
   if (!terminalContainerId.value || !activeHost.value) return
   if (terminalConnected.value || terminalConnecting.value) return
   const token = localStorage.getItem('token') || ''
@@ -4494,8 +4500,23 @@ const connectTerminal = () => {
     terminalWs = null
   }
   terminalConnecting.value = true
+  const basePath = `/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(terminalContainerId.value)}/exec/ws`
+  try {
+    await axios.get(basePath, {
+      headers: authHeaders(),
+      params: {
+        shell: terminalShell.value,
+        dry_run: 1
+      }
+    })
+  } catch (e) {
+    terminalConnecting.value = false
+    ElMessage.error(extractErrorMessage(e, '终端预检查失败'))
+    return
+  }
+
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const wsUrl = `${wsProto}://${window.location.host}/api/v1/docker/hosts/${activeHost.value.id}/containers/${encodeURIComponent(terminalContainerId.value)}/exec/ws?token=${encodeURIComponent(token)}&shell=${encodeURIComponent(terminalShell.value)}`
+  const wsUrl = `${wsProto}://${window.location.host}${basePath}?token=${encodeURIComponent(token)}&shell=${encodeURIComponent(terminalShell.value)}`
   terminalWs = new WebSocket(wsUrl)
   terminalWs.binaryType = 'arraybuffer'
   terminalWs.onopen = () => {
@@ -4522,7 +4543,7 @@ const connectTerminal = () => {
   terminalWs.onerror = (evt) => {
     terminalConnecting.value = false
     console.error('[Docker Terminal] websocket error', evt)
-    ElMessage.error('连接失败')
+    ElMessage.error('WebSocket连接失败，请检查 Docker 节点网络/权限')
   }
 }
 
@@ -5482,6 +5503,16 @@ onUnmounted(() => {
 .manage-tabs { margin-top: 8px; }
 .manage-tabs :deep(.el-tabs__header) { margin-bottom: 12px; }
 .manage-tabs :deep(.el-tabs__nav-wrap::after) { display: none; }
+.manage-tabs :deep(.el-tabs__content) {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  padding: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.manage-tabs :deep(.el-tab-pane) {
+  animation: docker-pane-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 .manage-tabs :deep(.el-tabs__nav) {
   padding: 4px;
   border-radius: 999px;
@@ -5513,6 +5544,16 @@ onUnmounted(() => {
 .tab-toolbar { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .toolbar-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .toolbar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tab-toolbar :deep(.el-button) {
+  border-radius: 999px;
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+.tab-toolbar :deep(.el-button:hover) {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.18);
+}
 .diagnose-block { display: flex; flex-direction: column; gap: 12px; }
 .diagnose-title { font-weight: 600; }
 .diagnose-pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 200px; }
@@ -5538,5 +5579,16 @@ onUnmounted(() => {
 }
 :deep(.el-table th.el-table__cell) {
   background: #f8fafc;
+}
+
+@keyframes docker-pane-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

@@ -146,7 +146,7 @@ onMounted(fetchConfig)
 </script>
 
 <style scoped>
-.page-card { max-width: 1200px; margin: 0 auto; }
+.page-card { max-width: 100%; margin: 0; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .page-desc { color: #909399; margin: 4px 0 0; }
 .page-actions { display: flex; align-items: center; gap: 8px; }

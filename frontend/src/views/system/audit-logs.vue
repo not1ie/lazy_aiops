@@ -76,7 +76,7 @@ onMounted(fetchLogs)
 </script>
 
 <style scoped>
-.page-card { max-width: 1200px; margin: 0 auto; }
+.page-card { max-width: 100%; margin: 0; }
 .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; font-size: 12px; margin-top: 4px; }

@@ -80,6 +80,7 @@ let ws = null
 const route = useRoute()
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const extractAxiosError = (err, fallback = '请求失败') => err?.response?.data?.message || err?.message || fallback
 
 const canConnect = computed(() => {
   return clusterId.value && namespace.value && podName.value && container.value && shell.value
@@ -131,16 +132,31 @@ const handleClusterChange = async () => {
   await fetchPods()
 }
 
-const connect = () => {
+const connect = async () => {
   if (!canConnect.value) return
   const token = localStorage.getItem('token') || ''
   if (!token) {
     ElMessage.error('登录状态失效，请重新登录')
     return
   }
-  const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const cmd = shell.value ? `/bin/${shell.value}` : ''
-  const wsUrl = `${wsProto}://${window.location.host}/api/v1/k8s/clusters/${encodeURIComponent(clusterId.value)}/namespaces/${encodeURIComponent(namespace.value)}/pods/${encodeURIComponent(podName.value)}/exec?container=${encodeURIComponent(container.value)}&token=${encodeURIComponent(token)}&command=${encodeURIComponent(cmd)}`
+  const basePath = `/api/v1/k8s/clusters/${encodeURIComponent(clusterId.value)}/namespaces/${encodeURIComponent(namespace.value)}/pods/${encodeURIComponent(podName.value)}/exec`
+  try {
+    await axios.get(basePath, {
+      headers: authHeaders(),
+      params: {
+        container: container.value,
+        command: cmd,
+        dry_run: 1
+      }
+    })
+  } catch (err) {
+    ElMessage.error(extractAxiosError(err, '终端预检查失败'))
+    return
+  }
+
+  const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  const wsUrl = `${wsProto}://${window.location.host}${basePath}?container=${encodeURIComponent(container.value)}&token=${encodeURIComponent(token)}&command=${encodeURIComponent(cmd)}`
 
   ws = new WebSocket(wsUrl)
   ws.binaryType = 'arraybuffer'
@@ -164,7 +180,7 @@ const connect = () => {
   }
   ws.onerror = (evt) => {
     console.error('[K8s WebShell] websocket error', evt)
-    ElMessage.error('连接失败')
+    ElMessage.error('WebSocket连接失败，请检查集群权限/网络后重试')
   }
 }
 
@@ -236,7 +252,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page-card { max-width: 1180px; margin: 0 auto; }
+.page-card { max-width: 100%; margin: 0; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }

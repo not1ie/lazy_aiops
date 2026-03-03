@@ -45,6 +45,10 @@ body {
   max-width: 100% !important;
   margin: 0 !important;
 }
+.page-view .page-card,
+.page-view .section-card {
+  animation: app-card-enter 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 
 .app-surface {
   border: 1px solid var(--glass-border);
@@ -68,6 +72,10 @@ body {
 @keyframes app-page-enter {
   from { opacity: 0; transform: translateY(6px) scale(0.995); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes app-card-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .el-card {
@@ -151,6 +159,9 @@ body {
 .el-overlay-dialog,
 .el-drawer {
   animation: app-fade-up 0.2s ease;
+}
+.el-drawer__body > * {
+  animation: app-card-enter 0.2s ease both;
 }
 
 .el-alert {

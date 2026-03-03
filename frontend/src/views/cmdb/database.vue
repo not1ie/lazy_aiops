@@ -375,7 +375,7 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.page-card { max-width: 1200px; margin: 0 auto; }
+.page-card { max-width: 100%; margin: 0; }
 .header { display: flex; justify-content: space-between; align-items: center; }
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; margin-top: 4px; }

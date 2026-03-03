@@ -68,6 +68,12 @@
                     {{ item }}
                   </el-tag>
                 </div>
+                <div class="runbook-assist">
+                  <el-select v-model="chatRunbookTemplate" size="small" class="runbook-select">
+                    <el-option v-for="item in runbookTemplates" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                  <el-button size="small" plain @click="applyRunbookTemplate">生成排障 Runbook 提示词</el-button>
+                </div>
                 <el-input
                   v-model="chatInput"
                   type="textarea"
@@ -428,6 +434,13 @@ const chatQuickPrompts = [
   '把可能根因按概率从高到低排序',
   '给出可直接执行的检查命令清单'
 ]
+const chatRunbookTemplate = ref('k8s_crashloop')
+const runbookTemplates = [
+  { value: 'k8s_crashloop', label: 'K8s CrashLoopBackOff' },
+  { value: 'k8s_notready', label: 'K8s Pod NotReady' },
+  { value: 'docker_restart', label: 'Docker 容器重启风暴' },
+  { value: 'latency_spike', label: '接口延迟突增' }
+]
 const analyzeTemplates = [
   { value: 'cpu', label: 'CPU 持续升高' },
   { value: 'oom', label: '内存上涨/OOM' },
@@ -543,6 +556,20 @@ const sendChat = async () => {
     return
   }
 
+  const riskyKeywords = ['删除', '重启', '回滚', '扩容', '缩容', '停止', 'drain', 'rm -rf', 'drop table']
+  const riskyHit = riskyKeywords.find((item) => message.toLowerCase().includes(item.toLowerCase()))
+  if (riskyHit) {
+    try {
+      await ElMessageBox.confirm(
+        `检测到高风险关键词「${riskyHit}」，建议你先让 AI 输出“只读检查步骤 + 回滚方案 + 执行前置条件”。是否继续发送？`,
+        '高风险操作提醒',
+        { type: 'warning', confirmButtonText: '继续发送', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+  }
+
   chatting.value = true
   try {
     const res = await axios.post('/api/v1/ai/chat', {
@@ -571,6 +598,32 @@ const applyChatPrompt = (text) => {
   } else {
     chatInput.value = text
   }
+}
+
+const buildRunbookContext = () => {
+  if (analyzeForm.sourceType === 'k8s-pod') {
+    const cluster = k8sClusters.value.find((item) => item.id === analyzeForm.clusterId)
+    return `目标: cluster=${cluster?.display_name || cluster?.name || '-'}, ns=${analyzeForm.namespace || '-'}, pod=${analyzeForm.podName || '-'}, container=${analyzeForm.containerName || '-'}`
+  }
+  if (analyzeForm.sourceType === 'service' || analyzeForm.sourceType === 'container') {
+    const host = dockerHosts.value.find((item) => item.id === analyzeForm.hostId)
+    const target = analyzeTargets.value.find((item) => item.id === analyzeForm.targetId)
+    return `目标: docker_host=${host?.name || host?.id || '-'}, object=${target?.label || '-'}`
+  }
+  return '目标: 请先补充环境、版本、最近变更与异常时间窗口'
+}
+
+const applyRunbookTemplate = () => {
+  const context = buildRunbookContext()
+  const promptMap = {
+    k8s_crashloop: `请输出 K8s CrashLoopBackOff 的分层 Runbook：\n1) 只读检查命令（kubectl describe/logs/events）\n2) 根因判断分支与判定条件\n3) 10分钟止血动作（最小变更）\n4) 永久修复建议\n5) 回滚与验证清单\n${context}`,
+    k8s_notready: `请输出 K8s Pod NotReady 排障 Runbook：\n1) 调度/节点/网络/DNS 四层检查命令\n2) 每一步预期结果与异常分支\n3) 可执行修复动作（带风险说明）\n4) 复盘指标与告警阈值建议\n${context}`,
+    docker_restart: `请输出 Docker 容器重启风暴 Runbook：\n1) restart policy / 健康检查 / 退出码核查\n2) 日志与资源指标关联分析\n3) 先止血再修复的执行顺序\n4) 回滚条件与自动化脚本建议\n${context}`,
+    latency_spike: `请输出接口延迟突增 Runbook：\n1) 网关、应用、DB、依赖服务逐层定位\n2) 每层最关键3条命令与阈值\n3) 快速降级与限流建议\n4) 事后优化项（容量、连接池、缓存）\n${context}`
+  }
+  const prompt = promptMap[chatRunbookTemplate.value]
+  if (!prompt) return
+  applyChatPrompt(prompt)
 }
 
 const removeSession = async (item) => {
@@ -1070,7 +1123,7 @@ onMounted(refreshAll)
 </script>
 
 <style scoped>
-.page-card { max-width: 1400px; margin: 0 auto; }
+.page-card { max-width: 100%; margin: 0; }
 .page-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 .page-desc { color: #909399; margin: 4px 0 0; }
 .page-actions { display: flex; align-items: center; gap: 8px; }
@@ -1090,6 +1143,8 @@ onMounted(refreshAll)
 .chat-input { margin-top: 12px; }
 .quick-prompts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
 .prompt-tag { cursor: pointer; border-radius: 999px; }
+.runbook-assist { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.runbook-select { min-width: 240px; }
 .actions-right { display: flex; justify-content: flex-end; }
 .log-source-row { display: flex; width: 100%; gap: 8px; align-items: center; }
 .prom-switch { display: flex; align-items: center; gap: 8px; }

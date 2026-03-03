@@ -756,8 +756,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page-card {
-  max-width: 1180px;
-  margin: 0 auto;
+  max-width: 100%; margin: 0;
   border-radius: 20px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   background: linear-gradient(180deg, #f8fbff 0%, #f6f8fc 100%);

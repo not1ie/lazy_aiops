@@ -284,7 +284,7 @@ const applyFields = () => {
 </script>
 
 <style scoped>
-.page-card { max-width: 1180px; margin: 0 auto; }
+.page-card { max-width: 100%; margin: 0; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
