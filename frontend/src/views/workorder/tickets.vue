@@ -119,7 +119,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="工单详情" size="62%" destroy-on-close>
+    <el-drawer v-model="detailVisible" title="工单详情" size="62%" destroy-on-close append-to-body>
       <el-descriptions :column="2" border class="mb-3">
         <el-descriptions-item label="标题">{{ detail.order?.title || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ statusText(detail.order?.status) }}</el-descriptions-item>

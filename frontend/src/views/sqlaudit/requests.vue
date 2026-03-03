@@ -172,7 +172,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="SQL工单详情" size="62%">
+    <el-drawer v-model="detailVisible" title="SQL工单详情" size="62%" append-to-body>
       <el-descriptions :column="2" border class="mb-3">
         <el-descriptions-item label="标题">{{ detailOrder?.title || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ orderStatusText(detailOrder?.status) }}</el-descriptions-item>

@@ -136,7 +136,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="executionDetailVisible" title="执行详情" size="55%">
+    <el-drawer v-model="executionDetailVisible" title="执行详情" size="55%" append-to-body>
       <el-descriptions :column="2" border v-if="executionDetail.execution">
         <el-descriptions-item label="流程">{{ executionDetail.execution.workflow_name }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ executionStatusText(executionDetail.execution.status) }}</el-descriptions-item>
