@@ -2,9 +2,16 @@ version: "3.9"
 
 services:
   lazy-auto-ops:
-    image: lazy-aiops:latest
+    image: ${LAZY_AIOPS_IMAGE:-lazy-aiops:latest}
     deploy:
       replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
       restart_policy:
         condition: on-failure
     ports:

@@ -46,15 +46,16 @@ if [ "$MODE" = "swarm" ]; then
     echo "Docker not found. Installing..."
     bash <(curl -sSL https://linuxmirrors.cn/docker.sh)
   fi
-  # update image
-  sed -i.bak "s|image: .*lazy-aiops:latest|image: ${REGISTRY_IMAGE}|" deploy/swarm/stack.yml
-  rm -f deploy/swarm/stack.yml.bak
-
   if ! docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -qiE 'active|pending'; then
     docker swarm init >/dev/null 2>&1 || true
   fi
-  docker stack deploy -c deploy/swarm/stack.yml lazy-aiops
-  echo "Swarm deployed: stack lazy-aiops"
+  LAZY_AIOPS_IMAGE="${REGISTRY_IMAGE}" docker stack deploy -c deploy/swarm/stack.yml lazy-aiops
+  docker service update \
+    --update-order stop-first \
+    --with-registry-auth \
+    --image "${REGISTRY_IMAGE}" \
+    lazy-aiops_lazy-auto-ops >/dev/null
+  echo "Swarm deployed: stack lazy-aiops (image=${REGISTRY_IMAGE})"
   exit 0
 fi
 
