@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -289,6 +290,10 @@ func (h *K8sHandler) ListWorkloads(c *gin.Context) {
 
 	result := make([]Workload, 0)
 
+	services, _ := client.CoreV1().Services(ns).List(context.Background(), metav1.ListOptions{})
+	ingresses, _ := client.NetworkingV1().Ingresses(ns).List(context.Background(), metav1.ListOptions{})
+	serviceHostMap := buildServiceHostMap(ingresses.Items)
+
 	// Deployments
 	deployments, _ := client.AppsV1().Deployments(ns).List(context.Background(), metav1.ListOptions{})
 	for _, d := range deployments.Items {
@@ -300,6 +305,7 @@ func (h *K8sHandler) ListWorkloads(c *gin.Context) {
 		if d.Spec.Replicas != nil {
 			replicas = *d.Spec.Replicas
 		}
+		domains := resolveDeploymentDomains(d, services.Items, serviceHostMap)
 		result = append(result, Workload{
 			ClusterID: id,
 			Namespace: d.Namespace,
@@ -310,6 +316,7 @@ func (h *K8sHandler) ListWorkloads(c *gin.Context) {
 			Available: d.Status.AvailableReplicas,
 			Labels:    d.Labels,
 			Images:    images,
+			Domains:   domains,
 			CreatedAt: d.CreationTimestamp.Time,
 		})
 	}
@@ -361,6 +368,97 @@ func (h *K8sHandler) ListWorkloads(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
+func resolveDeploymentDomains(deploy appsv1.Deployment, services []corev1.Service, serviceHostMap map[string][]string) []string {
+	if len(services) == 0 || len(serviceHostMap) == 0 {
+		return nil
+	}
+	podLabels := deploy.Spec.Template.Labels
+	if len(podLabels) == 0 {
+		return nil
+	}
+	domainSet := make(map[string]struct{})
+	for _, svc := range services {
+		if svc.Namespace != deploy.Namespace {
+			continue
+		}
+		if !selectorMatches(svc.Spec.Selector, podLabels) {
+			continue
+		}
+		for _, host := range serviceHostMap[svc.Name] {
+			domainSet[host] = struct{}{}
+		}
+	}
+	if len(domainSet) == 0 {
+		return nil
+	}
+	domains := make([]string, 0, len(domainSet))
+	for host := range domainSet {
+		domains = append(domains, host)
+	}
+	sort.Strings(domains)
+	return domains
+}
+
+func buildServiceHostMap(ingresses []networkingv1.Ingress) map[string][]string {
+	serviceHosts := make(map[string]map[string]struct{})
+	add := func(serviceName, host string) {
+		serviceName = strings.TrimSpace(serviceName)
+		host = strings.TrimSpace(host)
+		if serviceName == "" || host == "" {
+			return
+		}
+		if _, ok := serviceHosts[serviceName]; !ok {
+			serviceHosts[serviceName] = make(map[string]struct{})
+		}
+		serviceHosts[serviceName][host] = struct{}{}
+	}
+
+	for _, ing := range ingresses {
+		for _, rule := range ing.Spec.Rules {
+			host := strings.TrimSpace(rule.Host)
+			if host == "" || rule.HTTP == nil {
+				continue
+			}
+			for _, path := range rule.HTTP.Paths {
+				if path.Backend.Service == nil {
+					continue
+				}
+				add(path.Backend.Service.Name, host)
+			}
+		}
+		if ing.Spec.DefaultBackend != nil && ing.Spec.DefaultBackend.Service != nil {
+			for _, rule := range ing.Spec.Rules {
+				if strings.TrimSpace(rule.Host) != "" {
+					add(ing.Spec.DefaultBackend.Service.Name, rule.Host)
+				}
+			}
+		}
+	}
+
+	result := make(map[string][]string, len(serviceHosts))
+	for svc, hosts := range serviceHosts {
+		list := make([]string, 0, len(hosts))
+		for h := range hosts {
+			list = append(list, h)
+		}
+		sort.Strings(list)
+		result[svc] = list
+	}
+	return result
+}
+
+func selectorMatches(selector, labels map[string]string) bool {
+	if len(selector) == 0 {
+		return false
+	}
+	for key, expected := range selector {
+		if labels[key] != expected {
+			return false
+		}
+	}
+	return true
 }
 
 // GetWorkload 获取工作负载详情

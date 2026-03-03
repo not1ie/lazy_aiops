@@ -53,64 +53,65 @@ type ClusterNode struct {
 
 // Namespace 命名空间
 type Namespace struct {
-	ClusterID string    `json:"cluster_id"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"`
+	ClusterID string            `json:"cluster_id"`
+	Name      string            `json:"name"`
+	Status    string            `json:"status"`
 	Labels    map[string]string `json:"labels"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time         `json:"created_at"`
 }
 
 // Workload 工作负载
 type Workload struct {
-	ClusterID   string            `json:"cluster_id"`
-	Namespace   string            `json:"namespace"`
-	Name        string            `json:"name"`
-	Kind        string            `json:"kind"` // Deployment, StatefulSet, DaemonSet
-	Replicas    int32             `json:"replicas"`
-	Ready       int32             `json:"ready"`
-	Available   int32             `json:"available"`
-	Labels      map[string]string `json:"labels"`
-	Images      []string          `json:"images"`
-	CreatedAt   time.Time         `json:"created_at"`
+	ClusterID string            `json:"cluster_id"`
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Kind      string            `json:"kind"` // Deployment, StatefulSet, DaemonSet
+	Replicas  int32             `json:"replicas"`
+	Ready     int32             `json:"ready"`
+	Available int32             `json:"available"`
+	Labels    map[string]string `json:"labels"`
+	Images    []string          `json:"images"`
+	Domains   []string          `json:"domains,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
 }
 
 // WorkloadDetail 工作负载详情
 type WorkloadDetail struct {
-	ClusterID   string            `json:"cluster_id"`
-	Namespace   string            `json:"namespace"`
-	Name        string            `json:"name"`
-	Kind        string            `json:"kind"`
-	Replicas    int32             `json:"replicas"`
-	Ready       int32             `json:"ready"`
-	Available   int32             `json:"available"`
-	Labels      map[string]string `json:"labels"`
-	Images      []string          `json:"images"`
-	Selector    map[string]string `json:"selector"`
-	CreatedAt   time.Time         `json:"created_at"`
+	ClusterID string            `json:"cluster_id"`
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Kind      string            `json:"kind"`
+	Replicas  int32             `json:"replicas"`
+	Ready     int32             `json:"ready"`
+	Available int32             `json:"available"`
+	Labels    map[string]string `json:"labels"`
+	Images    []string          `json:"images"`
+	Selector  map[string]string `json:"selector"`
+	CreatedAt time.Time         `json:"created_at"`
 }
 
 // Pod Pod信息
 type Pod struct {
-	ClusterID   string    `json:"cluster_id"`
-	Namespace   string    `json:"namespace"`
-	Name        string    `json:"name"`
-	Status      string    `json:"status"`
-	Node        string    `json:"node"`
-	IP          string    `json:"ip"`
-	Labels      map[string]string `json:"labels"`
-	OwnerKind   string    `json:"owner_kind"`
-	OwnerName   string    `json:"owner_name"`
-	Containers  []Container `json:"containers"`
-	Restarts    int32     `json:"restarts"`
-	CreatedAt   time.Time `json:"created_at"`
+	ClusterID  string            `json:"cluster_id"`
+	Namespace  string            `json:"namespace"`
+	Name       string            `json:"name"`
+	Status     string            `json:"status"`
+	Node       string            `json:"node"`
+	IP         string            `json:"ip"`
+	Labels     map[string]string `json:"labels"`
+	OwnerKind  string            `json:"owner_kind"`
+	OwnerName  string            `json:"owner_name"`
+	Containers []Container       `json:"containers"`
+	Restarts   int32             `json:"restarts"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 // Container 容器信息
 type Container struct {
-	Name    string `json:"name"`
-	Image   string `json:"image"`
-	Ready   bool   `json:"ready"`
-	State   string `json:"state"`
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	Ready bool   `json:"ready"`
+	State string `json:"state"`
 }
 
 // ServiceInfo 服务信息
@@ -156,13 +157,13 @@ type SecretInfo struct {
 
 // StorageClassInfo 存储类信息
 type StorageClassInfo struct {
-	ClusterID       string    `json:"cluster_id"`
-	Name            string    `json:"name"`
-	Provisioner     string    `json:"provisioner"`
-	ReclaimPolicy   string    `json:"reclaim_policy"`
-	VolumeBinding   string    `json:"volume_binding"`
-	AllowExpansion  bool      `json:"allow_expansion"`
-	CreatedAt       time.Time `json:"created_at"`
+	ClusterID      string    `json:"cluster_id"`
+	Name           string    `json:"name"`
+	Provisioner    string    `json:"provisioner"`
+	ReclaimPolicy  string    `json:"reclaim_policy"`
+	VolumeBinding  string    `json:"volume_binding"`
+	AllowExpansion bool      `json:"allow_expansion"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // PersistentVolumeInfo PV信息

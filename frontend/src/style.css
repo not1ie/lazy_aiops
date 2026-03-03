@@ -57,10 +57,17 @@ body {
 .app-fade-in {
   animation: app-fade-up 0.42s cubic-bezier(0.21, 1, 0.35, 1) both;
 }
+.page-view > * {
+  animation: app-page-enter 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 
 @keyframes app-fade-up {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes app-page-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .el-card {
@@ -132,6 +139,18 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+}
+
+.el-tabs__item {
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+.el-tabs__item:hover {
+  transform: translateY(-1px);
+}
+
+.el-overlay-dialog,
+.el-drawer {
+  animation: app-fade-up 0.2s ease;
 }
 
 .el-alert {

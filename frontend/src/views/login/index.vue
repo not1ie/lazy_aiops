@@ -9,10 +9,10 @@
       </template>
       <el-form :model="form" :rules="rules" ref="formRef" label-position="top">
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" prefix-icon="User" placeholder="admin" />
+          <el-input v-model="form.username" prefix-icon="User" placeholder="请输入用户名" />
         </el-form-item>
         <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" prefix-icon="Lock" type="password" placeholder="admin123" show-password @keyup.enter="handleLogin" />
+          <el-input v-model="form.password" prefix-icon="Lock" type="password" placeholder="请输入密码" show-password @keyup.enter="handleLogin" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="loading" class="w-100" @click="handleLogin">登录</el-button>
@@ -26,7 +26,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const formRef = ref(null)
@@ -59,6 +59,12 @@ const handleLogin = async () => {
             localStorage.setItem('permissions', JSON.stringify(perms))
           }
           ElMessage.success('登录成功')
+          if (res.data.data.recommend_change_password) {
+            ElMessageBox.alert('当前使用的是默认管理员密码，建议立即修改密码以提升安全性。', '安全提示', {
+              confirmButtonText: '我知道了',
+              type: 'warning'
+            })
+          }
           router.push('/')
         } else {
           ElMessage.error(res.data.message || '登录失败')

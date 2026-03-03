@@ -55,6 +55,19 @@
               </el-scrollbar>
 
               <div class="chat-input">
+                <div class="quick-prompts">
+                  <span class="muted">快捷提问：</span>
+                  <el-tag
+                    v-for="item in chatQuickPrompts"
+                    :key="item"
+                    size="small"
+                    effect="plain"
+                    class="prompt-tag"
+                    @click="applyChatPrompt(item)"
+                  >
+                    {{ item }}
+                  </el-tag>
+                </div>
                 <el-input
                   v-model="chatInput"
                   type="textarea"
@@ -197,6 +210,14 @@
                     </el-select>
                   </el-form-item>
                 </template>
+                <el-form-item label="分析模板">
+                  <div class="log-source-row">
+                    <el-select v-model="analyzeForm.template" clearable placeholder="选择一个常见故障场景模板" style="flex: 1">
+                      <el-option v-for="tpl in analyzeTemplates" :key="tpl.value" :label="tpl.label" :value="tpl.value" />
+                    </el-select>
+                    <el-button @click="applyAnalyzeTemplate">应用模板</el-button>
+                  </div>
+                </el-form-item>
                 <el-form-item label="服务名">
                   <el-input v-model="analyzeForm.service" placeholder="例如: payment-service" />
                 </el-form-item>
@@ -401,9 +422,22 @@ const k8sClusters = ref([])
 const k8sNamespaces = ref([])
 const k8sPods = ref([])
 const k8sContainers = ref([])
+const chatQuickPrompts = [
+  '帮我梳理当前异常的排障路径',
+  '给我一份 10 分钟止血方案',
+  '把可能根因按概率从高到低排序',
+  '给出可直接执行的检查命令清单'
+]
+const analyzeTemplates = [
+  { value: 'cpu', label: 'CPU 持续升高' },
+  { value: 'oom', label: '内存上涨/OOM' },
+  { value: 'timeout', label: '接口超时/延迟抖动' },
+  { value: 'db', label: '数据库连接异常' }
+]
 
 const analyzeForm = reactive({
   sourceType: 'manual',
+  template: '',
   hostId: '',
   targetId: '',
   clusterId: '',
@@ -527,6 +561,15 @@ const sendChat = async () => {
     ElMessage.error(err.response?.data?.message || '发送失败')
   } finally {
     chatting.value = false
+  }
+}
+
+const applyChatPrompt = (text) => {
+  if (!text) return
+  if (chatInput.value.trim()) {
+    chatInput.value = `${chatInput.value.trim()}\n${text}`
+  } else {
+    chatInput.value = text
   }
 }
 
@@ -711,6 +754,37 @@ const selectedTargetLabel = () => {
   return String(target.label || '').split('(')[0].trim()
 }
 
+const applyAnalyzeTemplate = () => {
+  const tpl = analyzeForm.template
+  if (!tpl) return
+  const serviceName = analyzeForm.service?.trim() || selectedTargetLabel()
+  if (serviceName) analyzeForm.service = serviceName
+
+  const templateMap = {
+    cpu: '症状: CPU 持续高于 80%。请重点判断是否存在热点接口、无限重试、批任务突增、GC 抖动，并给出可验证步骤。',
+    oom: '症状: 内存持续上涨或 OOMKilled。请分析内存泄漏、缓存膨胀、请求堆积、对象生命周期问题，并给出止血建议。',
+    timeout: '症状: 接口超时与延迟波动。请分析上下游依赖、连接池、DNS/网络抖动、线程池耗尽等因素，并给出排查顺序。',
+    db: '症状: 数据库连接错误/慢查询。请分析连接池、锁等待、慢 SQL、突发流量与配置项风险，并给出优化建议。'
+  }
+  const append = templateMap[tpl] || ''
+  if (!append) return
+  analyzeForm.context = analyzeForm.context ? `${analyzeForm.context}\n${append}` : append
+}
+
+const buildSourceContext = () => {
+  if (analyzeForm.sourceType === 'service' || analyzeForm.sourceType === 'container') {
+    const host = dockerHosts.value.find((item) => item.id === analyzeForm.hostId)
+    const target = analyzeTargets.value.find((item) => item.id === analyzeForm.targetId)
+    return `日志来源: docker/${analyzeForm.sourceType}, 主机=${host?.name || host?.id || '-'}, 目标=${target?.label || '-'}, tail=${analyzeForm.tail}`
+  }
+  if (analyzeForm.sourceType === 'k8s-pod') {
+    const cluster = k8sClusters.value.find((item) => item.id === analyzeForm.clusterId)
+    const containerName = analyzeForm.containerName || '-'
+    return `日志来源: k8s/pod, 集群=${cluster?.display_name || cluster?.name || analyzeForm.clusterId || '-'}, 命名空间=${analyzeForm.namespace || '-'}, Pod=${analyzeForm.podName || '-'}, 容器=${containerName}, tail=${analyzeForm.tail}`
+  }
+  return '日志来源: manual/paste'
+}
+
 const pullTargetLogs = async () => {
   let endpoint = ''
   let params = { tail: analyzeForm.tail, timestamps: 1 }
@@ -806,6 +880,10 @@ const analyzeLogs = async () => {
       .map(item => item.trim())
       .filter(Boolean)
     let contextText = analyzeForm.context || ''
+    const sourceContext = buildSourceContext()
+    if (sourceContext) {
+      contextText = contextText ? `${contextText}\n${sourceContext}` : sourceContext
+    }
     if (analyzeForm.attachPromContext) {
       const promContext = await buildPromContext(resolvedService)
       if (promContext) {
@@ -1010,6 +1088,8 @@ onMounted(refreshAll)
 .msg-content { white-space: pre-wrap; line-height: 1.5; }
 .msg-time { color: #909399; font-size: 12px; margin-top: 4px; }
 .chat-input { margin-top: 12px; }
+.quick-prompts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.prompt-tag { cursor: pointer; border-radius: 999px; }
 .actions-right { display: flex; justify-content: flex-end; }
 .log-source-row { display: flex; width: 100%; gap: 8px; align-items: center; }
 .prom-switch { display: flex; align-items: center; gap: 8px; }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -28,9 +29,10 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token    string `json:"token"`
-	Expire   int64  `json:"expire"`
-	UserInfo *User  `json:"user_info"`
+	Token                   string `json:"token"`
+	Expire                  int64  `json:"expire"`
+	UserInfo                *User  `json:"user_info"`
+	RecommendChangePassword bool   `json:"recommend_change_password"`
 }
 
 func NewAuthService(db *gorm.DB, cfg config.JWTConfig) *AuthService {
@@ -117,9 +119,10 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	}
 
 	return &LoginResponse{
-		Token:    tokenStr,
-		Expire:   expire.Unix(),
-		UserInfo: &user,
+		Token:                   tokenStr,
+		Expire:                  expire.Unix(),
+		UserInfo:                &user,
+		RecommendChangePassword: strings.EqualFold(user.Username, "admin") && req.Password == "admin123",
 	}, nil
 }
 

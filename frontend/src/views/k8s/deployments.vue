@@ -29,6 +29,23 @@
     <el-table :data="filteredDeployments" stripe v-loading="loading">
       <el-table-column prop="namespace" label="命名空间" min-width="130" />
       <el-table-column prop="name" label="名称" min-width="180" />
+      <el-table-column label="域名解析" min-width="220">
+        <template #default="{ row }">
+          <span v-if="!(row.domains || []).length" class="text-xs text-gray-400">-</span>
+          <div v-else class="domain-list">
+            <el-link
+              v-for="host in row.domains"
+              :key="host"
+              :href="`http://${host}`"
+              target="_blank"
+              type="primary"
+              class="domain-link"
+            >
+              {{ host }}
+            </el-link>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
           <el-tag :type="statusType(row)">{{ statusText(row) }}</el-tag>
@@ -208,7 +225,8 @@ const filteredDeployments = computed(() => {
   return deployments.value.filter((item) => {
     if (!key) return true
     const images = (item.images || []).join(',').toLowerCase()
-    return (item.name || '').toLowerCase().includes(key) || images.includes(key)
+    const domains = (item.domains || []).join(',').toLowerCase()
+    return (item.name || '').toLowerCase().includes(key) || images.includes(key) || domains.includes(key)
   })
 })
 
@@ -406,4 +424,6 @@ onMounted(async () => {
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
+.domain-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.domain-link { font-size: 12px; }
 </style>

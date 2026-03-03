@@ -5480,8 +5480,35 @@ onUnmounted(() => {
 .w-48 { width: 180px; }
 .w-28 { width: 110px; }
 .manage-tabs { margin-top: 8px; }
+.manage-tabs :deep(.el-tabs__header) { margin-bottom: 12px; }
+.manage-tabs :deep(.el-tabs__nav-wrap::after) { display: none; }
+.manage-tabs :deep(.el-tabs__nav) {
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 6px 18px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+}
+.manage-tabs :deep(.el-tabs__active-bar) { display: none; }
+.manage-tabs :deep(.el-tabs__item) {
+  height: 34px;
+  margin: 0 2px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: #5b6471;
+  font-weight: 500;
+  transition: all 0.22s ease;
+}
+.manage-tabs :deep(.el-tabs__item:hover) {
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.66);
+}
 .manage-tabs :deep(.el-tabs__item.is-active) {
+  color: #0b1324;
   font-weight: 600;
+  background: linear-gradient(180deg, #ffffff 0%, #f2f5fa 100%);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
 }
 .tab-toolbar { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .toolbar-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
