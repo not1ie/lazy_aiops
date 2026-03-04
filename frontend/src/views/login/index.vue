@@ -1,5 +1,9 @@
 <template>
   <div class="login-container">
+    <div class="bg-layer bg-grid"></div>
+    <div class="bg-layer bg-glow bg-glow-a"></div>
+    <div class="bg-layer bg-glow bg-glow-b"></div>
+    <div class="bg-layer bg-glow bg-glow-c"></div>
     <el-card class="login-card">
       <template #header>
         <div class="login-header">
@@ -194,10 +198,86 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
-.login-container { display: flex; justify-content: center; align-items: center; height: 100vh; background: #2d3a4b; }
-.login-card { width: 400px; }
+.login-container {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 90% -10%, rgba(23, 109, 255, 0.3) 0%, rgba(23, 109, 255, 0) 70%),
+    radial-gradient(900px 500px at -10% 110%, rgba(0, 210, 255, 0.22) 0%, rgba(0, 210, 255, 0) 68%),
+    #0f172a;
+}
+
+.bg-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.bg-grid {
+  opacity: 0.18;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(circle at center, #000 30%, transparent 80%);
+}
+
+.bg-glow {
+  filter: blur(60px);
+  transform: translate3d(0, 0, 0);
+  animation: floatGlow 14s ease-in-out infinite;
+}
+
+.bg-glow-a {
+  width: 420px;
+  height: 420px;
+  left: -120px;
+  top: 10%;
+  background: rgba(59, 130, 246, 0.45);
+}
+
+.bg-glow-b {
+  width: 500px;
+  height: 500px;
+  right: -180px;
+  top: 35%;
+  background: rgba(34, 197, 94, 0.35);
+  animation-delay: -4s;
+}
+
+.bg-glow-c {
+  width: 320px;
+  height: 320px;
+  left: 40%;
+  bottom: -140px;
+  background: rgba(236, 72, 153, 0.32);
+  animation-delay: -8s;
+}
+
+.login-card {
+  position: relative;
+  z-index: 2;
+  width: 400px;
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+}
+
 .login-header { text-align: center; }
 .login-header h2 { margin: 0; color: #409eff; }
 .login-header p { margin: 10px 0 0; color: #909399; font-size: 14px; }
 .w-100 { width: 100%; }
+
+@keyframes floatGlow {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(12px, -18px, 0) scale(1.06);
+  }
+}
 </style>

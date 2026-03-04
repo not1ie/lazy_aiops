@@ -81,7 +81,6 @@
         <div class="drawer-actions">
           <el-button size="small" icon="Refresh" @click="refreshManage">刷新</el-button>
           <el-button size="small" plain icon="Close" @click="manageVisible = false">退出管理</el-button>
-          <el-button size="small" type="danger" plain icon="SwitchButton" @click="logout">退出登录</el-button>
         </div>
       </div>
 
@@ -1572,7 +1571,6 @@
 
 <script setup>
 import { ref, reactive, onMounted, watch, computed, onUnmounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Terminal } from 'xterm'
@@ -1580,7 +1578,6 @@ import { FitAddon } from 'xterm-addon-fit'
 import * as echarts from 'echarts'
 import 'xterm/css/xterm.css'
 
-const router = useRouter()
 const loading = ref(false)
 const tableData = ref([])
 const dialogVisible = ref(false)
@@ -2133,14 +2130,6 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: 'Bearer ' + localStorage.getItem('token') })
-
-const logout = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('permissions')
-  localStorage.removeItem('user_info')
-  localStorage.removeItem('role_code')
-  router.push('/login')
-}
 
 const normalizeContainers = (items) => items.map((row) => {
   const id = row.ID || row.Id || row.id
