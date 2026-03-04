@@ -43,7 +43,11 @@ func (p *JumpPlugin) Migrate() error {
 }
 
 func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
-	p.handler = NewJumpHandler(p.core.DB)
+	secretKey := ""
+	if p.core != nil && p.core.Config != nil {
+		secretKey = p.core.Config.JWT.Secret
+	}
+	p.handler = NewJumpHandler(p.core.DB, secretKey)
 
 	// 资产
 	r.GET("/assets", p.handler.ListAssets)
@@ -78,6 +82,8 @@ func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	// 会话与审计
 	r.GET("/sessions", p.handler.ListSessions)
 	r.POST("/sessions/start", p.handler.StartSession)
+	r.POST("/sessions/:id/approve", p.handler.ApproveSession)
+	r.POST("/sessions/:id/reject", p.handler.RejectSession)
 	r.POST("/sessions/:id/connect", p.handler.ConnectSession)
 	r.GET("/sessions/:id", p.handler.GetSession)
 	r.POST("/sessions/:id/commands", p.handler.RecordCommand)

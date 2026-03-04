@@ -16,9 +16,11 @@
     <div class="toolbar">
       <el-input v-model="filters.username" clearable placeholder="按用户过滤" class="filter-item" @change="loadSessions" />
       <el-select v-model="filters.status" clearable placeholder="状态" class="filter-item" @change="loadSessions">
+        <el-option label="pending_approval" value="pending_approval" />
         <el-option label="active" value="active" />
         <el-option label="closed" value="closed" />
         <el-option label="blocked" value="blocked" />
+        <el-option label="rejected" value="rejected" />
       </el-select>
       <el-select v-model="filters.asset_id" clearable filterable placeholder="资产" class="filter-item" @change="loadSessions">
         <el-option v-for="item in assets" :key="item.id" :label="item.name" :value="item.id" />
@@ -43,8 +45,26 @@
       <el-table-column label="结束时间" min-width="170">
         <template #default="{ row }">{{ formatTime(row.ended_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="330" fixed="right">
+      <el-table-column label="操作" width="460" fixed="right">
         <template #default="{ row }">
+          <el-button
+            v-if="isAdmin && row.status === 'pending_approval'"
+            size="small"
+            type="success"
+            plain
+            @click="approveSession(row)"
+          >
+            通过
+          </el-button>
+          <el-button
+            v-if="isAdmin && row.status === 'pending_approval'"
+            size="small"
+            type="danger"
+            plain
+            @click="rejectSession(row)"
+          >
+            拒绝
+          </el-button>
           <el-button size="small" type="success" plain :disabled="row.status !== 'active'" @click="connectSession(row)">连接</el-button>
           <el-button size="small" type="primary" plain @click="openCommands(row)">命令审计</el-button>
           <el-button size="small" plain :disabled="row.status !== 'active'" @click="openRecordDialog(row)">录入命令</el-button>
@@ -78,7 +98,7 @@
         </el-select>
       </el-form-item>
       <el-form-item label="来源IP">
-        <el-input v-model="startForm.source_ip" placeholder="可选，默认自动取客户端IP" />
+        <el-input v-model="startForm.source_ip" placeholder="仅展示，后端将自动记录客户端真实IP" disabled />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -179,6 +199,7 @@ const commandForm = reactive({
   output_snippet: ''
 })
 
+const isAdmin = localStorage.getItem('role_code') === 'admin'
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const formatTime = (value) => {
@@ -187,7 +208,9 @@ const formatTime = (value) => {
 }
 
 const statusType = (status) => {
+  if (status === 'pending_approval') return 'warning'
   if (status === 'active') return 'success'
+  if (status === 'rejected') return 'danger'
   if (status === 'blocked') return 'danger'
   return 'info'
 }
@@ -260,7 +283,8 @@ const startSession = async () => {
   try {
     const res = await axios.post('/api/v1/jump/sessions/start', { ...startForm }, { headers: authHeaders() })
     if (res.data.code === 0) {
-      ElMessage.success('会话已创建')
+      const needApprove = !!res.data?.data?.need_approve
+      ElMessage.success(needApprove ? '会话已提交审批' : '会话已创建')
       startDialogVisible.value = false
       loadSessions()
     }
@@ -275,6 +299,27 @@ const closeSession = (row) => {
   ElMessageBox.confirm(`确认关闭会话 ${row.session_no} 吗？`, '提示', { type: 'warning' }).then(async () => {
     await axios.post(`/api/v1/jump/sessions/${row.id}/close`, { close_reason: 'manual' }, { headers: authHeaders() })
     ElMessage.success('会话已关闭')
+    loadSessions()
+  }).catch(() => {})
+}
+
+const approveSession = (row) => {
+  ElMessageBox.confirm(`确认通过会话 ${row.session_no} 吗？`, '审批确认', { type: 'warning' }).then(async () => {
+    await axios.post(`/api/v1/jump/sessions/${row.id}/approve`, {}, { headers: authHeaders() })
+    ElMessage.success('已通过')
+    loadSessions()
+  }).catch(() => {})
+}
+
+const rejectSession = (row) => {
+  ElMessageBox.prompt(`请输入拒绝原因（会话 ${row.session_no}）`, '审批拒绝', {
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
+    inputPlaceholder: '例如：不在授权时间窗口内',
+    inputValue: ''
+  }).then(async ({ value }) => {
+    await axios.post(`/api/v1/jump/sessions/${row.id}/reject`, { reason: value || '' }, { headers: authHeaders() })
+    ElMessage.success('已拒绝')
     loadSessions()
   }).catch(() => {})
 }

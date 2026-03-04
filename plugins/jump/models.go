@@ -66,7 +66,7 @@ type JumpSession struct {
 	AccountName    string     `gorm:"size:128" json:"account_name"`
 	Protocol       string     `gorm:"size:32;index" json:"protocol"`
 	SourceIP       string     `gorm:"size:64" json:"source_ip"`
-	Status         string     `gorm:"size:32;index" json:"status"` // active, closed, blocked
+	Status         string     `gorm:"size:32;index" json:"status"` // pending_approval, active, closed, blocked, rejected
 	StartedAt      time.Time  `gorm:"index" json:"started_at"`
 	LastCommandAt  *time.Time `json:"last_command_at"`
 	EndedAt        *time.Time `gorm:"index" json:"ended_at"`

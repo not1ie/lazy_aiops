@@ -23,7 +23,8 @@ import (
 )
 
 type JumpHandler struct {
-	db *gorm.DB
+	db        *gorm.DB
+	secretKey string
 }
 
 type syncStat struct {
@@ -60,8 +61,11 @@ type commandRuleHit struct {
 	Pattern  string `json:"pattern"`
 }
 
-func NewJumpHandler(db *gorm.DB) *JumpHandler {
-	return &JumpHandler{db: db}
+func NewJumpHandler(db *gorm.DB, secretKey string) *JumpHandler {
+	return &JumpHandler{
+		db:        db,
+		secretKey: secretKey,
+	}
 }
 
 func (h *JumpHandler) ListAssets(c *gin.Context) {
@@ -227,6 +231,14 @@ func (h *JumpHandler) CreateAccount(c *gin.Context) {
 	if req.AuthType == "" {
 		req.AuthType = "password"
 	}
+	if strings.TrimSpace(req.Secret) != "" {
+		enc, err := encryptJumpSecret(h.secretKey, strings.TrimSpace(req.Secret))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "账号密钥加密失败"})
+			return
+		}
+		req.Secret = enc
+	}
 	if err := h.db.Create(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -263,6 +275,14 @@ func (h *JumpHandler) UpdateAccount(c *gin.Context) {
 	delete(updates, "deleted_at")
 	if secret, ok := updates["secret"].(string); ok && strings.TrimSpace(secret) == "" {
 		delete(updates, "secret")
+	}
+	if secret, ok := updates["secret"].(string); ok && strings.TrimSpace(secret) != "" {
+		enc, err := encryptJumpSecret(h.secretKey, strings.TrimSpace(secret))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "账号密钥加密失败"})
+			return
+		}
+		updates["secret"] = enc
 	}
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "无有效更新字段"})
@@ -734,7 +754,6 @@ func (h *JumpHandler) StartSession(c *gin.Context) {
 		AssetID   string `json:"asset_id" binding:"required"`
 		AccountID string `json:"account_id" binding:"required"`
 		Protocol  string `json:"protocol"`
-		SourceIP  string `json:"source_ip"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
@@ -767,17 +786,25 @@ func (h *JumpHandler) StartSession(c *gin.Context) {
 	if protocol == "" {
 		protocol = asset.Protocol
 	}
-	if ok, err := h.hasAccessPolicy(userID, roleCode, asset.ID, protocol); err != nil {
+	policy, err := h.resolveAccessPolicy(userID, roleCode, asset.ID, account.ID, protocol)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
-	} else if !ok {
+	}
+	if policy == nil {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "当前用户无该资产访问授权"})
 		return
 	}
 
 	now := time.Now()
+	status := "active"
+	needApprove := false
+	if policy.RequireApprove && roleCode != "admin" {
+		status = "pending_approval"
+		needApprove = true
+	}
 	session := JumpSession{
-		SessionNo:    fmt.Sprintf("JMP-%s-%04d", now.Format("20060102150405"), now.Nanosecond()%10000),
+		SessionNo:    fmt.Sprintf("JMP-%s-%s", now.Format("20060102150405"), strings.ToUpper(uuid.NewString()[:8])),
 		UserID:       userID,
 		Username:     c.GetString("username"),
 		RoleCode:     roleCode,
@@ -786,20 +813,23 @@ func (h *JumpHandler) StartSession(c *gin.Context) {
 		AccountID:    account.ID,
 		AccountName:  account.Name,
 		Protocol:     protocol,
-		SourceIP:     strings.TrimSpace(req.SourceIP),
-		Status:       "active",
+		SourceIP:     c.ClientIP(),
+		Status:       status,
 		StartedAt:    now,
 		CommandCount: 0,
 	}
-	if session.SourceIP == "" {
-		session.SourceIP = c.ClientIP()
+	if session.Status == "pending_approval" {
+		session.CloseReason = "waiting_approval"
 	}
 
 	if err := h.db.Create(&session).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"session":      session,
+		"need_approve": needApprove,
+	}})
 }
 
 func (h *JumpHandler) ConnectSession(c *gin.Context) {
@@ -814,6 +844,14 @@ func (h *JumpHandler) ConnectSession(c *gin.Context) {
 		return
 	}
 	if session.Status != "active" {
+		if session.Status == "pending_approval" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话待审批，暂不可连接"})
+			return
+		}
+		if session.Status == "rejected" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话已被拒绝，无法连接"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话已关闭，无法连接"})
 		return
 	}
@@ -875,6 +913,69 @@ func (h *JumpHandler) ConnectSession(c *gin.Context) {
 		c.JSON(http.StatusNotImplemented, gin.H{"code": 501, "message": "当前协议尚未接入在线代理，请先使用命令审计模式"})
 		return
 	}
+}
+
+func (h *JumpHandler) ApproveSession(c *gin.Context) {
+	if c.GetString("role_code") != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "仅管理员可审批"})
+		return
+	}
+	sessionID := c.Param("id")
+	var session JumpSession
+	if err := h.db.First(&session, "id = ?", sessionID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	if session.Status != "pending_approval" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "当前会话不是待审批状态"})
+		return
+	}
+	if err := h.db.Model(&session).Updates(map[string]interface{}{
+		"status":       "active",
+		"close_reason": fmt.Sprintf("approved_by:%s", c.GetString("username")),
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	_ = h.db.First(&session, "id = ?", sessionID).Error
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+}
+
+func (h *JumpHandler) RejectSession(c *gin.Context) {
+	if c.GetString("role_code") != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "仅管理员可审批"})
+		return
+	}
+	sessionID := c.Param("id")
+	var session JumpSession
+	if err := h.db.First(&session, "id = ?", sessionID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	if session.Status != "pending_approval" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "当前会话不是待审批状态"})
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "审批拒绝"
+	}
+	now := time.Now()
+	if err := h.db.Model(&session).Updates(map[string]interface{}{
+		"status":       "rejected",
+		"ended_at":     now,
+		"duration_sec": 0,
+		"close_reason": fmt.Sprintf("rejected_by:%s %s", c.GetString("username"), reason),
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	_ = h.db.First(&session, "id = ?", sessionID).Error
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 
 func (h *JumpHandler) GetSession(c *gin.Context) {
@@ -1068,7 +1169,11 @@ func (h *JumpHandler) createTerminalRelaySession(session *JumpSession, asset *Ju
 		Status:   0,
 	}
 
-	secret := strings.TrimSpace(account.Secret)
+	secret, err := decryptJumpSecret(h.secretKey, strings.TrimSpace(account.Secret))
+	if err != nil {
+		return nil, errors.New("账号凭据解密失败，请重新保存账号密钥")
+	}
+	secret = strings.TrimSpace(secret)
 	switch strings.ToLower(strings.TrimSpace(account.AuthType)) {
 	case "", "password", "token":
 		relay.Password = secret
@@ -1351,24 +1456,38 @@ func (h *JumpHandler) attachPolicyNames(items []JumpPermissionPolicy) []JumpPoli
 	return views
 }
 
-func (h *JumpHandler) hasAccessPolicy(userID, roleCode, assetID, protocol string) (bool, error) {
+func (h *JumpHandler) resolveAccessPolicy(userID, roleCode, assetID, accountID, protocol string) (*JumpPermissionPolicy, error) {
 	if roleCode == "admin" {
-		return true, nil
+		return &JumpPermissionPolicy{
+			Name:           "admin-default",
+			UserID:         userID,
+			RoleCode:       roleCode,
+			AssetID:        assetID,
+			AccountID:      accountID,
+			Protocol:       protocol,
+			RequireApprove: false,
+			Status:         1,
+		}, nil
 	}
 	now := time.Now()
 	query := h.db.Model(&JumpPermissionPolicy{}).
 		Where("status = ?", 1).
 		Where("asset_id = ?", assetID).
+		Where("account_id = ?", accountID).
 		Where("(user_id = ? OR role_code = ?)", userID, roleCode).
-		Where("(expires_at IS NULL OR expires_at > ?)", now)
+		Where("(expires_at IS NULL OR expires_at > ?)", now).
+		Order("require_approve DESC, updated_at DESC, created_at DESC")
 	if strings.TrimSpace(protocol) != "" {
 		query = query.Where("(protocol = ? OR protocol = '')", protocol)
 	}
-	var count int64
-	if err := query.Count(&count).Error; err != nil {
-		return false, err
+	var policy JumpPermissionPolicy
+	if err := query.First(&policy).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
 	}
-	return count > 0, nil
+	return &policy, nil
 }
 
 func (h *JumpHandler) evaluateCommandRisk(protocol, command string) commandRiskDecision {
