@@ -278,6 +278,7 @@ onMounted(fetchUserInfo)
   color: #fff;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   box-shadow: 8px 0 24px rgba(2, 6, 23, 0.24);
 }
 .logo {
@@ -293,7 +294,13 @@ onMounted(fetchUserInfo)
   justify-content: center;
   gap: 10px;
 }
-.el-menu-vertical { border-right: none; }
+.el-menu-vertical {
+  border-right: none;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
 .header {
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(10px);
