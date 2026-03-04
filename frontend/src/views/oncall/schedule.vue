@@ -27,7 +27,7 @@
               <el-button size="small" icon="Plus" @click="openScheduleDialog()">新增</el-button>
             </div>
           </template>
-          <el-table :fit="false" :data="schedules" v-loading="loading" stripe @row-click="selectSchedule">
+          <el-table :fit="true" :data="schedules" v-loading="loading" stripe @row-click="selectSchedule">
             <el-table-column prop="name" label="名称" min-width="160" />
             <el-table-column prop="team_name" label="团队" min-width="120" />
             <el-table-column prop="type" label="类型" width="100" />
@@ -56,7 +56,7 @@
               <el-button size="small" icon="Plus" @click="openTeamDialog">新增</el-button>
             </div>
           </template>
-          <el-table :fit="false" :data="teams" size="small" stripe>
+          <el-table :fit="true" :data="teams" size="small" stripe>
             <el-table-column prop="name" label="团队" min-width="120" />
             <el-table-column prop="description" label="说明" min-width="150" show-overflow-tooltip />
           </el-table>
@@ -81,7 +81,7 @@
         </div>
       </template>
 
-      <el-table :fit="false" :data="shifts" v-loading="shiftLoading" stripe>
+      <el-table :fit="true" :data="shifts" v-loading="shiftLoading" stripe>
         <el-table-column prop="username" label="值班人" width="140" />
         <el-table-column prop="phone" label="电话" width="130" />
         <el-table-column prop="email" label="邮箱" min-width="180" />

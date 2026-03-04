@@ -13,7 +13,7 @@
       </div>
     </template>
 
-    <el-table :fit="false" :data="roles" v-loading="loading" stripe>
+    <el-table :fit="true" :data="roles" v-loading="loading" stripe>
       <el-table-column prop="name" label="角色名称" min-width="160" />
       <el-table-column prop="code" label="角色编码" min-width="160" />
       <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />

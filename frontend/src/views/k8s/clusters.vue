@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :fit="false" :data="clusters" stripe style="width: 100%">
+    <el-table :fit="true" :data="clusters" stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="140" />
       <el-table-column prop="display_name" label="显示名" min-width="140" />
       <el-table-column prop="api_server" label="API Server" min-width="200" />

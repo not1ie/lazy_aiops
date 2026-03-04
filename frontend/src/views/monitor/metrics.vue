@@ -41,7 +41,7 @@
       <el-button @click="resetForm">清空</el-button>
     </div>
 
-    <el-table :fit="false" :data="settings" size="small" style="width: 100%; margin-top: 12px" :row-class-name="settingsRowClass">
+    <el-table :fit="true" :data="settings" size="small" style="width: 100%; margin-top: 12px" :row-class-name="settingsRowClass">
       <el-table-column prop="name" label="名称" width="160" />
       <el-table-column prop="prometheus_url" label="地址" min-width="240" />
       <el-table-column prop="auth_type" label="认证" width="120" />
@@ -98,7 +98,7 @@
         <div ref="chartRef" class="chart-box"></div>
       </el-tab-pane>
       <el-tab-pane label="表格" name="table">
-        <el-table :fit="false" :data="resultRows" size="small" style="width: 100%">
+        <el-table :fit="true" :data="resultRows" size="small" style="width: 100%">
           <el-table-column prop="metric" label="Metric" min-width="260" />
           <el-table-column prop="value" label="Value" width="120" />
           <el-table-column prop="time" label="Time" width="180" />
@@ -108,7 +108,7 @@
         <div class="history-bar">
           <el-checkbox v-model="onlyFavorite" @change="fetchHistory">只看收藏</el-checkbox>
         </div>
-        <el-table :fit="false" :data="history" size="small" style="width: 100%">
+        <el-table :fit="true" :data="history" size="small" style="width: 100%">
           <el-table-column prop="name" label="名称" width="140">
             <template #default="scope">
               <el-input v-model="scope.row.name" size="small" @change="saveName(scope.row)" />

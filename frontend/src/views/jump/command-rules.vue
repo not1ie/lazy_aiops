@@ -66,7 +66,7 @@
       <span class="batch-tip">已选 {{ selectedIDs.length }} 条</span>
     </div>
 
-    <el-table :fit="false" :data="rules" v-loading="loading" stripe @selection-change="onSelectionChange">
+    <el-table :fit="true" :data="rules" v-loading="loading" stripe @selection-change="onSelectionChange">
       <el-table-column type="selection" width="44" fixed="left" />
       <el-table-column prop="name" label="规则" min-width="160" />
       <el-table-column label="类型" width="90">
@@ -110,7 +110,7 @@
       <template #header>
         <div class="sub-title">规则命中 Top10</div>
       </template>
-      <el-table :fit="false" :data="stats.top_rules || []" stripe>
+      <el-table :fit="true" :data="stats.top_rules || []" stripe>
         <el-table-column prop="rule" label="规则" min-width="260" />
         <el-table-column prop="count" label="命中次数" width="120" />
       </el-table>

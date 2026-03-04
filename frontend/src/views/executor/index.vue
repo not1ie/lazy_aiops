@@ -53,7 +53,7 @@
         </div>
       </template>
 
-      <el-table :fit="false" :data="executions" v-loading="loadingExecutions" @row-click="handleSelectExecution" highlight-current-row>
+      <el-table :fit="true" :data="executions" v-loading="loadingExecutions" @row-click="handleSelectExecution" highlight-current-row>
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column prop="target_count" label="目标数" width="100" />
         <el-table-column prop="progress" label="进度" width="120">
@@ -89,7 +89,7 @@
         </div>
       </template>
 
-      <el-table :fit="false" :data="results" v-loading="loadingResults" stripe>
+      <el-table :fit="true" :data="results" v-loading="loadingResults" stripe>
         <el-table-column prop="host_name" label="主机" min-width="160" />
         <el-table-column prop="host_ip" label="IP" width="140" />
         <el-table-column prop="status" label="状态" width="100">

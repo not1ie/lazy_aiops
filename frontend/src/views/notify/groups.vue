@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :fit="false" :data="groups" stripe style="width: 100%">
+    <el-table :fit="true" :data="groups" stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="description" label="描述" min-width="240" />
       <el-table-column prop="channels" label="渠道数" width="100">

@@ -31,7 +31,7 @@
       </div>
     </div>
 
-    <el-table :fit="false" :data="tableData" v-loading="loading" style="width: 100%" @selection-change="selectedRows = $event">
+    <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%" @selection-change="selectedRows = $event">
       <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="主机名" width="180">
         <template #default="{ row }">

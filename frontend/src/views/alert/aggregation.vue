@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :fit="false" :data="aggs" stripe style="width: 100%">
+    <el-table :fit="true" :data="aggs" stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="group_by" label="聚合字段" min-width="220" />
       <el-table-column prop="interval" label="窗口(秒)" width="120" />

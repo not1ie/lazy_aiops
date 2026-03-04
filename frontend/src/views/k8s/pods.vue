@@ -48,7 +48,7 @@
       <el-col :span="4"><el-card><div class="card-title">重启次数</div><div class="card-value">{{ podStats.restarts }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="false" :data="filteredPods" stripe style="width: 100%" v-loading="loading" @selection-change="selectedRows = $event">
+    <el-table :fit="true" :data="filteredPods" stripe style="width: 100%" v-loading="loading" @selection-change="selectedRows = $event">
       <el-table-column type="selection" width="48" />
       <el-table-column prop="namespace" label="命名空间" min-width="140" />
       <el-table-column prop="name" label="名称" min-width="220" />

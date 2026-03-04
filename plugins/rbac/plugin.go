@@ -130,7 +130,7 @@ func (p *RBACPlugin) initDefaultPermissions() error {
 
 		{Name: "值班管理", Code: "oncall", Type: "menu"},
 		{Name: "Web终端", Code: "terminal", Type: "menu"},
-		{Name: "堡垒机", Code: "jump", Type: "menu"},
+		{Name: "堡垒机", Code: "jump", Type: "menu", Parent: "cmdb"},
 		{Name: "资产接入", Code: "jump:asset", Type: "menu", Parent: "jump"},
 		{Name: "授权策略", Code: "jump:policy", Type: "menu", Parent: "jump"},
 		{Name: "命令风控", Code: "jump:rule", Type: "menu", Parent: "jump"},

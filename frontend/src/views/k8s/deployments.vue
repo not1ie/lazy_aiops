@@ -26,7 +26,7 @@
       <el-col :span="6"><el-card><div class="card-title">副本总数</div><div class="card-value">{{ stats.replicas }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="false" :data="filteredDeployments" stripe v-loading="loading">
+    <el-table :fit="true" :data="filteredDeployments" stripe v-loading="loading">
       <el-table-column prop="namespace" label="命名空间" min-width="130" />
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column label="域名解析" min-width="220">

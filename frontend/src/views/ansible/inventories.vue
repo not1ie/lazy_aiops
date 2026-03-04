@@ -14,7 +14,7 @@
       </div>
     </template>
 
-    <el-table :fit="false" :data="items" v-loading="loading" stripe>
+    <el-table :fit="true" :data="items" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="200" />
       <el-table-column prop="description" label="描述" min-width="240" />
       <el-table-column prop="source" label="来源" width="120" />

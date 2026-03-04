@@ -7,7 +7,7 @@
       </div>
     </template>
 
-    <el-table :fit="false"
+    <el-table :fit="true"
       :data="tableData"
       style="width: 100%"
       row-key="id"

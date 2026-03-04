@@ -24,7 +24,7 @@
           <el-col :span="6"><el-card><div class="card-title">总数</div><div class="card-value">{{ configStats.total }}</div></el-card></el-col>
           <el-col :span="6"><el-card><div class="card-title">Keys 总数</div><div class="card-value">{{ configStats.keys }}</div></el-card></el-col>
         </el-row>
-        <el-table :fit="false" :data="filteredConfigmaps" stripe style="width: 100%">
+        <el-table :fit="true" :data="filteredConfigmaps" stripe style="width: 100%">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column label="Keys" min-width="220">
@@ -52,7 +52,7 @@
           <el-col :span="6"><el-card><div class="card-title">类型数</div><div class="card-value">{{ secretStats.types }}</div></el-card></el-col>
           <el-col :span="6"><el-card><div class="card-title">Keys 总数</div><div class="card-value">{{ secretStats.keys }}</div></el-card></el-col>
         </el-row>
-        <el-table :fit="false" :data="filteredSecrets" stripe style="width: 100%">
+        <el-table :fit="true" :data="filteredSecrets" stripe style="width: 100%">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column prop="type" label="类型" width="180" />

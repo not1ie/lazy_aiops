@@ -14,7 +14,7 @@
       </div>
     </template>
 
-    <el-table :fit="false" :data="users" v-loading="loading" stripe>
+    <el-table :fit="true" :data="users" v-loading="loading" stripe>
       <el-table-column prop="username" label="用户名" min-width="140" />
       <el-table-column prop="nickname" label="昵称" min-width="120" />
       <el-table-column prop="email" label="邮箱" min-width="180" />

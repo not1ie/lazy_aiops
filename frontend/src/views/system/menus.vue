@@ -13,7 +13,7 @@
       </div>
     </template>
 
-    <el-table :fit="false" :data="permissions" v-loading="loading" stripe>
+    <el-table :fit="true" :data="permissions" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="code" label="编码" min-width="200" />
       <el-table-column prop="type" label="类型" width="120">

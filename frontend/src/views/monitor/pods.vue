@@ -36,7 +36,7 @@
       <el-col :span="6"><el-card><div class="card-title">内存 Top(MiB)</div><div class="card-value">{{ stats.maxMem }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="false" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
+    <el-table :fit="true" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px">
       <el-table-column prop="namespace" label="命名空间" min-width="160" />
       <el-table-column prop="pod" label="Pod" min-width="220" />
       <el-table-column prop="instance" label="节点" min-width="160" />

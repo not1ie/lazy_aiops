@@ -49,7 +49,7 @@
       <el-button type="primary" icon="Search" @click="fetchOrders">查询</el-button>
     </div>
 
-    <el-table :fit="false" :data="orders" v-loading="loading" stripe>
+    <el-table :fit="true" :data="orders" v-loading="loading" stripe>
       <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
       <el-table-column prop="type_name" label="类型" width="130" />
       <el-table-column label="优先级" width="100">

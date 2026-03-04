@@ -23,7 +23,7 @@
           <span>AI运维助手</span>
         </el-menu-item>
 
-        <el-sub-menu v-if="canAny(['cmdb','firewall'])" index="/cmdb">
+        <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:asset','jump:policy','jump:rule','jump:session'])" index="/cmdb">
           <template #title>
             <el-icon><Monitor /></el-icon>
             <span>资产管理</span>
@@ -34,6 +34,10 @@
           <el-menu-item index="/cmdb/database">数据库资产</el-menu-item>
           <el-menu-item index="/cmdb/cloud">云资源</el-menu-item>
           <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
+          <el-menu-item v-if="can('jump:asset')" index="/jump/assets">堡垒机资产</el-menu-item>
+          <el-menu-item v-if="can('jump:policy')" index="/jump/policies">授权策略</el-menu-item>
+          <el-menu-item v-if="can('jump:rule')" index="/jump/command-rules">命令风控</el-menu-item>
+          <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
@@ -123,7 +127,7 @@
           <el-menu-item v-if="can('gitops')" index="/gitops/sync">同步记录</el-menu-item>
         </el-sub-menu>
 
-        <el-sub-menu v-if="canAny(['oncall','terminal','jump','jump:asset','jump:policy','jump:rule','jump:session'])" index="/collab">
+        <el-sub-menu v-if="canAny(['oncall','terminal'])" index="/collab">
           <template #title>
             <el-icon><User /></el-icon>
             <span>协作</span>
@@ -131,10 +135,6 @@
           <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
           <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
           <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
-          <el-menu-item v-if="can('jump:asset')" index="/jump/assets">堡垒机资产</el-menu-item>
-          <el-menu-item v-if="can('jump:policy')" index="/jump/policies">授权策略</el-menu-item>
-          <el-menu-item v-if="can('jump:rule')" index="/jump/command-rules">命令风控</el-menu-item>
-          <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu v-if="can('topology')" index="/visual">

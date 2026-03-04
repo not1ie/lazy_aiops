@@ -35,7 +35,7 @@
             <el-option label="ExternalName" value="ExternalName" />
           </el-select>
         </div>
-        <el-table :fit="false" :data="filteredServices" stripe style="width: 100%">
+        <el-table :fit="true" :data="filteredServices" stripe style="width: 100%">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column prop="type" label="类型" width="120" />
@@ -65,7 +65,7 @@
           <el-col :span="6"><el-card><div class="card-title">带 Host</div><div class="card-value">{{ ingressStats.withHosts }}</div></el-card></el-col>
           <el-col :span="6"><el-card><div class="card-title">Class 数</div><div class="card-value">{{ ingressStats.classes }}</div></el-card></el-col>
         </el-row>
-        <el-table :fit="false" :data="filteredIngresses" stripe style="width: 100%">
+        <el-table :fit="true" :data="filteredIngresses" stripe style="width: 100%">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column prop="class_name" label="Class" width="160" />

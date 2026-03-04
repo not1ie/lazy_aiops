@@ -28,7 +28,7 @@
       <el-col :span="6"><el-card><div class="card-title">Normal</div><div class="card-value">{{ eventStats.normal }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="false" :data="filteredEvents" stripe style="width: 100%">
+    <el-table :fit="true" :data="filteredEvents" stripe style="width: 100%">
       <el-table-column label="类型" width="100">
         <template #default="scope">
           <el-tag :type="scope.row.type === 'Warning' ? 'danger' : 'success'">{{ scope.row.type }}</el-tag>

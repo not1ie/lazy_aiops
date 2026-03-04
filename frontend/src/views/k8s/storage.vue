@@ -23,7 +23,7 @@
         <el-row :gutter="16" class="summary-row">
           <el-col :span="6"><el-card><div class="card-title">StorageClass</div><div class="card-value">{{ storageStats.sc }}</div></el-card></el-col>
         </el-row>
-        <el-table :fit="false" :data="filteredStorageClasses" stripe style="width: 100%">
+        <el-table :fit="true" :data="filteredStorageClasses" stripe style="width: 100%">
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="provisioner" label="Provisioner" min-width="220" />
           <el-table-column prop="reclaim_policy" label="回收策略" width="120" />
@@ -57,7 +57,7 @@
             <el-option label="Failed" value="Failed" />
           </el-select>
         </div>
-        <el-table :fit="false" :data="filteredPvs" stripe style="width: 100%">
+        <el-table :fit="true" :data="filteredPvs" stripe style="width: 100%">
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="capacity" label="容量" width="120" />
           <el-table-column label="访问模式" min-width="160">
@@ -89,7 +89,7 @@
             <el-option label="Lost" value="Lost" />
           </el-select>
         </div>
-        <el-table :fit="false" :data="filteredPvcs" stripe style="width: 100%">
+        <el-table :fit="true" :data="filteredPvcs" stripe style="width: 100%">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="capacity" label="容量" width="120" />

@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :fit="false" :data="templates" v-loading="loading" stripe style="width: 100%">
+    <el-table :fit="true" :data="templates" v-loading="loading" stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="type" label="类型" width="120" />
       <el-table-column prop="channel_type" label="渠道类型" width="120" />

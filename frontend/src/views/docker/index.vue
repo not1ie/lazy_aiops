@@ -17,7 +17,7 @@
       </div>
     </template>
 
-    <el-table :fit="false" :data="tableData" v-loading="loading" style="width: 100%">
+    <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%">
       <el-table-column prop="name" label="名称" width="180">
         <template #default="{ row }">
           <div class="flex items-center gap-2">
@@ -119,7 +119,7 @@
               <el-button icon="Refresh" @click="loadContainers">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="containerTableRef"
             :data="filteredContainers"
             v-loading="containersLoading"
@@ -185,7 +185,7 @@
               <el-button icon="Refresh" @click="loadImages">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="imageTableRef"
             :data="filteredImages"
             v-loading="imagesLoading"
@@ -221,7 +221,7 @@
               <el-button icon="Refresh" @click="loadNetworks">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="networkTableRef"
             :data="networks"
             v-loading="networksLoading"
@@ -268,7 +268,7 @@
               <el-button icon="Refresh" @click="loadEvents">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false" :data="events" v-loading="eventsLoading" style="width: 100%">
+          <el-table :fit="true" :data="events" v-loading="eventsLoading" style="width: 100%">
             <el-table-column prop="time" label="时间" width="180" />
             <el-table-column prop="type" label="类型" width="120" />
             <el-table-column prop="action" label="动作" width="140" />
@@ -289,7 +289,7 @@
               <el-button icon="Refresh" @click="loadVolumes">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="volumeTableRef"
             :data="volumes"
             v-loading="volumesLoading"
@@ -318,7 +318,7 @@
               <el-button icon="Refresh" @click="loadSecrets">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="secretTableRef"
             :data="secrets"
             v-loading="secretsLoading"
@@ -348,7 +348,7 @@
               <el-button icon="Refresh" @click="loadConfigs">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="configTableRef"
             :data="configs"
             v-loading="configsLoading"
@@ -377,7 +377,7 @@
               <el-button icon="Refresh" @click="loadRegistries">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false" :data="registries" v-loading="registriesLoading" style="width: 100%">
+          <el-table :fit="true" :data="registries" v-loading="registriesLoading" style="width: 100%">
             <el-table-column prop="name" label="名称" min-width="160" />
             <el-table-column prop="url" label="地址" min-width="220" />
             <el-table-column prop="username" label="用户名" min-width="140" />
@@ -415,7 +415,7 @@
               <el-button icon="Refresh" @click="loadNodes">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false" :data="nodes" v-loading="nodesLoading" style="width: 100%">
+          <el-table :fit="true" :data="nodes" v-loading="nodesLoading" style="width: 100%">
             <el-table-column prop="ID" label="ID" min-width="180" />
             <el-table-column prop="Hostname" label="主机名" min-width="180" />
             <el-table-column prop="Status" label="状态" width="120" />
@@ -460,7 +460,7 @@
               <el-button icon="Refresh" @click="loadServices">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="serviceTableRef"
             :data="filteredServices"
             v-loading="servicesLoading"
@@ -531,7 +531,7 @@
               <el-button icon="Refresh" @click="loadStacks">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="false"
+          <el-table :fit="true"
             ref="stackTableRef"
             :data="stacks"
             v-loading="stacksLoading"
@@ -998,7 +998,7 @@
 
     <!-- 批量删除结果 -->
     <el-dialog append-to-body v-model="batchResultVisible" title="批量删除结果" width="720px">
-      <el-table :fit="false" :data="batchResultRows" style="width: 100%">
+      <el-table :fit="true" :data="batchResultRows" style="width: 100%">
         <el-table-column prop="label" label="镜像" min-width="220" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
@@ -1095,7 +1095,7 @@
         </el-descriptions>
 
         <el-divider content-position="left">Labels</el-divider>
-        <el-table :fit="false" :data="inspectLabels" style="width: 100%">
+        <el-table :fit="true" :data="inspectLabels" style="width: 100%">
           <el-table-column prop="key" label="Key" min-width="200" />
           <el-table-column prop="value" label="Value" min-width="220" />
         </el-table>
@@ -1151,7 +1151,7 @@
             {{ item.code }}: {{ item.count }}
           </el-tag>
         </div>
-        <el-table :fit="false" v-if="healthLogRows.length" :data="healthLogRows.slice(-10)" style="width: 100%">
+        <el-table :fit="true" v-if="healthLogRows.length" :data="healthLogRows.slice(-10)" style="width: 100%">
           <el-table-column prop="startText" label="Start" min-width="180" />
           <el-table-column prop="endText" label="End" min-width="180" />
           <el-table-column prop="duration" label="Duration" width="120" />
@@ -1160,7 +1160,7 @@
         </el-table>
 
         <el-divider content-position="left">Ports</el-divider>
-        <el-table :fit="false" :data="inspectPorts" style="width: 100%">
+        <el-table :fit="true" :data="inspectPorts" style="width: 100%">
           <el-table-column prop="container" label="容器端口" width="160" />
           <el-table-column prop="proto" label="协议" width="100" />
           <el-table-column prop="host" label="主机端口" width="160" />
@@ -1177,7 +1177,7 @@
         <el-tag v-else v-for="p in inspectExposedPorts" :key="p" class="mr-2 mb-2">{{ p }}</el-tag>
 
         <el-divider content-position="left">Networks</el-divider>
-        <el-table :fit="false" :data="inspectNetworks" style="width: 100%">
+        <el-table :fit="true" :data="inspectNetworks" style="width: 100%">
           <el-table-column prop="name" label="名称" width="200" />
           <el-table-column prop="ip" label="IP" width="180" />
           <el-table-column prop="gateway" label="网关" width="180" />
@@ -1186,7 +1186,7 @@
         </el-table>
 
         <el-divider content-position="left">Mounts</el-divider>
-        <el-table :fit="false" :data="inspectMounts" style="width: 100%">
+        <el-table :fit="true" :data="inspectMounts" style="width: 100%">
           <el-table-column prop="type" label="类型" width="120" />
           <el-table-column prop="name" label="名称" width="180" />
           <el-table-column prop="source" label="Source" min-width="220" />
@@ -1279,7 +1279,7 @@
         </el-descriptions>
 
         <el-divider content-position="left">任务错误</el-divider>
-        <el-table :fit="false" v-if="serviceSummary?.tasks?.errors?.length" :data="serviceSummary?.tasks?.errors?.slice(0, 10) || []" style="width: 100%">
+        <el-table :fit="true" v-if="serviceSummary?.tasks?.errors?.length" :data="serviceSummary?.tasks?.errors?.slice(0, 10) || []" style="width: 100%">
           <el-table-column prop="id" label="ID" min-width="180" />
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column prop="error" label="错误" min-width="240" />
@@ -1302,7 +1302,7 @@
           <el-button icon="Refresh" @click="reloadServiceTasks">刷新</el-button>
         </div>
       </div>
-      <el-table :fit="false" :data="filteredServiceTasks" v-loading="tasksLoading" style="width: 100%">
+      <el-table :fit="true" :data="filteredServiceTasks" v-loading="tasksLoading" style="width: 100%">
         <el-table-column prop="ID" label="ID" min-width="180" />
         <el-table-column prop="Name" label="名称" min-width="200" />
         <el-table-column prop="Node" label="节点" width="160" />
@@ -1327,7 +1327,7 @@
         <el-descriptions-item label="Images">{{ stackMeta.images?.join(', ') || '-' }}</el-descriptions-item>
         <el-descriptions-item label="Labels">{{ stackMeta.labels?.join(', ') || '-' }}</el-descriptions-item>
       </el-descriptions>
-      <el-table :fit="false" :data="stackServiceRows" v-loading="stackLoading" style="width: 100%">
+      <el-table :fit="true" :data="stackServiceRows" v-loading="stackLoading" style="width: 100%">
         <el-table-column prop="Name" label="名称" min-width="220" />
         <el-table-column prop="Mode" label="模式" width="120" />
         <el-table-column prop="Replicas" label="副本" width="120" />
@@ -1414,7 +1414,7 @@
 
     <!-- 卷使用情况 -->
     <el-dialog append-to-body v-model="volumeUsageVisible" title="卷使用情况" width="720px">
-      <el-table :fit="false" :data="volumeUsage" v-loading="volumeUsageLoading" style="width: 100%">
+      <el-table :fit="true" :data="volumeUsage" v-loading="volumeUsageLoading" style="width: 100%">
         <el-table-column prop="name" label="卷" min-width="200" />
         <el-table-column label="容器" min-width="240">
           <template #default="{ row }">
@@ -1441,7 +1441,7 @@
 
     <!-- 网络使用情况 -->
     <el-dialog append-to-body v-model="networkUsageVisible" title="网络使用情况" width="720px">
-      <el-table :fit="false" :data="networkUsage" v-loading="networkUsageLoading" style="width: 100%">
+      <el-table :fit="true" :data="networkUsage" v-loading="networkUsageLoading" style="width: 100%">
         <el-table-column prop="name" label="网络" min-width="200" />
         <el-table-column prop="driver" label="驱动" width="120" />
         <el-table-column prop="scope" label="范围" width="120" />

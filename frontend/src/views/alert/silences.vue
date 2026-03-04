@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :fit="false" :data="silences" stripe style="width: 100%">
+    <el-table :fit="true" :data="silences" stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="matchers" label="匹配规则" min-width="240" />
       <el-table-column prop="starts_at" label="开始时间" min-width="180" />

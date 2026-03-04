@@ -22,7 +22,7 @@
       <el-tab-pane label="流程定义" name="workflows">
         <el-row :gutter="12">
           <el-col :md="16" :sm="24">
-            <el-table :fit="false" :data="workflows" v-loading="loading" stripe>
+            <el-table :fit="true" :data="workflows" v-loading="loading" stripe>
               <el-table-column prop="name" label="名称" min-width="160" />
               <el-table-column prop="category" label="分类" width="120" />
               <el-table-column prop="trigger" label="触发方式" width="120" />
@@ -76,7 +76,7 @@
           <el-button icon="Refresh" @click="fetchExecutions">刷新</el-button>
         </div>
 
-        <el-table :fit="false" :data="executions" v-loading="executionsLoading" stripe>
+        <el-table :fit="true" :data="executions" v-loading="executionsLoading" stripe>
           <el-table-column prop="workflow_name" label="流程" min-width="180" />
           <el-table-column label="状态" width="100">
             <template #default="{ row }">

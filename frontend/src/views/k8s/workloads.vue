@@ -36,7 +36,7 @@
       <el-col :span="4"><el-card><div class="card-title">StatefulSet</div><div class="card-value">{{ workloadStats.statefulset }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="false" :data="filteredWorkloads" stripe style="width: 100%" v-loading="loading">
+    <el-table :fit="true" :data="filteredWorkloads" stripe style="width: 100%" v-loading="loading">
       <el-table-column prop="namespace" label="命名空间" min-width="140" />
       <el-table-column prop="name" label="名称" min-width="200" />
       <el-table-column prop="kind" label="类型" width="140" />

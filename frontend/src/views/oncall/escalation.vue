@@ -20,7 +20,7 @@
       <el-col :span="8"><el-card><div class="k">关联排班</div><div class="v">{{ linkedSchedules }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="false" :data="escalations" v-loading="loading" stripe>
+    <el-table :fit="true" :data="escalations" v-loading="loading" stripe>
       <el-table-column prop="name" label="策略名称" min-width="180" />
       <el-table-column label="排班" min-width="160">
         <template #default="{ row }">{{ scheduleName(row.schedule_id) }}</template>

@@ -29,7 +29,7 @@
       <el-button @click="syncDocker">同步Docker</el-button>
     </div>
 
-    <el-table :fit="false" :data="assets" v-loading="loading" stripe>
+    <el-table :fit="true" :data="assets" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
       <el-table-column prop="asset_type" label="类型" width="100" />
       <el-table-column prop="protocol" label="协议" width="110" />

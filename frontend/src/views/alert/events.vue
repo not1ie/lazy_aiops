@@ -26,7 +26,7 @@
       <el-button type="primary" @click="fetchAlerts">查询</el-button>
     </div>
 
-    <el-table :fit="false" :data="alerts" stripe style="width: 100%">
+    <el-table :fit="true" :data="alerts" stripe style="width: 100%">
       <el-table-column prop="rule_name" label="规则" min-width="160" />
       <el-table-column prop="target" label="目标" min-width="200" />
       <el-table-column prop="metric" label="指标" min-width="140" />

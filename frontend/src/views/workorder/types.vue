@@ -11,7 +11,7 @@
       </div>
     </div>
 
-    <el-table :fit="false" :data="types" v-loading="loading" stripe>
+    <el-table :fit="true" :data="types" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="150" />
       <el-table-column prop="code" label="编码" width="140" />
       <el-table-column prop="icon" label="图标" width="100" />

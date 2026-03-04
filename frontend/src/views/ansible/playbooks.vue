@@ -14,7 +14,7 @@
         </div>
       </template>
 
-      <el-table :fit="false" :data="playbooks" v-loading="loading" stripe>
+      <el-table :fit="true" :data="playbooks" v-loading="loading" stripe>
         <el-table-column prop="name" label="名称" min-width="200" />
         <el-table-column prop="description" label="描述" min-width="240" />
         <el-table-column prop="tags" label="Tags" min-width="160" />
@@ -41,7 +41,7 @@
           </div>
         </div>
       </template>
-      <el-table :fit="false" :data="executions" v-loading="loadingExecutions" stripe>
+      <el-table :fit="true" :data="executions" v-loading="loadingExecutions" stripe>
         <el-table-column prop="playbook_name" label="Playbook" min-width="200" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">

@@ -143,7 +143,7 @@
             </div>
             <el-button size="small" @click="go('/alert/events')">查看全部</el-button>
           </div>
-          <el-table :fit="false" :data="recentAlerts" size="small" style="width: 100%">
+          <el-table :fit="true" :data="recentAlerts" size="small" style="width: 100%">
             <el-table-column prop="rule_name" label="规则" min-width="140" />
             <el-table-column prop="target" label="目标" min-width="160" />
             <el-table-column prop="severity" label="级别" width="110" />
@@ -171,7 +171,7 @@
             </div>
             <el-button size="small" @click="refreshTopHosts">刷新</el-button>
           </div>
-          <el-table :fit="false" :data="topHosts" size="small" style="width: 100%">
+          <el-table :fit="true" :data="topHosts" size="small" style="width: 100%">
             <el-table-column prop="instance" label="主机" min-width="160" />
             <el-table-column prop="cpu" label="CPU%" width="90">
               <template #default="{ row }">

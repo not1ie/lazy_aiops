@@ -15,7 +15,7 @@
       </div>
     </template>
 
-    <el-table :fit="false" :data="logs" v-loading="loading" stripe>
+    <el-table :fit="true" :data="logs" v-loading="loading" stripe>
       <el-table-column prop="username" label="用户" width="140" />
       <el-table-column prop="module" label="模块" width="140" />
       <el-table-column prop="action" label="动作" width="120" />

@@ -18,7 +18,7 @@
       <template #header>
         <div class="card-title">配置文件</div>
       </template>
-      <el-table :fit="false" :data="configs" v-loading="configLoading" stripe>
+      <el-table :fit="true" :data="configs" v-loading="configLoading" stripe>
         <el-table-column prop="name" label="名称" min-width="140" />
         <el-table-column label="仓库" min-width="130">
           <template #default="{ row }">{{ row.repo?.name || '-' }}</template>
@@ -39,7 +39,7 @@
       <template #header>
         <div class="card-title">变更历史</div>
       </template>
-      <el-table :fit="false" :data="changes" v-loading="changeLoading" stripe>
+      <el-table :fit="true" :data="changes" v-loading="changeLoading" stripe>
         <el-table-column prop="created_at" label="时间" width="160">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>

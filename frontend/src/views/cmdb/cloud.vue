@@ -20,7 +20,7 @@
 
     <el-tabs v-model="activeTab" class="cloud-tabs">
       <el-tab-pane label="云账号" name="accounts">
-        <el-table :fit="false" :data="accounts" v-loading="loadingAccounts" stripe @selection-change="selectedAccounts = $event">
+        <el-table :fit="true" :data="accounts" v-loading="loadingAccounts" stripe @selection-change="selectedAccounts = $event">
           <el-table-column type="selection" width="48" />
           <el-table-column prop="name" label="账号名称" min-width="180" />
           <el-table-column prop="provider" label="云厂商" width="120" />
@@ -54,7 +54,7 @@
             </template>
           </el-input>
         </div>
-        <el-table :fit="false" :data="resources" v-loading="loadingResources" stripe @selection-change="selectedResources = $event">
+        <el-table :fit="true" :data="resources" v-loading="loadingResources" stripe @selection-change="selectedResources = $event">
           <el-table-column type="selection" width="48" />
           <el-table-column prop="name" label="资源名称" min-width="180" />
           <el-table-column prop="resource_id" label="资源ID" min-width="180" />

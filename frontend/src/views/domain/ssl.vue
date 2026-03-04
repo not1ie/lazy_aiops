@@ -25,7 +25,7 @@
           <el-button @click="checkAllCerts">批量检查</el-button>
         </div>
 
-        <el-table :fit="false" :data="filteredCerts" v-loading="certLoading" style="width: 100%">
+        <el-table :fit="true" :data="filteredCerts" v-loading="certLoading" style="width: 100%">
           <el-table-column prop="domain" label="域名" min-width="220" />
           <el-table-column prop="issuer" label="颁发者" min-width="220" />
           <el-table-column label="有效期至" width="180">
@@ -67,7 +67,7 @@
           <el-input v-model="domainKeyword" placeholder="搜索域名" class="w-52" clearable />
         </div>
 
-        <el-table :fit="false" :data="filteredDomains" v-loading="domainLoading" style="width: 100%">
+        <el-table :fit="true" :data="filteredDomains" v-loading="domainLoading" style="width: 100%">
           <el-table-column prop="domain" label="域名" min-width="240" />
           <el-table-column label="云账号" width="180">
             <template #default="{ row }">{{ row.account?.name || '-' }}</template>

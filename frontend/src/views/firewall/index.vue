@@ -19,7 +19,7 @@
       <el-col :span="6"><el-card><div class="k">离线</div><div class="v danger">{{ offlineCount }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="false" :data="filteredDevices" v-loading="loading" stripe @row-click="selectDevice">
+    <el-table :fit="true" :data="filteredDevices" v-loading="loading" stripe @row-click="selectDevice">
       <el-table-column prop="name" label="设备名" min-width="150" />
       <el-table-column prop="vendor" label="厂商" width="120" />
       <el-table-column prop="model" label="型号" width="140" />
@@ -70,7 +70,7 @@
             </el-select>
             <el-button icon="Refresh" @click="fetchMetrics">刷新指标</el-button>
           </div>
-          <el-table :fit="false" :data="metrics" v-loading="metricsLoading" stripe>
+          <el-table :fit="true" :data="metrics" v-loading="metricsLoading" stripe>
             <el-table-column prop="metric_name" label="指标" min-width="180" />
             <el-table-column prop="metric_type" label="类型" width="120" />
             <el-table-column label="值" width="140">
@@ -83,7 +83,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="访问规则" name="rules">
-          <el-table :fit="false" :data="rules" v-loading="rulesLoading" stripe>
+          <el-table :fit="true" :data="rules" v-loading="rulesLoading" stripe>
             <el-table-column prop="name" label="规则名" min-width="160" />
             <el-table-column prop="priority" label="优先级" width="90" />
             <el-table-column prop="action" label="动作" width="90" />

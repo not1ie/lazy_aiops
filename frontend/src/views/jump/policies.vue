@@ -15,7 +15,7 @@
           </div>
         </template>
 
-        <el-table :fit="false" :data="accounts" v-loading="accountLoading" stripe>
+        <el-table :fit="true" :data="accounts" v-loading="accountLoading" stripe>
           <el-table-column prop="name" label="名称" min-width="130" />
           <el-table-column prop="username" label="登录名" min-width="120" />
           <el-table-column prop="auth_type" label="认证" width="100" />
@@ -54,7 +54,7 @@
           </div>
         </template>
 
-        <el-table :fit="false" :data="policies" v-loading="policyLoading" stripe>
+        <el-table :fit="true" :data="policies" v-loading="policyLoading" stripe>
           <el-table-column prop="name" label="策略" min-width="140" />
           <el-table-column label="授权对象" min-width="140">
             <template #default="{ row }">{{ principalText(row) }}</template>

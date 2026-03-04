@@ -13,7 +13,7 @@
       </div>
     </template>
 
-    <el-table :fit="false" :data="servers" v-loading="loading" stripe>
+    <el-table :fit="true" :data="servers" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="address" label="地址" min-width="220" />
       <el-table-column prop="namespace" label="Namespace" min-width="160" />

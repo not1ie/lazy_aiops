@@ -25,7 +25,7 @@
       </el-select>
     </div>
 
-    <el-table :fit="false" :data="sessions" v-loading="loading" stripe>
+    <el-table :fit="true" :data="sessions" v-loading="loading" stripe>
       <el-table-column prop="session_no" label="会话号" min-width="180" />
       <el-table-column prop="username" label="用户" width="120" />
       <el-table-column prop="asset_name" label="资产" min-width="150" />
@@ -108,7 +108,7 @@
   <el-drawer v-model="commandsVisible" title="命令审计记录" size="52%">
     <template #default>
       <div class="drawer-subtitle">会话：{{ currentSession?.session_no || '-' }} / {{ currentSession?.asset_name || '-' }}</div>
-      <el-table :fit="false" :data="commands" v-loading="commandsLoading" stripe>
+      <el-table :fit="true" :data="commands" v-loading="commandsLoading" stripe>
         <el-table-column label="执行时间" min-width="170">
           <template #default="{ row }">{{ formatTime(row.executed_at) }}</template>
         </el-table-column>
