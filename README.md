@@ -38,6 +38,7 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 - RBAC 权限体系：用户、角色、权限点控制
 - 系统管理：菜单、组织、日志、审计相关页面
 - Web 终端：浏览器内终端能力（含连接预检与错误提示）
+- 堡垒机融合（MVP）：资产接入、授权策略、会话审计
 
 ### AI 相关能力
 
@@ -47,7 +48,7 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 
 ## 模块清单（当前代码）
 
-`ai`, `alert`, `ansible`, `application`, `cicd`, `cmdb`, `cost`, `docker`, `domain`, `executor`, `firewall`, `gitops`, `k8s`, `knowledge`, `monitor`, `nacos`, `notify`, `oncall`, `rbac`, `remediation`, `sqlaudit`, `system`, `task`, `terminal`, `topology`, `workflow`, `workorder`
+`ai`, `alert`, `ansible`, `application`, `cicd`, `cmdb`, `cost`, `docker`, `domain`, `executor`, `firewall`, `gitops`, `jump`, `k8s`, `knowledge`, `monitor`, `nacos`, `notify`, `oncall`, `rbac`, `remediation`, `sqlaudit`, `system`, `task`, `terminal`, `topology`, `workflow`, `workorder`
 
 ## 部署方式
 

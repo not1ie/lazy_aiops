@@ -39,6 +39,7 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// 会话管理
 	g.GET("/sessions", h.ListSessions)
+	g.GET("/sessions/:id", h.GetSession)
 	g.POST("/sessions", h.CreateSession)
 	g.DELETE("/sessions/:id", h.CloseSession)
 

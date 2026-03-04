@@ -21,6 +21,7 @@ import (
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/executor"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/firewall"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/gitops"
+	_ "github.com/lazyautoops/lazy-auto-ops/plugins/jump"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/k8s"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/knowledge"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/monitor"

@@ -236,6 +236,42 @@ func permissionForRequest(c *gin.Context) string {
 		}
 	}
 
+	if strings.HasPrefix(path, "/api/v1/jump/") {
+		rest := strings.TrimPrefix(path, "/api/v1/jump/")
+		switch {
+		case strings.HasPrefix(rest, "assets"),
+			strings.HasPrefix(rest, "accounts"),
+			strings.HasPrefix(rest, "sync/"):
+			return "jump:asset"
+		case strings.HasPrefix(rest, "policies"):
+			return "jump:policy"
+		case strings.HasPrefix(rest, "command-rules"):
+			return "jump:rule"
+		case strings.HasPrefix(rest, "sessions"):
+			return "jump:session"
+		default:
+			return "jump"
+		}
+	}
+
+	if strings.HasPrefix(path, "/api/v1/system/") {
+		rest := strings.TrimPrefix(path, "/api/v1/system/")
+		switch {
+		case strings.HasPrefix(rest, "depts"):
+			return "system:dept"
+		case strings.HasPrefix(rest, "posts"):
+			return "system:post"
+		case strings.HasPrefix(rest, "captcha"):
+			return "system:captcha"
+		case strings.HasPrefix(rest, "login-logs"):
+			return "system:loginlog"
+		case strings.HasPrefix(rest, "menus"):
+			return "system:permission"
+		default:
+			return "system"
+		}
+	}
+
 	module := strings.TrimPrefix(path, "/api/v1/")
 	module = strings.SplitN(module, "/", 2)[0]
 	if module == "" {

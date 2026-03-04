@@ -80,6 +80,7 @@ func setDefaults() {
 	viper.SetDefault("plugins.cmdb.enabled", true)
 	viper.SetDefault("plugins.monitor.enabled", true)
 	viper.SetDefault("plugins.task.enabled", true)
+	viper.SetDefault("plugins.jump.enabled", true)
 	viper.SetDefault("plugins.rbac.enabled", true)
 	viper.SetDefault("plugins.system.enabled", true)
 }

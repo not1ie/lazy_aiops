@@ -130,6 +130,11 @@ func (p *RBACPlugin) initDefaultPermissions() error {
 
 		{Name: "值班管理", Code: "oncall", Type: "menu"},
 		{Name: "Web终端", Code: "terminal", Type: "menu"},
+		{Name: "堡垒机", Code: "jump", Type: "menu"},
+		{Name: "资产接入", Code: "jump:asset", Type: "menu", Parent: "jump"},
+		{Name: "授权策略", Code: "jump:policy", Type: "menu", Parent: "jump"},
+		{Name: "命令风控", Code: "jump:rule", Type: "menu", Parent: "jump"},
+		{Name: "会话审计", Code: "jump:session", Type: "menu", Parent: "jump"},
 
 		{Name: "服务拓扑", Code: "topology", Type: "menu"},
 		{Name: "成本管理", Code: "cost", Type: "menu"},
@@ -138,6 +143,10 @@ func (p *RBACPlugin) initDefaultPermissions() error {
 		{Name: "用户管理", Code: "system:user", Type: "menu", Parent: "system"},
 		{Name: "角色管理", Code: "system:role", Type: "menu", Parent: "system"},
 		{Name: "权限管理", Code: "system:permission", Type: "menu", Parent: "system"},
+		{Name: "部门管理", Code: "system:dept", Type: "menu", Parent: "system"},
+		{Name: "岗位管理", Code: "system:post", Type: "menu", Parent: "system"},
+		{Name: "登录日志", Code: "system:loginlog", Type: "menu", Parent: "system"},
+		{Name: "验证码配置", Code: "system:captcha", Type: "menu", Parent: "system"},
 		{Name: "操作日志", Code: "system:log", Type: "menu", Parent: "system"},
 
 		{Name: "知识库", Code: "knowledge", Type: "menu"},

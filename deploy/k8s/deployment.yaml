@@ -115,6 +115,8 @@ data:
         enabled: true
       terminal:
         enabled: true
+      jump:
+        enabled: true
       firewall:
         enabled: true
       domain:

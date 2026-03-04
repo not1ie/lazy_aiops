@@ -110,6 +110,7 @@
 
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -138,6 +139,7 @@ let ws = null
 const recordVisible = ref(false)
 const currentRecord = ref(null)
 const recordOutput = ref('')
+const route = useRoute()
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -284,6 +286,18 @@ const openTerminal = (row) => {
   }
 }
 
+const openTerminalByID = async (id) => {
+  if (!id) return
+  try {
+    const res = await axios.get(`/api/v1/terminal/sessions/${id}`, { headers: authHeaders() })
+    if (res.data.code === 0 && res.data.data?.id) {
+      openTerminal(res.data.data)
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '读取会话失败')
+  }
+}
+
 const onTerminalDialogClosed = () => {
   closeWebSocket()
 }
@@ -343,7 +357,13 @@ const openRecordBySession = (row) => {
   viewRecord(found)
 }
 
-onMounted(reloadAll)
+onMounted(async () => {
+  await reloadAll()
+  const sid = route.query.session_id
+  if (typeof sid === 'string' && sid) {
+    openTerminalByID(sid)
+  }
+})
 
 onBeforeUnmount(() => {
   closeWebSocket()

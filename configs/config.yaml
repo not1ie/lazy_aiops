@@ -49,6 +49,9 @@ plugins:
   # WebTerminal
   terminal:
     enabled: true
+  # 堡垒机融合
+  jump:
+    enabled: true
   # 防火墙SNMP
   firewall:
     enabled: true

@@ -1,14 +1,19 @@
 package terminal
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"golang.org/x/crypto/ssh"
@@ -26,19 +31,122 @@ type TerminalHandler struct {
 }
 
 type SSHSession struct {
-	ID        string
-	Client    *ssh.Client
-	Session   *ssh.Session
-	StdinPipe io.WriteCloser
-	Conn      *websocket.Conn
-	Recording []RecordItem
-	StartTime time.Time
+	ID                  string
+	Client              *ssh.Client
+	Session             *ssh.Session
+	StdinPipe           io.WriteCloser
+	Conn                *websocket.Conn
+	Recording           []RecordItem
+	StartTime           time.Time
+	JumpSessionID       string
+	JumpAuditResolved   bool
+	JumpProtocol        string
+	JumpAssetName       string
+	PendingCommandInput string
+	JumpBlocked         bool
+	JumpBlockReason     string
 }
 
 type RecordItem struct {
 	Time    int64  `json:"time"` // 相对于开始时间的毫秒数
 	Type    string `json:"type"` // input, output
 	Content string `json:"content"`
+}
+
+type jumpCommandAudit struct {
+	ID            string    `gorm:"primaryKey;size:36"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	SessionID     string    `gorm:"size:36;index" json:"session_id"`
+	Username      string    `gorm:"size:128" json:"username"`
+	Command       string    `gorm:"type:text" json:"command"`
+	ResultCode    int       `json:"result_code"`
+	OutputSnippet string    `gorm:"type:text" json:"output_snippet"`
+	RuleID        string    `gorm:"size:256;index" json:"rule_id"`
+	RuleName      string    `gorm:"size:512" json:"rule_name"`
+	MatchedRules  string    `gorm:"type:text" json:"matched_rules"`
+	WhitelistHit  bool      `gorm:"default:false;index" json:"whitelist_hit"`
+	RiskLevel     string    `gorm:"size:32;index" json:"risk_level"`
+	RiskAction    string    `gorm:"size:32" json:"risk_action"`
+	RiskReason    string    `gorm:"size:512" json:"risk_reason"`
+	Blocked       bool      `gorm:"index" json:"blocked"`
+	AlertID       string    `gorm:"size:36;index" json:"alert_id"`
+	ExecutedAt    time.Time `gorm:"index" json:"executed_at"`
+}
+
+func (jumpCommandAudit) TableName() string {
+	return "jump_commands"
+}
+
+type jumpCommandRule struct {
+	ID        string `gorm:"primaryKey;size:36"`
+	Name      string `gorm:"size:128"`
+	Pattern   string `gorm:"type:text"`
+	MatchType string `gorm:"size:32"`
+	RuleKind  string `gorm:"size:32"`
+	Protocol  string `gorm:"size:32"`
+	Severity  string `gorm:"size:32"`
+	Action    string `gorm:"size:32"`
+	Priority  int
+	Enabled   bool
+}
+
+func (jumpCommandRule) TableName() string {
+	return "jump_command_rules"
+}
+
+type jumpSessionLink struct {
+	ID        string    `json:"id"`
+	Protocol  string    `json:"protocol"`
+	AssetName string    `json:"asset_name"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+type generatedAlert struct {
+	ID          string    `gorm:"primaryKey;size:36"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	RuleID      string    `gorm:"size:36;index" json:"rule_id"`
+	RuleName    string    `gorm:"size:128" json:"rule_name"`
+	Fingerprint string    `gorm:"size:64;index" json:"fingerprint"`
+	Target      string    `gorm:"size:256" json:"target"`
+	Metric      string    `gorm:"size:128" json:"metric"`
+	Value       string    `gorm:"size:64" json:"value"`
+	Threshold   string    `gorm:"size:64" json:"threshold"`
+	Severity    string    `gorm:"size:32;index" json:"severity"`
+	Status      int       `gorm:"index" json:"status"`
+	FiredAt     time.Time `gorm:"index" json:"fired_at"`
+	GroupKey    string    `gorm:"size:128;index" json:"group_key"`
+	Labels      string    `gorm:"type:text" json:"labels"`
+	Annotations string    `gorm:"type:text" json:"annotations"`
+}
+
+func (generatedAlert) TableName() string {
+	return "alerts"
+}
+
+type jumpRiskDecision struct {
+	Matched      bool
+	WhitelistHit bool
+	RuleID       string
+	RuleName     string
+	Severity     string
+	Action       string
+	Reason       string
+	RuleIDs      []string
+	RuleNames    []string
+	MatchedRules []jumpRuleHit
+	AlertID      string
+}
+
+type jumpRuleHit struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	RuleKind string `json:"rule_kind"`
+	Action   string `json:"action"`
+	Severity string `json:"severity"`
+	Priority int    `json:"priority"`
+	Pattern  string `json:"pattern"`
 }
 
 func NewTerminalHandler(db *gorm.DB, auth *core.AuthService) *TerminalHandler {
@@ -48,11 +156,26 @@ func NewTerminalHandler(db *gorm.DB, auth *core.AuthService) *TerminalHandler {
 // ListSessions 会话列表
 func (h *TerminalHandler) ListSessions(c *gin.Context) {
 	var sessions []TerminalSession
-	if err := h.db.Where("status = ?", 1).Find(&sessions).Error; err != nil {
+	query := h.db.Model(&TerminalSession{}).Order("created_at DESC")
+	if status := c.Query("status"); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if err := query.Limit(200).Find(&sessions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": sessions})
+}
+
+// GetSession 会话详情
+func (h *TerminalHandler) GetSession(c *gin.Context) {
+	id := c.Param("id")
+	var session TerminalSession
+	if err := h.db.First(&session, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 
 // CreateSession 创建会话
@@ -247,6 +370,7 @@ func (h *TerminalHandler) connectSSH(session *TerminalSession) (*SSHSession, err
 
 func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *TerminalSession, operator string) {
 	defer func() {
+		sshSess.PendingCommandInput = ""
 		h.closeSSHSession(sshSess)
 		h.sessions.Delete(sshSess.ID)
 		h.db.Model(session).Updates(map[string]interface{}{
@@ -310,6 +434,14 @@ func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *Termina
 			continue
 		}
 
+		blocked, reason := h.appendJumpCommandInput(sshSess, session, operator, message)
+		if blocked {
+			sshSess.JumpBlocked = true
+			sshSess.JumpBlockReason = reason
+			_ = sshSess.Conn.WriteMessage(websocket.TextMessage, []byte("\r\n[风控阻断] "+reason+"\r\n"))
+			return
+		}
+
 		// 写入SSH
 		sshSess.StdinPipe.Write(message)
 
@@ -335,6 +467,379 @@ func (h *TerminalHandler) closeSSHSession(sshSess *SSHSession) {
 	if sshSess.Conn != nil {
 		sshSess.Conn.Close()
 	}
+}
+
+func (h *TerminalHandler) appendJumpCommandInput(sshSess *SSHSession, session *TerminalSession, operator string, raw []byte) (bool, string) {
+	if sshSess == nil || len(raw) == 0 {
+		return false, ""
+	}
+	if !h.ensureJumpSession(sshSess) {
+		return false, ""
+	}
+
+	clean := stripANSI(string(raw))
+	if clean == "" {
+		return false, ""
+	}
+
+	for _, r := range clean {
+		switch r {
+		case '\r', '\n':
+			cmd := strings.TrimSpace(sshSess.PendingCommandInput)
+			sshSess.PendingCommandInput = ""
+			if cmd == "" {
+				continue
+			}
+			decision := h.auditJumpCommand(sshSess, session, operator, cmd)
+			if decision.Matched && decision.Action == "block" {
+				return true, decision.Reason
+			}
+		case '\b', 127:
+			sshSess.PendingCommandInput = trimLastRune(sshSess.PendingCommandInput)
+		default:
+			if r < 32 && r != '\t' {
+				continue
+			}
+			sshSess.PendingCommandInput += string(r)
+		}
+	}
+	return false, ""
+}
+
+func (h *TerminalHandler) auditJumpCommand(sshSess *SSHSession, session *TerminalSession, operator, cmd string) jumpRiskDecision {
+	now := time.Now()
+	decision := h.matchJumpCommandRule(sshSess, cmd)
+	if decision.Matched && !decision.WhitelistHit && (decision.Action == "alert" || decision.Action == "block") {
+		decision.AlertID = h.createJumpRiskAlert(sshSess, session, decision, cmd, now)
+	}
+	matchedRules, _ := json.Marshal(decision.MatchedRules)
+
+	record := jumpCommandAudit{
+		ID:         uuid.NewString(),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		SessionID:  sshSess.JumpSessionID,
+		Username:   operator,
+		Command:    cmd,
+		ExecutedAt: now,
+	}
+	if decision.Matched {
+		record.RuleID = strings.Join(decision.RuleIDs, ",")
+		record.RuleName = strings.Join(decision.RuleNames, ",")
+		record.MatchedRules = string(matchedRules)
+		record.WhitelistHit = decision.WhitelistHit
+		record.RiskLevel = decision.Severity
+		record.RiskAction = decision.Action
+		record.RiskReason = decision.Reason
+		record.Blocked = !decision.WhitelistHit && decision.Action == "block"
+		record.AlertID = decision.AlertID
+	}
+
+	if err := h.db.Table("jump_commands").Create(&record).Error; err != nil {
+		return jumpRiskDecision{}
+	}
+	_ = h.db.Table("jump_sessions").Where("id = ? AND status = ?", sshSess.JumpSessionID, "active").Updates(map[string]interface{}{
+		"last_command_at": now,
+		"command_count":   gorm.Expr("COALESCE(command_count, 0) + 1"),
+	}).Error
+	if decision.Matched && !decision.WhitelistHit && decision.Action == "block" {
+		h.markJumpSessionBlocked(sshSess, decision.Reason, now)
+	}
+	return decision
+}
+
+func (h *TerminalHandler) matchJumpCommandRule(sshSess *SSHSession, cmd string) jumpRiskDecision {
+	if sshSess == nil || strings.TrimSpace(cmd) == "" {
+		return jumpRiskDecision{}
+	}
+
+	var rules []jumpCommandRule
+	query := h.db.Table("jump_command_rules").Where("enabled = ?", true).Order("priority DESC, created_at ASC")
+	if protocol := strings.TrimSpace(sshSess.JumpProtocol); protocol != "" {
+		query = query.Where("(protocol = '' OR protocol = ?)", strings.ToLower(protocol))
+	}
+	if err := query.Find(&rules).Error; err != nil {
+		return jumpRiskDecision{}
+	}
+	if len(rules) == 0 {
+		return jumpRiskDecision{}
+	}
+
+	matches := make([]jumpRuleHit, 0)
+	allowMatches := make([]jumpRuleHit, 0)
+	riskMatches := make([]jumpRuleHit, 0)
+	for i := range rules {
+		rule := rules[i]
+		pattern := strings.TrimSpace(rule.Pattern)
+		if pattern == "" {
+			continue
+		}
+		matched := false
+		switch strings.ToLower(strings.TrimSpace(rule.MatchType)) {
+		case "exact":
+			matched = cmd == pattern
+		case "prefix":
+			matched = strings.HasPrefix(cmd, pattern)
+		case "regex":
+			re, err := regexp.Compile(pattern)
+			if err == nil {
+				matched = re.MatchString(cmd)
+			}
+		default:
+			matched = strings.Contains(strings.ToLower(cmd), strings.ToLower(pattern))
+		}
+		if !matched {
+			continue
+		}
+		hit := jumpRuleHit{
+			ID:       rule.ID,
+			Name:     rule.Name,
+			RuleKind: normalizeJumpRuleKind(rule.RuleKind),
+			Action:   normalizeJumpRuleAction(rule.Action),
+			Severity: normalizeJumpRuleSeverity(rule.Severity),
+			Priority: rule.Priority,
+			Pattern:  pattern,
+		}
+		matches = append(matches, hit)
+		if hit.RuleKind == "allow" {
+			allowMatches = append(allowMatches, hit)
+			continue
+		}
+		riskMatches = append(riskMatches, hit)
+	}
+	if len(matches) == 0 {
+		return jumpRiskDecision{}
+	}
+	if len(allowMatches) > 0 {
+		ruleIDs := make([]string, 0, len(allowMatches))
+		ruleNames := make([]string, 0, len(allowMatches))
+		for i := range allowMatches {
+			ruleIDs = append(ruleIDs, allowMatches[i].ID)
+			ruleNames = append(ruleNames, allowMatches[i].Name)
+		}
+		return jumpRiskDecision{
+			Matched:      true,
+			WhitelistHit: true,
+			RuleID:       strings.Join(ruleIDs, ","),
+			RuleName:     strings.Join(ruleNames, ","),
+			RuleIDs:      ruleIDs,
+			RuleNames:    ruleNames,
+			MatchedRules: matches,
+			Severity:     "info",
+			Action:       "allow",
+			Reason:       "命中白名单规则，已放行",
+		}
+	}
+	if len(riskMatches) == 0 {
+		return jumpRiskDecision{}
+	}
+	ruleIDs := make([]string, 0, len(riskMatches))
+	ruleNames := make([]string, 0, len(riskMatches))
+	action := "alert"
+	severity := "info"
+	for i := range riskMatches {
+		ruleIDs = append(ruleIDs, riskMatches[i].ID)
+		ruleNames = append(ruleNames, riskMatches[i].Name)
+		if riskMatches[i].Action == "block" {
+			action = "block"
+		}
+		if compareJumpSeverity(riskMatches[i].Severity, severity) > 0 {
+			severity = riskMatches[i].Severity
+		}
+	}
+	return jumpRiskDecision{
+		Matched:      true,
+		RuleID:       strings.Join(ruleIDs, ","),
+		RuleName:     strings.Join(ruleNames, ","),
+		RuleIDs:      ruleIDs,
+		RuleNames:    ruleNames,
+		MatchedRules: matches,
+		Severity:     severity,
+		Action:       action,
+		Reason:       fmt.Sprintf("命中规则[%s]，命令已%s", strings.Join(ruleNames, ","), map[bool]string{true: "阻断", false: "记录告警"}[action == "block"]),
+	}
+}
+
+func (h *TerminalHandler) markJumpSessionBlocked(sshSess *SSHSession, reason string, now time.Time) {
+	if sshSess == nil || strings.TrimSpace(sshSess.JumpSessionID) == "" {
+		return
+	}
+	var info jumpSessionLink
+	_ = h.db.Table("jump_sessions").Select("id, started_at").Where("id = ?", sshSess.JumpSessionID).Limit(1).Scan(&info).Error
+	duration := 0
+	if !info.StartedAt.IsZero() {
+		duration = int(now.Sub(info.StartedAt).Seconds())
+	}
+	_ = h.db.Table("jump_sessions").Where("id = ? AND status = ?", sshSess.JumpSessionID, "active").Updates(map[string]interface{}{
+		"status":       "blocked",
+		"ended_at":     now,
+		"duration_sec": duration,
+		"close_reason": reason,
+	}).Error
+}
+
+func (h *TerminalHandler) createJumpRiskAlert(sshSess *SSHSession, session *TerminalSession, decision jumpRiskDecision, cmd string, now time.Time) string {
+	if sshSess == nil || session == nil || !decision.Matched || decision.WhitelistHit || decision.Action == "allow" {
+		return ""
+	}
+	primaryRuleID := decision.RuleID
+	if len(decision.RuleIDs) > 0 && strings.TrimSpace(decision.RuleIDs[0]) != "" {
+		primaryRuleID = strings.TrimSpace(decision.RuleIDs[0])
+	}
+	combinedRuleName := strings.Join(decision.RuleNames, ",")
+	if combinedRuleName == "" {
+		combinedRuleName = decision.RuleName
+	}
+
+	labels, _ := json.Marshal(map[string]string{
+		"source":       "jump",
+		"jump_session": sshSess.JumpSessionID,
+		"protocol":     sshSess.JumpProtocol,
+		"host":         session.Host,
+		"operator":     session.Operator,
+		"rule_id":      primaryRuleID,
+		"action":       decision.Action,
+	})
+	annotations, _ := json.Marshal(map[string]string{
+		"command": cmd,
+		"reason":  decision.Reason,
+	})
+
+	hash := sha1.Sum([]byte(sshSess.JumpSessionID + "|" + strings.Join(decision.RuleIDs, ",") + "|" + cmd + "|" + now.Format(time.RFC3339Nano)))
+	fingerprint := hex.EncodeToString(hash[:])
+	alert := generatedAlert{
+		ID:          uuid.NewString(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		RuleID:      primaryRuleID,
+		RuleName:    "Jump命令风控/" + truncateText(combinedRuleName, 96),
+		Fingerprint: fingerprint,
+		Target:      session.Host,
+		Metric:      "jump_command_risk",
+		Value:       truncateText(cmd, 64),
+		Threshold:   truncateText(combinedRuleName, 64),
+		Severity:    decision.Severity,
+		Status:      0,
+		FiredAt:     now,
+		GroupKey:    "jump-command-risk-" + primaryRuleID,
+		Labels:      string(labels),
+		Annotations: string(annotations),
+	}
+	if err := h.db.Table("alerts").Create(&alert).Error; err != nil {
+		return ""
+	}
+	return alert.ID
+}
+
+func (h *TerminalHandler) ensureJumpSession(sshSess *SSHSession) bool {
+	if sshSess == nil {
+		return false
+	}
+	if sshSess.JumpSessionID != "" {
+		return true
+	}
+	if sshSess.JumpAuditResolved {
+		return false
+	}
+
+	var linked jumpSessionLink
+	err := h.db.Table("jump_sessions").
+		Select("id, protocol, asset_name").
+		Where("relay_session_id = ? AND status = ?", sshSess.ID, "active").
+		Limit(1).
+		Scan(&linked).Error
+	sshSess.JumpAuditResolved = true
+	if err != nil || strings.TrimSpace(linked.ID) == "" {
+		return false
+	}
+	sshSess.JumpSessionID = linked.ID
+	sshSess.JumpProtocol = strings.TrimSpace(linked.Protocol)
+	sshSess.JumpAssetName = strings.TrimSpace(linked.AssetName)
+	return true
+}
+
+func stripANSI(input string) string {
+	if input == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(input))
+	inEsc := false
+	for i := 0; i < len(input); i++ {
+		ch := input[i]
+		if inEsc {
+			if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '~' {
+				inEsc = false
+			}
+			continue
+		}
+		if ch == 0x1b {
+			inEsc = true
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
+}
+
+func trimLastRune(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	if len(r) == 0 {
+		return ""
+	}
+	return string(r[:len(r)-1])
+}
+
+func truncateText(in string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(in)
+	if len(r) <= max {
+		return in
+	}
+	return string(r[:max])
+}
+
+func normalizeJumpRuleKind(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "allow":
+		return "allow"
+	default:
+		return "risk"
+	}
+}
+
+func normalizeJumpRuleAction(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "block":
+		return "block"
+	default:
+		return "alert"
+	}
+}
+
+func normalizeJumpRuleSeverity(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "critical":
+		return "critical"
+	case "info":
+		return "info"
+	default:
+		return "warning"
+	}
+}
+
+func compareJumpSeverity(a, b string) int {
+	rank := map[string]int{
+		"info":     1,
+		"warning":  2,
+		"critical": 3,
+	}
+	return rank[normalizeJumpRuleSeverity(a)] - rank[normalizeJumpRuleSeverity(b)]
 }
 
 // ListRecords 录像列表

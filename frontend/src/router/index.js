@@ -65,7 +65,7 @@ const routes = [
         path: 'firewall',
         name: 'Firewall',
         component: () => import('@/views/firewall/index.vue'),
-        meta: { title: '防火墙管理', icon: 'Lock' }
+        meta: { title: '防火墙管理', icon: 'Lock', perm: 'firewall' }
       },
 
       // Container / K8s
@@ -388,6 +388,30 @@ const routes = [
         meta: { title: '升级策略', icon: 'Bell' }
       },
       {
+        path: 'jump/assets',
+        name: 'JumpAssets',
+        component: () => import('@/views/jump/assets.vue'),
+        meta: { title: '堡垒机资产', icon: 'Monitor', perm: 'jump:asset' }
+      },
+      {
+        path: 'jump/policies',
+        name: 'JumpPolicies',
+        component: () => import('@/views/jump/policies.vue'),
+        meta: { title: '授权策略', icon: 'Lock', perm: 'jump:policy' }
+      },
+      {
+        path: 'jump/command-rules',
+        name: 'JumpCommandRules',
+        component: () => import('@/views/jump/command-rules.vue'),
+        meta: { title: '命令风控', icon: 'Warning', perm: 'jump:rule' }
+      },
+      {
+        path: 'jump/sessions',
+        name: 'JumpSessions',
+        component: () => import('@/views/jump/sessions.vue'),
+        meta: { title: '会话审计', icon: 'Document', perm: 'jump:session' }
+      },
+      {
         path: 'terminal',
         name: 'Terminal',
         component: () => import('@/views/terminal/index.vue'),
@@ -445,19 +469,19 @@ const routes = [
         path: 'system/dept',
         name: 'Department',
         component: () => import('@/views/system/dept.vue'),
-        meta: { title: '部门管理', icon: 'OfficeBuilding' }
+        meta: { title: '部门管理', icon: 'OfficeBuilding', perm: 'system:dept' }
       },
       {
         path: 'system/posts',
         name: 'SystemPosts',
         component: () => import('@/views/system/posts.vue'),
-        meta: { title: '岗位管理', icon: 'Briefcase' }
+        meta: { title: '岗位管理', icon: 'Briefcase', perm: 'system:post' }
       },
       {
         path: 'system/login-logs',
         name: 'SystemLoginLogs',
         component: () => import('@/views/system/login-logs.vue'),
-        meta: { title: '登录日志', icon: 'Notebook' }
+        meta: { title: '登录日志', icon: 'Notebook', perm: 'system:loginlog' }
       },
       {
         path: 'system/audit-logs',
@@ -469,7 +493,7 @@ const routes = [
         path: 'system/captcha',
         name: 'SystemCaptcha',
         component: () => import('@/views/system/captcha.vue'),
-        meta: { title: '验证码配置', icon: 'Lock' }
+        meta: { title: '验证码配置', icon: 'Lock', perm: 'system:captcha' }
       }
     ]
   }
