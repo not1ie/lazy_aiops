@@ -54,7 +54,33 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 
 支持三种主部署方式：Docker、Kubernetes、系统服务（systemd）。
 
-### 1) Docker 部署
+### 1) Docker 镜像部署（预构建）
+
+适用于直接拉取已发布镜像快速部署，不需要本地构建。
+
+```bash
+# 公开拉取（示例）
+docker pull crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.1
+
+# 单机运行
+docker run -d --name lazy-aiops \
+  -p 8080:8080 \
+  -v $(pwd)/data:/app/data \
+  crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.1
+
+# Swarm 发布（按版本固定镜像）
+LAZY_AIOPS_IMAGE=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.1 \
+docker stack deploy -c deploy/swarm/stack.yml lazy-aiops
+```
+
+验证：
+
+```bash
+docker ps | grep lazy-aiops
+curl -s http://127.0.0.1:8080/health
+```
+
+### 2) Docker 源码部署
 
 ```bash
 git clone https://github.com/not1ie/lazy_aiops.git
@@ -76,7 +102,7 @@ docker logs -f lazy-auto-ops
 curl -s http://127.0.0.1:8080/health
 ```
 
-### 2) Kubernetes 部署
+### 3) Kubernetes 部署
 
 ```bash
 git clone https://github.com/not1ie/lazy_aiops.git
@@ -104,7 +130,7 @@ kubectl -n lazy-aiops port-forward svc/lazy-auto-ops 8080:80
 kubectl apply -f deploy/k8s/ingress.yaml
 ```
 
-### 3) 系统部署（Linux + systemd）
+### 4) 系统部署（Linux + systemd）
 
 ```bash
 git clone https://github.com/not1ie/lazy_aiops.git
