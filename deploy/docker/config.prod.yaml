@@ -1,6 +1,8 @@
 server:
   port: "8080"
   mode: "release"
+  cors_origins:
+    - "http://127.0.0.1:8080"
 
 database:
   driver: "mysql"

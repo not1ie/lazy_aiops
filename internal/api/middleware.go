@@ -109,12 +109,49 @@ func ForcePasswordChangeMiddleware(auth *core.AuthService) gin.HandlerFunc {
 }
 
 // CORSMiddleware 跨域中间件
-func CORSMiddleware() gin.HandlerFunc {
+func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	originMap := make(map[string]struct{})
+	allowAny := false
+	for _, origin := range allowedOrigins {
+		origin = strings.TrimSpace(origin)
+		if origin == "" {
+			continue
+		}
+		if origin == "*" {
+			allowAny = true
+			continue
+		}
+		originMap[origin] = struct{}{}
+	}
+	if len(originMap) == 0 && !allowAny {
+		allowAny = true
+	}
+
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		requestOrigin := strings.TrimSpace(c.GetHeader("Origin"))
+		originAllowed := allowAny
+		if !allowAny && requestOrigin != "" {
+			_, originAllowed = originMap[requestOrigin]
+		}
+
+		if allowAny {
+			c.Header("Access-Control-Allow-Origin", "*")
+		} else if originAllowed && requestOrigin != "" {
+			c.Header("Access-Control-Allow-Origin", requestOrigin)
+			c.Header("Vary", "Origin")
+		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
 		c.Header("Access-Control-Max-Age", "86400")
+		if !allowAny {
+			c.Header("Access-Control-Allow-Credentials", "true")
+		}
+
+		if requestOrigin != "" && !originAllowed {
+			c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "跨域来源未授权"})
+			c.Abort()
+			return
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)

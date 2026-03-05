@@ -251,7 +251,20 @@ func (h *TerminalHandler) HandleWebSocket(c *gin.Context) {
 	id := c.Param("id")
 
 	// 验证Token
-	token := c.Query("token")
+	token := ""
+	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
+	if token == "" {
+		if cookieToken, err := c.Cookie("token"); err == nil {
+			token = strings.TrimSpace(cookieToken)
+		}
+	}
+	// 仅在 WebSocket 升级场景兼容 query token。
+	if token == "" && strings.EqualFold(strings.TrimSpace(c.GetHeader("Upgrade")), "websocket") {
+		token = strings.TrimSpace(c.Query("token"))
+	}
 	if token == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
 		return

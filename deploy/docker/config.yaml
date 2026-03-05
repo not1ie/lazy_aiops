@@ -1,6 +1,8 @@
 server:
   port: "8080"
   mode: "debug"
+  cors_origins:
+    - "*"
 
 database:
   driver: "sqlite"

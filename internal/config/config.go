@@ -20,8 +20,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port string `mapstructure:"port"`
-	Mode string `mapstructure:"mode"` // debug, release
+	Port        string   `mapstructure:"port"`
+	Mode        string   `mapstructure:"mode"` // debug, release
+	CORSOrigins []string `mapstructure:"cors_origins"`
 }
 
 type DatabaseConfig struct {
@@ -69,6 +70,7 @@ func Load() (*Config, error) {
 	if port := os.Getenv("LAO_SERVER_PORT"); port != "" {
 		cfg.Server.Port = port
 	}
+	cfg.Server.CORSOrigins = resolveCORSOrigins(cfg.Server.CORSOrigins)
 	cfg.JWT.Secret = resolveJWTSecret(cfg.JWT.Secret, cfg.Database.DSN)
 
 	return &cfg, nil
@@ -77,6 +79,7 @@ func Load() (*Config, error) {
 func setDefaults() {
 	viper.SetDefault("server.port", "8080")
 	viper.SetDefault("server.mode", "debug")
+	viper.SetDefault("server.cors_origins", []string{"*"})
 	viper.SetDefault("database.driver", "sqlite")
 	viper.SetDefault("database.dsn", "data/lazy-auto-ops.db")
 	viper.SetDefault("jwt.expire", 24)
@@ -160,4 +163,32 @@ func loadOrCreateSecretFile(secretFile string) (string, error) {
 		return "", err
 	}
 	return secret, nil
+}
+
+func resolveCORSOrigins(origins []string) []string {
+	if raw := strings.TrimSpace(os.Getenv("LAO_SERVER_CORS_ORIGINS")); raw != "" {
+		parts := strings.Split(raw, ",")
+		resolved := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				resolved = append(resolved, p)
+			}
+		}
+		if len(resolved) > 0 {
+			return resolved
+		}
+	}
+
+	resolved := make([]string, 0, len(origins))
+	for _, o := range origins {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			resolved = append(resolved, o)
+		}
+	}
+	if len(resolved) == 0 {
+		return []string{"*"}
+	}
+	return resolved
 }

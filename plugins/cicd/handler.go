@@ -905,15 +905,151 @@ func (h *CICDHandler) DeleteRelease(c *gin.Context) {
 
 // HandleWebhook 处理Webhook
 func (h *CICDHandler) HandleWebhook(c *gin.Context) {
-	provider := c.Param("provider")
+	provider := strings.ToLower(strings.TrimSpace(c.Param("provider")))
 	body, _ := io.ReadAll(c.Request.Body)
 
-	// 记录webhook
-	// TODO: 根据provider解析并触发对应流水线
+	event := parseWebhookEvent(provider, body, c.GetHeader("X-GitHub-Event"))
+	if event.Actor == "" {
+		event.Actor = "webhook:" + provider
+	}
+
+	var pipelines []CICDPipeline
+	if err := h.db.Where("provider = ? AND status = ?", provider, 1).Find(&pipelines).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	triggered := make([]string, 0, len(pipelines))
+	failed := make([]string, 0)
+	skipped := 0
+	for i := range pipelines {
+		pipeline := &pipelines[i]
+		if !event.matchesPipeline(pipeline) {
+			skipped++
+			continue
+		}
+		execution, err := h.triggerBuild(pipeline, event.Params, "webhook", event.Actor)
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", pipeline.Name, err))
+			continue
+		}
+		triggered = append(triggered, execution.ID)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
 		"message": fmt.Sprintf("Webhook received from %s", provider),
-		"body":    string(body),
+		"data": gin.H{
+			"provider":   provider,
+			"event":      event.Name,
+			"ref":        event.Ref,
+			"repo":       event.Repo,
+			"actor":      event.Actor,
+			"matched":    len(triggered),
+			"failed":     len(failed),
+			"skipped":    skipped,
+			"executions": triggered,
+			"errors":     failed,
+		},
 	})
+}
+
+type cicdWebhookEvent struct {
+	Name   string
+	Repo   string
+	Ref    string
+	Actor  string
+	Params map[string]string
+}
+
+func parseWebhookEvent(provider string, body []byte, githubEvent string) cicdWebhookEvent {
+	event := cicdWebhookEvent{
+		Name:   strings.TrimSpace(githubEvent),
+		Params: map[string]string{},
+	}
+
+	switch provider {
+	case "github":
+		var payload struct {
+			Ref        string `json:"ref"`
+			Workflow   string `json:"workflow"`
+			Action     string `json:"action"`
+			Repository struct {
+				FullName string `json:"full_name"`
+			} `json:"repository"`
+			Sender struct {
+				Login string `json:"login"`
+			} `json:"sender"`
+		}
+		_ = json.Unmarshal(body, &payload)
+		event.Ref = normalizeGitRef(payload.Ref)
+		event.Repo = strings.TrimSpace(payload.Repository.FullName)
+		event.Actor = strings.TrimSpace(payload.Sender.Login)
+		if event.Name == "" {
+			event.Name = strings.TrimSpace(payload.Action)
+		}
+		if wf := strings.TrimSpace(payload.Workflow); wf != "" {
+			event.Params["workflow"] = wf
+		}
+	case "gitlab":
+		var payload struct {
+			ObjectKind string `json:"object_kind"`
+			Ref        string `json:"ref"`
+			Project    struct {
+				PathWithNamespace string `json:"path_with_namespace"`
+			} `json:"project"`
+			UserUsername string `json:"user_username"`
+		}
+		_ = json.Unmarshal(body, &payload)
+		event.Name = strings.TrimSpace(payload.ObjectKind)
+		event.Ref = normalizeGitRef(payload.Ref)
+		event.Repo = strings.TrimSpace(payload.Project.PathWithNamespace)
+		event.Actor = strings.TrimSpace(payload.UserUsername)
+	default:
+		event.Name = provider
+	}
+
+	if event.Ref != "" {
+		event.Params["ref"] = event.Ref
+	}
+	if event.Name != "" {
+		event.Params["event"] = event.Name
+	}
+	return event
+}
+
+func (e cicdWebhookEvent) matchesPipeline(p *CICDPipeline) bool {
+	if p == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(p.Provider)) {
+	case "github":
+		if e.Repo != "" && strings.TrimSpace(p.GitHubRepo) != "" && !strings.EqualFold(strings.TrimSpace(e.Repo), strings.TrimSpace(p.GitHubRepo)) {
+			return false
+		}
+		if e.Ref != "" && strings.TrimSpace(p.GitHubWorkflow) != "" {
+			// workflow 字段用于 API dispatch，需要时再按 workflow 过滤。
+			if wf := strings.TrimSpace(e.Params["workflow"]); wf != "" && !strings.EqualFold(wf, strings.TrimSpace(p.GitHubWorkflow)) {
+				return false
+			}
+		}
+	case "gitlab":
+		project := strings.TrimSpace(p.GitLabProjectID)
+		if e.Repo != "" && project != "" && strings.Contains(project, "/") &&
+			!strings.EqualFold(strings.TrimSpace(e.Repo), project) {
+			return false
+		}
+		if e.Ref != "" && strings.TrimSpace(p.GitLabRef) != "" &&
+			!strings.EqualFold(strings.TrimSpace(e.Ref), strings.TrimSpace(p.GitLabRef)) {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeGitRef(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "refs/heads/")
+	raw = strings.TrimPrefix(raw, "refs/tags/")
+	return raw
 }

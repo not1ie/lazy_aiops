@@ -1399,11 +1399,14 @@ func (h *K8sHandler) StreamPodLogs(c *gin.Context) {
 	container := c.Query("container")
 	tailLines, _ := strconv.ParseInt(c.DefaultQuery("tail", "100"), 10, 64)
 
-	token := c.Query("token")
+	token := ""
+	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
 	if token == "" {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			token = strings.TrimPrefix(authHeader, "Bearer ")
+		if cookieToken, err := c.Cookie("token"); err == nil {
+			token = strings.TrimSpace(cookieToken)
 		}
 	}
 	if token == "" {

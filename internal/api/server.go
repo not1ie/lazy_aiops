@@ -21,7 +21,7 @@ type Server struct {
 func NewServer(cfg *config.Config, c *core.Core, pm *plugin.Manager) *Server {
 	gin.SetMode(cfg.Server.Mode)
 	engine := gin.New()
-	engine.Use(gin.Recovery(), gin.Logger(), CORSMiddleware())
+	engine.Use(gin.Recovery(), gin.Logger(), CORSMiddleware(cfg.Server.CORSOrigins))
 
 	return &Server{
 		config: cfg,

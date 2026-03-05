@@ -1218,9 +1218,6 @@ func roundMetric(v float64) float64 {
 func (h *MonitorHandler) AgentHeartbeat(c *gin.Context) {
 	if h.agentSecret != "" {
 		token := c.GetHeader("X-Agent-Token")
-		if token == "" {
-			token = c.Query("token")
-		}
 		if token != h.agentSecret {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
 			return
