@@ -41,34 +41,43 @@ type JumpAccount struct {
 // JumpPermissionPolicy 会话授权策略
 type JumpPermissionPolicy struct {
 	core.BaseModel
-	Name           string     `gorm:"size:128;index" json:"name"`
-	UserID         string     `gorm:"size:36;index" json:"user_id"`
-	RoleCode       string     `gorm:"size:64;index" json:"role_code"`
-	AssetID        string     `gorm:"size:36;index" json:"asset_id"`
-	AccountID      string     `gorm:"size:36;index" json:"account_id"`
-	Protocol       string     `gorm:"size:32;index" json:"protocol"`
-	RequireApprove bool       `gorm:"default:false" json:"require_approve"`
-	ExpiresAt      *time.Time `json:"expires_at"`
-	Status         int        `gorm:"default:1;index" json:"status"` // 1 active, 0 disabled
-	Description    string     `gorm:"size:512" json:"description"`
+	Name            string     `gorm:"size:128;index" json:"name"`
+	UserID          string     `gorm:"size:36;index" json:"user_id"`
+	RoleCode        string     `gorm:"size:64;index" json:"role_code"`
+	AssetID         string     `gorm:"size:36;index" json:"asset_id"`
+	AccountID       string     `gorm:"size:36;index" json:"account_id"`
+	Protocol        string     `gorm:"size:32;index" json:"protocol"`
+	RequireApprove  bool       `gorm:"default:false" json:"require_approve"`
+	TimeWindowStart string     `gorm:"size:8" json:"time_window_start"` // HH:MM
+	TimeWindowEnd   string     `gorm:"size:8" json:"time_window_end"`   // HH:MM
+	MaxDurationSec  int        `gorm:"default:0" json:"max_duration_sec"`
+	ConcurrentLimit int        `gorm:"default:0" json:"concurrent_limit"`
+	ExpiresAt       *time.Time `json:"expires_at"`
+	Status          int        `gorm:"default:1;index" json:"status"` // 1 active, 0 disabled
+	Description     string     `gorm:"size:512" json:"description"`
 }
 
 // JumpSession 会话记录
 type JumpSession struct {
 	core.BaseModel
 	SessionNo      string     `gorm:"size:64;uniqueIndex" json:"session_no"`
-	UserID         string     `gorm:"size:36;index" json:"user_id"`
+	UserID         string     `gorm:"size:36;index:idx_jump_session_user_started,priority:1" json:"user_id"`
 	Username       string     `gorm:"size:128;index" json:"username"`
 	RoleCode       string     `gorm:"size:64;index" json:"role_code"`
-	AssetID        string     `gorm:"size:36;index" json:"asset_id"`
+	AssetID        string     `gorm:"size:36;index:idx_jump_session_asset_started,priority:1" json:"asset_id"`
 	AssetName      string     `gorm:"size:128" json:"asset_name"`
 	AccountID      string     `gorm:"size:36;index" json:"account_id"`
 	AccountName    string     `gorm:"size:128" json:"account_name"`
+	PolicyID       string     `gorm:"size:36;index" json:"policy_id"`
 	Protocol       string     `gorm:"size:32;index" json:"protocol"`
 	SourceIP       string     `gorm:"size:64" json:"source_ip"`
 	Status         string     `gorm:"size:32;index" json:"status"` // pending_approval, active, closed, blocked, rejected
-	StartedAt      time.Time  `gorm:"index" json:"started_at"`
+	StartedAt      time.Time  `gorm:"index:idx_jump_session_user_started,priority:2;index:idx_jump_session_asset_started,priority:2" json:"started_at"`
 	LastCommandAt  *time.Time `json:"last_command_at"`
+	ApprovedBy     string     `gorm:"size:128" json:"approved_by"`
+	ApprovedAt     *time.Time `json:"approved_at"`
+	DisconnectedBy string     `gorm:"size:128" json:"disconnected_by"`
+	DisconnectedAt *time.Time `json:"disconnected_at"`
 	EndedAt        *time.Time `gorm:"index" json:"ended_at"`
 	DurationSec    int        `json:"duration_sec"`
 	CommandCount   int        `json:"command_count"`
@@ -94,8 +103,8 @@ type JumpCommandRule struct {
 // JumpCommand 命令审计
 type JumpCommand struct {
 	core.BaseModel
-	SessionID     string    `gorm:"size:36;index" json:"session_id"`
-	Username      string    `gorm:"size:128" json:"username"`
+	SessionID     string    `gorm:"size:36;index:idx_jump_command_session_time,priority:1" json:"session_id"`
+	Username      string    `gorm:"size:128;index:idx_jump_command_user_time,priority:1" json:"username"`
 	Command       string    `gorm:"type:text" json:"command"`
 	ResultCode    int       `json:"result_code"`
 	OutputSnippet string    `gorm:"type:text" json:"output_snippet"`
@@ -103,12 +112,30 @@ type JumpCommand struct {
 	RuleName      string    `gorm:"size:512" json:"rule_name"`
 	MatchedRules  string    `gorm:"type:text" json:"matched_rules"`
 	WhitelistHit  bool      `gorm:"default:false;index" json:"whitelist_hit"`
-	RiskLevel     string    `gorm:"size:32;index" json:"risk_level"`
+	RiskLevel     string    `gorm:"size:32;index:idx_jump_command_risk_time,priority:1" json:"risk_level"`
 	RiskAction    string    `gorm:"size:32" json:"risk_action"`
 	RiskReason    string    `gorm:"size:512" json:"risk_reason"`
 	Blocked       bool      `gorm:"default:false;index" json:"blocked"`
 	AlertID       string    `gorm:"size:36;index" json:"alert_id"`
-	ExecutedAt    time.Time `gorm:"index" json:"executed_at"`
+	ExecutedAt    time.Time `gorm:"index:idx_jump_command_session_time,priority:2;index:idx_jump_command_user_time,priority:2;index:idx_jump_command_risk_time,priority:2" json:"executed_at"`
+}
+
+// JumpRiskEvent 风控事件
+type JumpRiskEvent struct {
+	core.BaseModel
+	SessionID   string    `gorm:"size:36;index:idx_jump_risk_session_time,priority:1" json:"session_id"`
+	CommandID   string    `gorm:"size:36;index" json:"command_id"`
+	AssetID     string    `gorm:"size:36;index" json:"asset_id"`
+	AssetName   string    `gorm:"size:128;index" json:"asset_name"`
+	Username    string    `gorm:"size:128;index:idx_jump_risk_user_time,priority:1" json:"username"`
+	EventType   string    `gorm:"size:32;index" json:"event_type"` // blocked, alert
+	Severity    string    `gorm:"size:32;index:idx_jump_risk_severity_time,priority:1" json:"severity"`
+	Action      string    `gorm:"size:32" json:"action"`
+	RuleID      string    `gorm:"size:256;index" json:"rule_id"`
+	RuleName    string    `gorm:"size:512" json:"rule_name"`
+	Command     string    `gorm:"type:text" json:"command"`
+	Description string    `gorm:"size:512" json:"description"`
+	FiredAt     time.Time `gorm:"index:idx_jump_risk_session_time,priority:2;index:idx_jump_risk_user_time,priority:2;index:idx_jump_risk_severity_time,priority:2" json:"fired_at"`
 }
 
 // SafeJumpAccount 隐去密钥字段的账号响应

@@ -351,8 +351,13 @@ func (h *JumpHandler) CreatePolicy(c *gin.Context) {
 			req.Protocol = asset.Protocol
 		}
 	}
+	req.Protocol = strings.ToLower(strings.TrimSpace(req.Protocol))
 	if req.Status == 0 {
 		req.Status = 1
+	}
+	if msg := validatePolicyPayload(req.TimeWindowStart, req.TimeWindowEnd, req.MaxDurationSec, req.ConcurrentLimit); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": msg})
+		return
 	}
 	if err := h.db.Create(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -391,6 +396,43 @@ func (h *JumpHandler) UpdatePolicy(c *gin.Context) {
 	delete(updates, "deleted_at")
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "无有效更新字段"})
+		return
+	}
+	if v, ok := updates["protocol"].(string); ok {
+		updates["protocol"] = strings.ToLower(strings.TrimSpace(v))
+	}
+	timeStart := item.TimeWindowStart
+	if v, ok := updates["time_window_start"].(string); ok {
+		timeStart = strings.TrimSpace(v)
+		updates["time_window_start"] = timeStart
+	}
+	timeEnd := item.TimeWindowEnd
+	if v, ok := updates["time_window_end"].(string); ok {
+		timeEnd = strings.TrimSpace(v)
+		updates["time_window_end"] = timeEnd
+	}
+	maxDuration := item.MaxDurationSec
+	if _, exists := updates["max_duration_sec"]; exists {
+		v, ok := intFromAny(updates["max_duration_sec"])
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "max_duration_sec 必须是数字"})
+			return
+		}
+		maxDuration = v
+		updates["max_duration_sec"] = v
+	}
+	concurrentLimit := item.ConcurrentLimit
+	if _, exists := updates["concurrent_limit"]; exists {
+		v, ok := intFromAny(updates["concurrent_limit"])
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "concurrent_limit 必须是数字"})
+			return
+		}
+		concurrentLimit = v
+		updates["concurrent_limit"] = v
+	}
+	if msg := validatePolicyPayload(timeStart, timeEnd, maxDuration, concurrentLimit); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": msg})
 		return
 	}
 
@@ -797,6 +839,26 @@ func (h *JumpHandler) StartSession(c *gin.Context) {
 	}
 
 	now := time.Now()
+	if msg := validatePolicyTimeWindow(policy, now); msg != "" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": msg})
+		return
+	}
+	if policy.ConcurrentLimit > 0 {
+		var activeCount int64
+		if err := h.db.Model(&JumpSession{}).
+			Where("user_id = ?", userID).
+			Where("policy_id = ?", policy.ID).
+			Where("status IN ?", []string{"pending_approval", "active"}).
+			Count(&activeCount).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		if int(activeCount) >= policy.ConcurrentLimit {
+			c.JSON(http.StatusTooManyRequests, gin.H{"code": 429, "message": "已达到策略并发会话上限"})
+			return
+		}
+	}
+
 	status := "active"
 	needApprove := false
 	if policy.RequireApprove && roleCode != "admin" {
@@ -812,6 +874,7 @@ func (h *JumpHandler) StartSession(c *gin.Context) {
 		AssetName:    asset.Name,
 		AccountID:    account.ID,
 		AccountName:  account.Name,
+		PolicyID:     policy.ID,
 		Protocol:     protocol,
 		SourceIP:     c.ClientIP(),
 		Status:       status,
@@ -865,6 +928,20 @@ func (h *JumpHandler) ConnectSession(c *gin.Context) {
 	if err := h.db.First(&account, "id = ?", session.AccountID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话关联账号不存在"})
 		return
+	}
+	policy := h.loadSessionPolicy(&session, &asset, &account)
+	now := time.Now()
+	if msg := validatePolicyTimeWindow(policy, now); msg != "" {
+		_ = h.closeSessionWithStatus(&session, "blocked", msg, c.GetString("username"), now)
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": msg})
+		return
+	}
+	if policy != nil && policy.MaxDurationSec > 0 && !session.StartedAt.IsZero() {
+		if int(now.Sub(session.StartedAt).Seconds()) >= policy.MaxDurationSec {
+			_ = h.closeSessionWithStatus(&session, "closed", "会话已达到策略最大时长，需重新发起", c.GetString("username"), now)
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话已达到策略最大时长，需重新发起"})
+			return
+		}
 	}
 
 	protocol := strings.ToLower(strings.TrimSpace(session.Protocol))
@@ -930,9 +1007,12 @@ func (h *JumpHandler) ApproveSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "当前会话不是待审批状态"})
 		return
 	}
+	now := time.Now()
 	if err := h.db.Model(&session).Updates(map[string]interface{}{
 		"status":       "active",
-		"close_reason": fmt.Sprintf("approved_by:%s", c.GetString("username")),
+		"approved_by":  c.GetString("username"),
+		"approved_at":  now,
+		"close_reason": "",
 	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -965,12 +1045,7 @@ func (h *JumpHandler) RejectSession(c *gin.Context) {
 		reason = "审批拒绝"
 	}
 	now := time.Now()
-	if err := h.db.Model(&session).Updates(map[string]interface{}{
-		"status":       "rejected",
-		"ended_at":     now,
-		"duration_sec": 0,
-		"close_reason": fmt.Sprintf("rejected_by:%s %s", c.GetString("username"), reason),
-	}).Error; err != nil {
+	if err := h.closeSessionWithStatus(&session, "rejected", fmt.Sprintf("rejected_by:%s %s", c.GetString("username"), reason), c.GetString("username"), now); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -1017,8 +1092,16 @@ func (h *JumpHandler) RecordCommand(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-
+	policy := h.loadSessionPolicy(&session, nil, nil)
 	now := time.Now()
+	if policy != nil && policy.MaxDurationSec > 0 && !session.StartedAt.IsZero() {
+		if int(now.Sub(session.StartedAt).Seconds()) >= policy.MaxDurationSec {
+			_ = h.closeSessionWithStatus(&session, "closed", "会话已达到策略最大时长，需重新发起", c.GetString("username"), now)
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话已达到策略最大时长，需重新发起"})
+			return
+		}
+	}
+
 	decision := h.evaluateCommandRisk(session.Protocol, req.Command)
 	alertID := ""
 	if decision.Matched && !decision.WhitelistHit && (decision.Action == "alert" || decision.Action == "block") {
@@ -1046,22 +1129,16 @@ func (h *JumpHandler) RecordCommand(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	if decision.Matched && !decision.WhitelistHit {
+		_ = h.createRiskEvent(&session, &cmd, decision, now)
+	}
 
 	_ = h.db.Model(&JumpSession{}).Where("id = ?", session.ID).Updates(map[string]interface{}{
 		"last_command_at": now,
 		"command_count":   gorm.Expr("command_count + 1"),
 	}).Error
 	if cmd.Blocked {
-		duration := 0
-		if !session.StartedAt.IsZero() {
-			duration = int(now.Sub(session.StartedAt).Seconds())
-		}
-		_ = h.db.Model(&JumpSession{}).Where("id = ? AND status = ?", session.ID, "active").Updates(map[string]interface{}{
-			"status":       "blocked",
-			"ended_at":     now,
-			"duration_sec": duration,
-			"close_reason": decision.Reason,
-		}).Error
+		_ = h.closeSessionWithStatus(&session, "blocked", decision.Reason, c.GetString("username"), now)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cmd})
@@ -1093,6 +1170,68 @@ func (h *JumpHandler) ListSessionCommands(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cmds})
 }
 
+func (h *JumpHandler) DisconnectSession(c *gin.Context) {
+	if c.GetString("role_code") != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "仅管理员可断开会话"})
+		return
+	}
+	sessionID := c.Param("id")
+	var session JumpSession
+	if err := h.db.First(&session, "id = ?", sessionID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	if session.Status != "active" && session.Status != "pending_approval" {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": session, "message": "会话已结束"})
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "管理员强制断开"
+	}
+	now := time.Now()
+	status := "closed"
+	if session.Status == "pending_approval" {
+		status = "rejected"
+	}
+	if err := h.closeSessionWithStatus(&session, status, reason, c.GetString("username"), now); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	_ = h.db.First(&session, "id = ?", sessionID).Error
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+}
+
+func (h *JumpHandler) ListRiskEvents(c *gin.Context) {
+	var items []JumpRiskEvent
+	query := h.db.Model(&JumpRiskEvent{}).Order("fired_at DESC")
+	if roleCode := c.GetString("role_code"); roleCode != "admin" {
+		query = query.Where("username = ?", c.GetString("username"))
+	}
+	if sessionID := strings.TrimSpace(c.Query("session_id")); sessionID != "" {
+		query = query.Where("session_id = ?", sessionID)
+	}
+	if username := strings.TrimSpace(c.Query("username")); username != "" {
+		query = query.Where("username LIKE ?", "%"+username+"%")
+	}
+	if severity := strings.TrimSpace(c.Query("severity")); severity != "" {
+		query = query.Where("severity = ?", normalizeRuleSeverity(severity))
+	}
+	if eventType := strings.TrimSpace(c.Query("event_type")); eventType != "" {
+		query = query.Where("event_type = ?", strings.ToLower(eventType))
+	}
+	if err := query.Find(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+}
+
 func (h *JumpHandler) CloseSession(c *gin.Context) {
 	sessionID := c.Param("id")
 	var session JumpSession
@@ -1120,20 +1259,43 @@ func (h *JumpHandler) CloseSession(c *gin.Context) {
 	if status == "" {
 		status = "closed"
 	}
+	if err := h.closeSessionWithStatus(&session, status, strings.TrimSpace(req.CloseReason), c.GetString("username"), now); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	h.db.First(&session, "id = ?", sessionID)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+}
+
+func (h *JumpHandler) closeSessionWithStatus(session *JumpSession, status, reason, operator string, now time.Time) error {
+	if session == nil {
+		return nil
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = "closed"
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "normal_close"
+	}
 	duration := 0
 	if !session.StartedAt.IsZero() {
 		duration = int(now.Sub(session.StartedAt).Seconds())
+		if duration < 0 {
+			duration = 0
+		}
 	}
-
 	updates := map[string]interface{}{
-		"status":       status,
-		"ended_at":     now,
-		"duration_sec": duration,
-		"close_reason": strings.TrimSpace(req.CloseReason),
+		"status":          status,
+		"ended_at":        now,
+		"duration_sec":    duration,
+		"close_reason":    reason,
+		"disconnected_by": strings.TrimSpace(operator),
+		"disconnected_at": now,
 	}
-	if err := h.db.Model(&session).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
-		return
+	if err := h.db.Model(session).Where("status IN ?", []string{"pending_approval", "active"}).Updates(updates).Error; err != nil {
+		return err
 	}
 	if strings.TrimSpace(session.RelaySessionID) != "" {
 		_ = h.db.Model(&terminal.TerminalSession{}).Where("id = ?", session.RelaySessionID).Updates(map[string]interface{}{
@@ -1141,8 +1303,150 @@ func (h *JumpHandler) CloseSession(c *gin.Context) {
 			"ended_at": now,
 		}).Error
 	}
-	h.db.First(&session, "id = ?", sessionID)
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+	return nil
+}
+
+func (h *JumpHandler) createRiskEvent(session *JumpSession, cmd *JumpCommand, decision commandRiskDecision, firedAt time.Time) error {
+	if session == nil || cmd == nil || !decision.Matched || decision.WhitelistHit {
+		return nil
+	}
+	eventType := "alert"
+	if decision.Action == "block" {
+		eventType = "blocked"
+	}
+	risk := JumpRiskEvent{
+		SessionID:   session.ID,
+		CommandID:   cmd.ID,
+		AssetID:     session.AssetID,
+		AssetName:   session.AssetName,
+		Username:    session.Username,
+		EventType:   eventType,
+		Severity:    normalizeRuleSeverity(decision.Severity),
+		Action:      normalizeRuleAction(decision.Action),
+		RuleID:      decision.RuleID,
+		RuleName:    decision.RuleName,
+		Command:     cmd.Command,
+		Description: truncateJumpText(decision.Reason, 512),
+		FiredAt:     firedAt,
+	}
+	return h.db.Create(&risk).Error
+}
+
+func (h *JumpHandler) loadSessionPolicy(session *JumpSession, asset *JumpAsset, account *JumpAccount) *JumpPermissionPolicy {
+	if session == nil {
+		return nil
+	}
+	if strings.TrimSpace(session.PolicyID) != "" {
+		var policy JumpPermissionPolicy
+		if err := h.db.First(&policy, "id = ? AND status = ?", session.PolicyID, 1).Error; err == nil {
+			return &policy
+		}
+	}
+	if session.RoleCode == "admin" {
+		return nil
+	}
+	assetID := session.AssetID
+	accountID := session.AccountID
+	protocol := session.Protocol
+	if asset != nil && strings.TrimSpace(protocol) == "" {
+		protocol = asset.Protocol
+	}
+	if account != nil {
+		accountID = account.ID
+	}
+	policy, err := h.resolveAccessPolicy(session.UserID, session.RoleCode, assetID, accountID, protocol)
+	if err != nil {
+		return nil
+	}
+	if policy != nil && strings.TrimSpace(policy.ID) != "" && session.PolicyID == "" {
+		_ = h.db.Model(&JumpSession{}).Where("id = ?", session.ID).Update("policy_id", policy.ID).Error
+	}
+	return policy
+}
+
+func validatePolicyTimeWindow(policy *JumpPermissionPolicy, now time.Time) string {
+	if policy == nil {
+		return ""
+	}
+	start := strings.TrimSpace(policy.TimeWindowStart)
+	end := strings.TrimSpace(policy.TimeWindowEnd)
+	if start == "" && end == "" {
+		return ""
+	}
+	startMin, okStart := parseHHMM(start)
+	endMin, okEnd := parseHHMM(end)
+	if !okStart || !okEnd {
+		return ""
+	}
+	currentMin := now.Hour()*60 + now.Minute()
+	allowed := false
+	if startMin <= endMin {
+		allowed = currentMin >= startMin && currentMin <= endMin
+	} else {
+		allowed = currentMin >= startMin || currentMin <= endMin
+	}
+	if allowed {
+		return ""
+	}
+	return fmt.Sprintf("当前时间不在授权时段（%s-%s）", start, end)
+}
+
+func parseHHMM(v string) (int, bool) {
+	v = strings.TrimSpace(v)
+	if len(v) != 5 {
+		return 0, false
+	}
+	t, err := time.Parse("15:04", v)
+	if err != nil {
+		return 0, false
+	}
+	return t.Hour()*60 + t.Minute(), true
+}
+
+func validatePolicyPayload(start, end string, maxDuration, concurrentLimit int) string {
+	start = strings.TrimSpace(start)
+	end = strings.TrimSpace(end)
+	if (start == "") != (end == "") {
+		return "授权时段需同时填写开始和结束时间"
+	}
+	if start != "" || end != "" {
+		if _, ok := parseHHMM(start); !ok {
+			return "开始时间格式错误，应为 HH:MM"
+		}
+		if _, ok := parseHHMM(end); !ok {
+			return "结束时间格式错误，应为 HH:MM"
+		}
+	}
+	if maxDuration < 0 {
+		return "最大会话时长不能小于 0"
+	}
+	if concurrentLimit < 0 {
+		return "并发会话上限不能小于 0"
+	}
+	return ""
+}
+
+func intFromAny(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case int32:
+		return int(n), true
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(n))
+		if err != nil {
+			return 0, false
+		}
+		return i, true
+	default:
+		return 0, false
+	}
 }
 
 func (h *JumpHandler) createTerminalRelaySession(session *JumpSession, asset *JumpAsset, account *JumpAccount, operator string) (*terminal.TerminalSession, error) {

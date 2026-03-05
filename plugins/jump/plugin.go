@@ -1,9 +1,13 @@
 package jump
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -32,14 +36,18 @@ func (p *JumpPlugin) Start() error { return nil }
 func (p *JumpPlugin) Stop() error  { return nil }
 
 func (p *JumpPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(
+	if err := p.core.DB.AutoMigrate(
 		&JumpAsset{},
 		&JumpAccount{},
 		&JumpPermissionPolicy{},
 		&JumpSession{},
 		&JumpCommandRule{},
 		&JumpCommand{},
-	)
+		&JumpRiskEvent{},
+	); err != nil {
+		return err
+	}
+	return ensureDefaultJumpCommandRules(p.core)
 }
 
 func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
@@ -89,10 +97,62 @@ func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/sessions/:id/commands", p.handler.RecordCommand)
 	r.GET("/sessions/:id/commands", p.handler.ListSessionCommands)
 	r.POST("/sessions/:id/close", p.handler.CloseSession)
+	r.POST("/sessions/:id/disconnect", p.handler.DisconnectSession)
+	r.GET("/risk-events", p.handler.ListRiskEvents)
 
 	// 资产同步
 	r.POST("/sync/cmdb-hosts", p.handler.SyncFromCMDBHosts)
 	r.POST("/sync/k8s-clusters", p.handler.SyncFromK8sClusters)
 	r.POST("/sync/docker-hosts", p.handler.SyncFromDockerHosts)
 	r.POST("/sync/all", p.handler.SyncAllAssets)
+}
+
+func ensureDefaultJumpCommandRules(c *core.Core) error {
+	if c == nil || c.DB == nil {
+		return nil
+	}
+	defaults := []JumpCommandRule{
+		{
+			Name:      "阻断 rm -rf 根目录",
+			Pattern:   "rm -rf /",
+			MatchType: "contains",
+			RuleKind:  "risk",
+			Protocol:  "ssh",
+			Severity:  "critical",
+			Action:    "block",
+			Priority:  1000,
+			Enabled:   true,
+		},
+		{
+			Name:      "阻断 mkfs 格式化命令",
+			Pattern:   "mkfs.",
+			MatchType: "contains",
+			RuleKind:  "risk",
+			Protocol:  "",
+			Severity:  "critical",
+			Action:    "block",
+			Priority:  900,
+			Enabled:   true,
+		},
+	}
+
+	for i := range defaults {
+		rule := defaults[i]
+		rule.Name = strings.TrimSpace(rule.Name)
+		if rule.Name == "" {
+			continue
+		}
+		var existing JumpCommandRule
+		err := c.DB.Where("name = ?", rule.Name).First(&existing).Error
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if createErr := c.DB.Create(&rule).Error; createErr != nil {
+			return createErr
+		}
+	}
+	return nil
 }
