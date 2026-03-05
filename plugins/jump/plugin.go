@@ -96,6 +96,7 @@ func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/sessions/:id", p.handler.GetSession)
 	r.POST("/sessions/:id/commands", p.handler.RecordCommand)
 	r.GET("/sessions/:id/commands", p.handler.ListSessionCommands)
+	r.POST("/sessions/:id/sql/execute", p.handler.ExecuteSQL)
 	r.POST("/sessions/:id/close", p.handler.CloseSession)
 	r.POST("/sessions/:id/disconnect", p.handler.DisconnectSession)
 	r.GET("/risk-events", p.handler.ListRiskEvents)

@@ -105,6 +105,7 @@ type JumpCommand struct {
 	core.BaseModel
 	SessionID     string    `gorm:"size:36;index:idx_jump_command_session_time,priority:1" json:"session_id"`
 	Username      string    `gorm:"size:128;index:idx_jump_command_user_time,priority:1" json:"username"`
+	CommandType   string    `gorm:"size:16;default:shell;index" json:"command_type"` // shell, sql
 	Command       string    `gorm:"type:text" json:"command"`
 	ResultCode    int       `json:"result_code"`
 	OutputSnippet string    `gorm:"type:text" json:"output_snippet"`

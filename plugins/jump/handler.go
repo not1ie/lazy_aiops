@@ -2,6 +2,7 @@ package jump
 
 import (
 	"crypto/sha1"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/docker"
@@ -986,6 +988,18 @@ func (h *JumpHandler) ConnectSession(c *gin.Context) {
 			"protocol":        protocol,
 		}})
 		return
+	case "mysql", "postgres":
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+			"mode":            "sql",
+			"relay_plugin":    "jump",
+			"open_url":        "/jump/sessions",
+			"jump_session_id": session.ID,
+			"jump_session_no": session.SessionNo,
+			"protocol":        protocol,
+			"execute_api":     fmt.Sprintf("/api/v1/jump/sessions/%s/sql/execute", session.ID),
+			"note":            "可在会话审计页进入 SQL 控制台执行并审计 SQL 语句",
+		}})
+		return
 	default:
 		c.JSON(http.StatusNotImplemented, gin.H{"code": 501, "message": "当前协议尚未接入在线代理，请先使用命令审计模式"})
 		return
@@ -1111,6 +1125,7 @@ func (h *JumpHandler) RecordCommand(c *gin.Context) {
 	cmd := JumpCommand{
 		SessionID:     session.ID,
 		Username:      session.Username,
+		CommandType:   "shell",
 		Command:       req.Command,
 		ResultCode:    req.ResultCode,
 		OutputSnippet: req.OutputSnippet,
@@ -1144,6 +1159,150 @@ func (h *JumpHandler) RecordCommand(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cmd})
 }
 
+func (h *JumpHandler) ExecuteSQL(c *gin.Context) {
+	sessionID := c.Param("id")
+	var session JumpSession
+	if err := h.db.First(&session, "id = ?", sessionID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	if c.GetString("role_code") != "admin" && session.UserID != c.GetString("user_id") {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "无权限执行该会话SQL"})
+		return
+	}
+	if session.Status != "active" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话不可执行SQL"})
+		return
+	}
+
+	var req struct {
+		SQL      string `json:"sql" binding:"required"`
+		Database string `json:"database"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	sqlText := strings.TrimSpace(req.SQL)
+	if sqlText == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "SQL不能为空"})
+		return
+	}
+	if strings.Count(sqlText, ";") > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "一次只允许执行一条SQL"})
+		return
+	}
+
+	var asset JumpAsset
+	if err := h.db.First(&asset, "id = ?", session.AssetID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "关联资产不存在"})
+		return
+	}
+	var account JumpAccount
+	if err := h.db.First(&account, "id = ?", session.AccountID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "关联账号不存在"})
+		return
+	}
+
+	now := time.Now()
+	policy := h.loadSessionPolicy(&session, &asset, &account)
+	if policy != nil && policy.MaxDurationSec > 0 && !session.StartedAt.IsZero() {
+		if int(now.Sub(session.StartedAt).Seconds()) >= policy.MaxDurationSec {
+			_ = h.closeSessionWithStatus(&session, "closed", "会话已达到策略最大时长，需重新发起", c.GetString("username"), now)
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话已达到策略最大时长，需重新发起"})
+			return
+		}
+	}
+
+	decision := h.evaluateCommandRisk(session.Protocol, sqlText)
+	alertID := ""
+	if decision.Matched && !decision.WhitelistHit && (decision.Action == "alert" || decision.Action == "block") {
+		alertID = h.createCommandRiskAlert(&session, decision, sqlText, now)
+	}
+
+	cmd := JumpCommand{
+		SessionID:    session.ID,
+		Username:     session.Username,
+		CommandType:  "sql",
+		Command:      sqlText,
+		ResultCode:   0,
+		RuleID:       strings.Join(decision.RuleIDs, ","),
+		RuleName:     strings.Join(decision.RuleNames, ","),
+		WhitelistHit: decision.WhitelistHit,
+		RiskLevel:    decision.Severity,
+		RiskAction:   decision.Action,
+		RiskReason:   decision.Reason,
+		Blocked:      decision.Matched && !decision.WhitelistHit && decision.Action == "block",
+		AlertID:      alertID,
+		ExecutedAt:   now,
+	}
+	matchedRules, _ := json.Marshal(decision.MatchedRules)
+	cmd.MatchedRules = string(matchedRules)
+
+	if cmd.Blocked {
+		cmd.ResultCode = 1
+		cmd.OutputSnippet = "命中阻断策略，SQL已拒绝执行"
+		if err := h.db.Create(&cmd).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		_ = h.createRiskEvent(&session, &cmd, decision, now)
+		_ = h.db.Model(&JumpSession{}).Where("id = ?", session.ID).Updates(map[string]interface{}{
+			"last_command_at": now,
+			"command_count":   gorm.Expr("command_count + 1"),
+		}).Error
+		_ = h.closeSessionWithStatus(&session, "blocked", decision.Reason, c.GetString("username"), now)
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": cmd, "message": "命中阻断策略，SQL已拒绝执行"})
+		return
+	}
+
+	startAt := time.Now()
+	output, affectedRows, resultCode, execErr := h.executeSQLOnAsset(&session, &asset, &account, req.Database, sqlText)
+	durationMS := int(time.Since(startAt).Milliseconds())
+	cmd.ResultCode = resultCode
+	cmd.OutputSnippet = output
+	if execErr != nil {
+		cmd.ResultCode = 1
+		if cmd.RiskLevel == "" {
+			cmd.RiskLevel = "warning"
+		}
+		if cmd.RiskAction == "" {
+			cmd.RiskAction = "alert"
+		}
+		cmd.RiskReason = truncateJumpText(execErr.Error(), 512)
+	}
+
+	if err := h.db.Create(&cmd).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if decision.Matched && !decision.WhitelistHit {
+		_ = h.createRiskEvent(&session, &cmd, decision, now)
+	}
+	_ = h.db.Model(&JumpSession{}).Where("id = ?", session.ID).Updates(map[string]interface{}{
+		"last_command_at": now,
+		"command_count":   gorm.Expr("command_count + 1"),
+	}).Error
+
+	if execErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": execErr.Error(), "data": gin.H{
+			"session_id":    session.ID,
+			"command_id":    cmd.ID,
+			"duration_ms":   durationMS,
+			"affected_rows": affectedRows,
+			"output":        output,
+		}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"session_id":    session.ID,
+		"command_id":    cmd.ID,
+		"duration_ms":   durationMS,
+		"affected_rows": affectedRows,
+		"output":        output,
+	}})
+}
+
 func (h *JumpHandler) ListSessionCommands(c *gin.Context) {
 	sessionID := c.Param("id")
 	var session JumpSession
@@ -1158,6 +1317,9 @@ func (h *JumpHandler) ListSessionCommands(c *gin.Context) {
 
 	var cmds []JumpCommand
 	query := h.db.Where("session_id = ?", sessionID).Order("executed_at DESC")
+	if commandType := strings.TrimSpace(c.Query("command_type")); commandType != "" {
+		query = query.Where("command_type = ?", strings.ToLower(commandType))
+	}
 	if limitText := strings.TrimSpace(c.Query("limit")); limitText != "" {
 		if limit, err := strconv.Atoi(limitText); err == nil && limit > 0 && limit <= 1000 {
 			query = query.Limit(limit)
@@ -1401,6 +1563,126 @@ func parseHHMM(v string) (int, bool) {
 		return 0, false
 	}
 	return t.Hour()*60 + t.Minute(), true
+}
+
+func (h *JumpHandler) executeSQLOnAsset(session *JumpSession, asset *JumpAsset, account *JumpAccount, databaseName, sqlText string) (string, int64, int, error) {
+	if session == nil || asset == nil || account == nil {
+		return "", 0, 1, errors.New("会话上下文不完整")
+	}
+	protocol := strings.ToLower(strings.TrimSpace(session.Protocol))
+	if protocol == "" {
+		protocol = strings.ToLower(strings.TrimSpace(asset.Protocol))
+	}
+	switch protocol {
+	case "mysql":
+		return h.executeMySQL(asset, account, databaseName, sqlText)
+	case "postgres":
+		return "", 0, 1, errors.New("当前版本未编译 PostgreSQL 驱动，暂不支持在线执行，仅支持审计录入")
+	default:
+		return "", 0, 1, fmt.Errorf("协议 %s 不支持在线SQL执行", protocol)
+	}
+}
+
+func (h *JumpHandler) executeMySQL(asset *JumpAsset, account *JumpAccount, databaseName, sqlText string) (string, int64, int, error) {
+	host := strings.TrimSpace(asset.Address)
+	if host == "" {
+		return "", 0, 1, errors.New("资产地址为空")
+	}
+	port := asset.Port
+	if port <= 0 {
+		port = 3306
+	}
+	username := strings.TrimSpace(account.Username)
+	if username == "" {
+		return "", 0, 1, errors.New("账号用户名为空")
+	}
+	secret, err := decryptJumpSecret(h.secretKey, strings.TrimSpace(account.Secret))
+	if err != nil {
+		return "", 0, 1, errors.New("账号密钥解密失败")
+	}
+	password := strings.TrimSpace(secret)
+	if password == "" {
+		return "", 0, 1, errors.New("账号密码为空")
+	}
+	dbName := strings.TrimSpace(databaseName)
+	if dbName == "" {
+		dbName = strings.TrimSpace(asset.Namespace)
+	}
+	if dbName == "" {
+		dbName = "mysql"
+	}
+
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=true&loc=Local&multiStatements=false", username, password, host, port, dbName)
+	conn, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return "", 0, 1, err
+	}
+	defer conn.Close()
+	conn.SetConnMaxLifetime(30 * time.Second)
+	conn.SetMaxOpenConns(2)
+	conn.SetMaxIdleConns(1)
+	if err := conn.Ping(); err != nil {
+		return "", 0, 1, err
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(sqlText))
+	queryLike := strings.HasPrefix(normalized, "select") ||
+		strings.HasPrefix(normalized, "show") ||
+		strings.HasPrefix(normalized, "desc") ||
+		strings.HasPrefix(normalized, "describe") ||
+		strings.HasPrefix(normalized, "explain")
+	if queryLike {
+		return runMySQLQuery(conn, sqlText)
+	}
+	res, err := conn.Exec(sqlText)
+	if err != nil {
+		return "", 0, 1, err
+	}
+	affected, _ := res.RowsAffected()
+	return fmt.Sprintf("ok, affected_rows=%d", affected), affected, 0, nil
+}
+
+func runMySQLQuery(conn *sql.DB, sqlText string) (string, int64, int, error) {
+	rows, err := conn.Query(sqlText)
+	if err != nil {
+		return "", 0, 1, err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return "", 0, 1, err
+	}
+	resultRows := make([]map[string]string, 0, 20)
+	count := 0
+	for rows.Next() {
+		values := make([]sql.RawBytes, len(cols))
+		scanArgs := make([]interface{}, len(cols))
+		for i := range values {
+			scanArgs[i] = &values[i]
+		}
+		if err := rows.Scan(scanArgs...); err != nil {
+			return "", 0, 1, err
+		}
+		row := map[string]string{}
+		for i, col := range cols {
+			row[col] = string(values[i])
+		}
+		if len(resultRows) < 20 {
+			resultRows = append(resultRows, row)
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return "", 0, 1, err
+	}
+	body, _ := json.Marshal(gin.H{
+		"columns": cols,
+		"rows":    resultRows,
+		"count":   count,
+		"trunc":   count > len(resultRows),
+	})
+	return string(body), int64(count), 0, nil
 }
 
 func validatePolicyPayload(start, end string, maxDuration, concurrentLimit int) string {

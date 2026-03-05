@@ -139,6 +139,27 @@
     </template>
   </el-dialog>
 
+  <el-dialog append-to-body v-model="sqlConsoleVisible" title="SQL 控制台" width="760px">
+    <el-form :model="sqlForm" label-width="90px">
+      <el-form-item label="会话">
+        <el-input :model-value="`${currentSession?.session_no || '-'} / ${currentSession?.asset_name || '-'}`" disabled />
+      </el-form-item>
+      <el-form-item label="数据库">
+        <el-input v-model="sqlForm.database" placeholder="可选，留空按资产默认数据库执行" />
+      </el-form-item>
+      <el-form-item label="SQL" required>
+        <el-input v-model="sqlForm.sql" type="textarea" :rows="6" placeholder="一次只执行一条 SQL" />
+      </el-form-item>
+    </el-form>
+    <div v-if="sqlResultText" class="sql-result">
+      <pre>{{ sqlResultText }}</pre>
+    </div>
+    <template #footer>
+      <el-button @click="sqlConsoleVisible = false">关闭</el-button>
+      <el-button type="primary" :loading="sqlExecuting" @click="executeSQL">执行并审计</el-button>
+    </template>
+  </el-dialog>
+
   <el-drawer v-model="commandsVisible" title="命令审计记录" size="52%">
     <template #default>
       <div class="drawer-subtitle">会话：{{ currentSession?.session_no || '-' }} / {{ currentSession?.asset_name || '-' }}</div>
@@ -147,6 +168,7 @@
           <template #default="{ row }">{{ formatTime(row.executed_at) }}</template>
         </el-table-column>
         <el-table-column prop="username" label="用户" width="110" />
+        <el-table-column prop="command_type" label="类型" width="90" />
         <el-table-column prop="result_code" label="返回码" width="90" />
         <el-table-column label="风险级别" width="110">
           <template #default="{ row }">
@@ -202,6 +224,7 @@ const starting = ref(false)
 const recording = ref(false)
 const commandsLoading = ref(false)
 const riskEventsLoading = ref(false)
+const sqlExecuting = ref(false)
 
 const sessions = ref([])
 const assets = ref([])
@@ -213,10 +236,12 @@ const currentSession = ref(null)
 
 const startDialogVisible = ref(false)
 const recordDialogVisible = ref(false)
+const sqlConsoleVisible = ref(false)
 const commandsVisible = ref(false)
 const riskEventsVisible = ref(false)
 
 const recordSessionID = ref('')
+const sqlSessionID = ref('')
 
 const filters = reactive({
   username: '',
@@ -236,6 +261,12 @@ const commandForm = reactive({
   result_code: 0,
   output_snippet: ''
 })
+
+const sqlForm = reactive({
+  database: '',
+  sql: ''
+})
+const sqlResultText = ref('')
 
 const isAdmin = localStorage.getItem('role_code') === 'admin'
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
@@ -386,6 +417,17 @@ const openRecordDialog = (row) => {
   recordDialogVisible.value = true
 }
 
+const openSQLConsole = (row) => {
+  currentSession.value = row
+  sqlSessionID.value = row.id
+  sqlResultText.value = ''
+  Object.assign(sqlForm, {
+    database: '',
+    sql: ''
+  })
+  sqlConsoleVisible.value = true
+}
+
 const recordCommand = async () => {
   if (!commandForm.command) {
     ElMessage.warning('请填写命令内容')
@@ -449,6 +491,10 @@ const connectSession = async (row) => {
     const res = await axios.post(`/api/v1/jump/sessions/${row.id}/connect`, {}, { headers: authHeaders() })
     if (res.data.code !== 0) return
     const data = res.data.data || {}
+    if (data.mode === 'sql' || ['mysql', 'postgres'].includes(String(row.protocol || '').toLowerCase())) {
+      openSQLConsole(row)
+      return
+    }
     const openUrl = data.open_url
     if (!openUrl) {
       ElMessage.warning('未返回可连接地址')
@@ -457,6 +503,40 @@ const connectSession = async (row) => {
     window.open(openUrl, '_blank')
   } catch (error) {
     ElMessage.error(error?.response?.data?.message || '连接失败')
+  }
+}
+
+const executeSQL = async () => {
+  if (!sqlSessionID.value) {
+    ElMessage.warning('会话不存在')
+    return
+  }
+  if (!sqlForm.sql.trim()) {
+    ElMessage.warning('请填写 SQL')
+    return
+  }
+  sqlExecuting.value = true
+  try {
+    const res = await axios.post(
+      `/api/v1/jump/sessions/${sqlSessionID.value}/sql/execute`,
+      { sql: sqlForm.sql, database: sqlForm.database || '' },
+      { headers: authHeaders() }
+    )
+    if (res.data.code === 0) {
+      const data = res.data.data || {}
+      sqlResultText.value = JSON.stringify(data, null, 2)
+      ElMessage.success('SQL 执行并审计成功')
+      await Promise.all([loadSessions(), openCommands(currentSession.value)])
+    } else {
+      sqlResultText.value = JSON.stringify(res.data, null, 2)
+      ElMessage.warning(res.data.message || 'SQL 执行失败')
+    }
+  } catch (error) {
+    const payload = error?.response?.data || { message: 'SQL 执行失败' }
+    sqlResultText.value = JSON.stringify(payload, null, 2)
+    ElMessage.error(payload.message || 'SQL 执行失败')
+  } finally {
+    sqlExecuting.value = false
   }
 }
 
@@ -474,6 +554,8 @@ onMounted(async () => {
 .toolbar { margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 .filter-item { width: 220px; }
 .drawer-subtitle { margin-bottom: 12px; color: #606266; }
+.sql-result { margin-top: 8px; max-height: 220px; overflow: auto; background: #0b1220; color: #cfd8e3; border-radius: 8px; padding: 10px; }
+.sql-result pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.4; }
 @media (max-width: 768px) {
   .header { flex-direction: column; align-items: flex-start; }
   .filter-item { width: 100%; }
