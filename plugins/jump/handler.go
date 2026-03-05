@@ -21,6 +21,7 @@ import (
 	"github.com/lazyautoops/lazy-auto-ops/plugins/docker"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/k8s"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/terminal"
+	_ "github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -1577,7 +1578,7 @@ func (h *JumpHandler) executeSQLOnAsset(session *JumpSession, asset *JumpAsset, 
 	case "mysql":
 		return h.executeMySQL(asset, account, databaseName, sqlText)
 	case "postgres":
-		return "", 0, 1, errors.New("当前版本未编译 PostgreSQL 驱动，暂不支持在线执行，仅支持审计录入")
+		return h.executePostgres(asset, account, databaseName, sqlText)
 	default:
 		return "", 0, 1, fmt.Errorf("协议 %s 不支持在线SQL执行", protocol)
 	}
@@ -1632,7 +1633,7 @@ func (h *JumpHandler) executeMySQL(asset *JumpAsset, account *JumpAccount, datab
 		strings.HasPrefix(normalized, "describe") ||
 		strings.HasPrefix(normalized, "explain")
 	if queryLike {
-		return runMySQLQuery(conn, sqlText)
+		return runGenericSQLQuery(conn, sqlText)
 	}
 	res, err := conn.Exec(sqlText)
 	if err != nil {
@@ -1642,7 +1643,65 @@ func (h *JumpHandler) executeMySQL(asset *JumpAsset, account *JumpAccount, datab
 	return fmt.Sprintf("ok, affected_rows=%d", affected), affected, 0, nil
 }
 
-func runMySQLQuery(conn *sql.DB, sqlText string) (string, int64, int, error) {
+func (h *JumpHandler) executePostgres(asset *JumpAsset, account *JumpAccount, databaseName, sqlText string) (string, int64, int, error) {
+	host := strings.TrimSpace(asset.Address)
+	if host == "" {
+		return "", 0, 1, errors.New("资产地址为空")
+	}
+	port := asset.Port
+	if port <= 0 {
+		port = 5432
+	}
+	username := strings.TrimSpace(account.Username)
+	if username == "" {
+		return "", 0, 1, errors.New("账号用户名为空")
+	}
+	secret, err := decryptJumpSecret(h.secretKey, strings.TrimSpace(account.Secret))
+	if err != nil {
+		return "", 0, 1, errors.New("账号密钥解密失败")
+	}
+	password := strings.TrimSpace(secret)
+	if password == "" {
+		return "", 0, 1, errors.New("账号密码为空")
+	}
+	dbName := strings.TrimSpace(databaseName)
+	if dbName == "" {
+		dbName = strings.TrimSpace(asset.Namespace)
+	}
+	if dbName == "" {
+		dbName = "postgres"
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, username, password, dbName)
+	conn, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return "", 0, 1, err
+	}
+	defer conn.Close()
+	conn.SetConnMaxLifetime(30 * time.Second)
+	conn.SetMaxOpenConns(2)
+	conn.SetMaxIdleConns(1)
+	if err := conn.Ping(); err != nil {
+		return "", 0, 1, err
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(sqlText))
+	queryLike := strings.HasPrefix(normalized, "select") ||
+		strings.HasPrefix(normalized, "show") ||
+		strings.HasPrefix(normalized, "with") ||
+		strings.HasPrefix(normalized, "explain")
+	if queryLike {
+		return runGenericSQLQuery(conn, sqlText)
+	}
+	res, err := conn.Exec(sqlText)
+	if err != nil {
+		return "", 0, 1, err
+	}
+	affected, _ := res.RowsAffected()
+	return fmt.Sprintf("ok, affected_rows=%d", affected), affected, 0, nil
+}
+
+func runGenericSQLQuery(conn *sql.DB, sqlText string) (string, int64, int, error) {
 	rows, err := conn.Query(sqlText)
 	if err != nil {
 		return "", 0, 1, err
@@ -1656,7 +1715,7 @@ func runMySQLQuery(conn *sql.DB, sqlText string) (string, int64, int, error) {
 	resultRows := make([]map[string]string, 0, 20)
 	count := 0
 	for rows.Next() {
-		values := make([]sql.RawBytes, len(cols))
+		values := make([]interface{}, len(cols))
 		scanArgs := make([]interface{}, len(cols))
 		for i := range values {
 			scanArgs[i] = &values[i]
@@ -1666,7 +1725,7 @@ func runMySQLQuery(conn *sql.DB, sqlText string) (string, int64, int, error) {
 		}
 		row := map[string]string{}
 		for i, col := range cols {
-			row[col] = string(values[i])
+			row[col] = sqlValueToString(values[i])
 		}
 		if len(resultRows) < 20 {
 			resultRows = append(resultRows, row)
@@ -1683,6 +1742,22 @@ func runMySQLQuery(conn *sql.DB, sqlText string) (string, int64, int, error) {
 		"trunc":   count > len(resultRows),
 	})
 	return string(body), int64(count), 0, nil
+}
+
+func sqlValueToString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case []byte:
+		return string(t)
+	case string:
+		return t
+	case time.Time:
+		return t.Format(time.RFC3339)
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 func validatePolicyPayload(start, end string, maxDuration, concurrentLimit int) string {
