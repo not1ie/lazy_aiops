@@ -21,22 +21,24 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
+	"github.com/lazyautoops/lazy-auto-ops/internal/security"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
 
 type DockerHandler struct {
-	db   *gorm.DB
-	auth *core.AuthService
+	db        *gorm.DB
+	auth      *core.AuthService
+	secretKey string
 }
 
 var dockerUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func NewDockerHandler(db *gorm.DB, auth *core.AuthService) *DockerHandler {
-	return &DockerHandler{db: db, auth: auth}
+func NewDockerHandler(db *gorm.DB, auth *core.AuthService, secretKey string) *DockerHandler {
+	return &DockerHandler{db: db, auth: auth, secretKey: secretKey}
 }
 
 // ================= Host Management =================
@@ -775,8 +777,11 @@ func (h *DockerHandler) PullImage(c *gin.Context) {
 	// 异步拉取，避免阻塞？或者同步等待返回结果？Portainer 通常是长连接或轮询。
 	// 这里简化为同步等待，超时设长一点。
 	// 注意：docker pull 输出到 stdout
-	cmd := fmt.Sprintf("docker pull %s", req.Image)
-	stdout, stderr, err := client.Execute(cmd)
+	if !isSafeImageRef(req.Image) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法镜像名称"})
+		return
+	}
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker pull %s", shellEscape(req.Image)))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": fmt.Sprintf("拉取失败: %s | %s", err.Error(), stderr)})
 		return
@@ -789,6 +794,10 @@ func (h *DockerHandler) PullImage(c *gin.Context) {
 func (h *DockerHandler) RemoveImage(c *gin.Context) {
 	id := c.Param("id")
 	imageID := c.Param("image_id")
+	if !isSafeImageRef(imageID) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法镜像ID"})
+		return
+	}
 
 	client, err := h.getClient(id)
 	if err != nil {
@@ -796,7 +805,7 @@ func (h *DockerHandler) RemoveImage(c *gin.Context) {
 		return
 	}
 
-	_, stderr, err := client.Execute(fmt.Sprintf("docker rmi %s", imageID))
+	_, stderr, err := client.Execute(fmt.Sprintf("docker rmi %s", shellEscape(imageID)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -856,12 +865,16 @@ func (h *DockerHandler) ListVolumes(c *gin.Context) {
 func (h *DockerHandler) InspectVolume(c *gin.Context) {
 	id := c.Param("id")
 	volume := c.Param("volume")
+	if !isSafeDockerIdentifier(volume) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 volume 参数"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	stdout, stderr, err := client.Execute(fmt.Sprintf("docker volume inspect %s", volume))
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker volume inspect %s", shellEscape(volume)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -926,12 +939,16 @@ func (h *DockerHandler) CreateVolume(c *gin.Context) {
 func (h *DockerHandler) RemoveVolume(c *gin.Context) {
 	id := c.Param("id")
 	volume := c.Param("volume")
+	if !isSafeDockerIdentifier(volume) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 volume 参数"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	_, stderr, err := client.Execute(fmt.Sprintf("docker volume rm %s", volume))
+	_, stderr, err := client.Execute(fmt.Sprintf("docker volume rm %s", shellEscape(volume)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -966,12 +983,16 @@ func (h *DockerHandler) ListSecrets(c *gin.Context) {
 func (h *DockerHandler) InspectSecret(c *gin.Context) {
 	id := c.Param("id")
 	secret := c.Param("secret")
+	if !isSafeDockerIdentifier(secret) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 secret 参数"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	stdout, stderr, err := client.Execute(fmt.Sprintf("docker secret inspect %s", secret))
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker secret inspect %s", shellEscape(secret)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -1003,13 +1024,17 @@ func (h *DockerHandler) CreateSecret(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name 参数错误"})
 		return
 	}
+	if !isSafeDockerIdentifier(req.Name) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 secret 名称"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(req.Data))
-	cmd := fmt.Sprintf("printf '%s' | base64 -d | docker secret create %s -", encoded, req.Name)
+	cmd := fmt.Sprintf("printf %s | base64 -d | docker secret create %s -", shellEscape(encoded), shellEscape(req.Name))
 	_, stderr, err := client.Execute(cmd)
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
@@ -1026,12 +1051,16 @@ func (h *DockerHandler) CreateSecret(c *gin.Context) {
 func (h *DockerHandler) RemoveSecret(c *gin.Context) {
 	id := c.Param("id")
 	secret := c.Param("secret")
+	if !isSafeDockerIdentifier(secret) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 secret 参数"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	_, stderr, err := client.Execute(fmt.Sprintf("docker secret rm %s", secret))
+	_, stderr, err := client.Execute(fmt.Sprintf("docker secret rm %s", shellEscape(secret)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -1064,12 +1093,16 @@ func (h *DockerHandler) ListConfigs(c *gin.Context) {
 func (h *DockerHandler) InspectConfig(c *gin.Context) {
 	id := c.Param("id")
 	config := c.Param("config")
+	if !isSafeDockerIdentifier(config) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 config 参数"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	stdout, stderr, err := client.Execute(fmt.Sprintf("docker config inspect %s", config))
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker config inspect %s", shellEscape(config)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -1101,13 +1134,17 @@ func (h *DockerHandler) CreateConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "name 参数错误"})
 		return
 	}
+	if !isSafeDockerIdentifier(req.Name) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 config 名称"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(req.Data))
-	cmd := fmt.Sprintf("printf '%s' | base64 -d | docker config create %s -", encoded, req.Name)
+	cmd := fmt.Sprintf("printf %s | base64 -d | docker config create %s -", shellEscape(encoded), shellEscape(req.Name))
 	_, stderr, err := client.Execute(cmd)
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
@@ -1124,12 +1161,16 @@ func (h *DockerHandler) CreateConfig(c *gin.Context) {
 func (h *DockerHandler) RemoveConfig(c *gin.Context) {
 	id := c.Param("id")
 	config := c.Param("config")
+	if !isSafeDockerIdentifier(config) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 config 参数"})
+		return
+	}
 	client, err := h.getClient(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	_, stderr, err := client.Execute(fmt.Sprintf("docker config rm %s", config))
+	_, stderr, err := client.Execute(fmt.Sprintf("docker config rm %s", shellEscape(config)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -1612,9 +1653,14 @@ func (h *DockerHandler) CreateRegistry(c *gin.Context) {
 		Name:     req.Name,
 		URL:      req.URL,
 		Username: req.Username,
-		Password: req.Password,
 		Insecure: req.Insecure,
 	}
+	encPassword, err := security.Encrypt(h.secretKey, "docker.registry.password", req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "仓库密码加密失败"})
+		return
+	}
+	reg.Password = encPassword
 	if err := h.db.Create(&reg).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -1648,7 +1694,11 @@ func (h *DockerHandler) LoginRegistry(c *gin.Context) {
 	}
 
 	user := strings.TrimSpace(reg.Username)
-	pass := reg.Password
+	pass, err := security.Decrypt(h.secretKey, "docker.registry.password", reg.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "仓库密码解密失败"})
+		return
+	}
 	url := strings.TrimSpace(reg.URL)
 	if user == "" || pass == "" || url == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "仓库凭据不完整"})
@@ -1656,7 +1706,7 @@ func (h *DockerHandler) LoginRegistry(c *gin.Context) {
 	}
 
 	encoded := base64.StdEncoding.EncodeToString([]byte(pass))
-	cmd := fmt.Sprintf("printf '%s' | base64 -d | docker login %s -u %s --password-stdin", encoded, url, user)
+	cmd := fmt.Sprintf("printf %s | base64 -d | docker login %s -u %s --password-stdin", shellEscape(encoded), shellEscape(url), shellEscape(user))
 	stdout, stderr, err := client.Execute(cmd)
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
@@ -1747,6 +1797,10 @@ func (h *DockerHandler) ListNetworks(c *gin.Context) {
 func (h *DockerHandler) InspectNetwork(c *gin.Context) {
 	id := c.Param("id")
 	networkID := c.Param("network_id")
+	if !isSafeDockerIdentifier(networkID) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 network 参数"})
+		return
+	}
 
 	client, err := h.getClient(id)
 	if err != nil {
@@ -1754,7 +1808,7 @@ func (h *DockerHandler) InspectNetwork(c *gin.Context) {
 		return
 	}
 
-	stdout, stderr, err := client.Execute(fmt.Sprintf("docker network inspect %s", networkID))
+	stdout, stderr, err := client.Execute(fmt.Sprintf("docker network inspect %s", shellEscape(networkID)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -1780,6 +1834,10 @@ func (h *DockerHandler) InspectNetwork(c *gin.Context) {
 func (h *DockerHandler) RemoveNetwork(c *gin.Context) {
 	id := c.Param("id")
 	networkID := c.Param("network_id")
+	if !isSafeDockerIdentifier(networkID) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "非法 network 参数"})
+		return
+	}
 
 	client, err := h.getClient(id)
 	if err != nil {
@@ -1787,7 +1845,7 @@ func (h *DockerHandler) RemoveNetwork(c *gin.Context) {
 		return
 	}
 
-	_, stderr, err := client.Execute(fmt.Sprintf("docker network rm %s", networkID))
+	_, stderr, err := client.Execute(fmt.Sprintf("docker network rm %s", shellEscape(networkID)))
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
@@ -2587,7 +2645,7 @@ func (l *LocalExecutor) Execute(cmd string) (string, string, error) {
 // ================= Helper Functions =================
 
 func (h *DockerHandler) getClient(dockerHostID string) (CommandExecutor, error) {
-	return GetExecutorByHost(h.db, dockerHostID)
+	return GetExecutorByHost(h.db, h.secretKey, dockerHostID)
 }
 
 // parseJSONList 解析Docker CLI返回的逐行JSON
@@ -2653,6 +2711,29 @@ func shellEscape(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
+func isSafeDockerIdentifier(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " \t\r\n`$;&|<>") {
+		return false
+	}
+	for _, ch := range value {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
+			continue
+		}
+		switch ch {
+		case '-', '_', '.', ':', '/':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isSafeImageRef(value string) bool {
+	return isSafeDockerIdentifier(value)
+}
+
 func isTruthy(raw string) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "y", "on":
@@ -2692,6 +2773,9 @@ func (h *DockerHandler) resolveDockerExecHost(id string) (*DockerHost, *cmdb.Hos
 	}
 	if host.Credential == nil {
 		return nil, nil, errors.New("主机未配置凭据")
+	}
+	if err := cmdb.DecryptCredentialFields(h.secretKey, host.Credential); err != nil {
+		return nil, nil, errors.New("主机凭据解密失败")
 	}
 	return &dHost, &host, nil
 }

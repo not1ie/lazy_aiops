@@ -55,7 +55,7 @@ func (p *TopologyPlugin) Migrate() error {
 }
 
 func (p *TopologyPlugin) RegisterRoutes(r *gin.RouterGroup) {
-	p.handler = NewTopologyHandler(p.core.DB)
+	p.handler = NewTopologyHandler(p.core.DB, p.core.Config.JWT.Secret)
 
 	r.GET("/data", p.handler.GetTopology)
 	r.GET("/nodes", p.handler.ListNodes)

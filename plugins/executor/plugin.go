@@ -17,9 +17,11 @@ type ExecutorPlugin struct {
 	cfg  map[string]interface{}
 }
 
-func (p *ExecutorPlugin) Name() string        { return "executor" }
-func (p *ExecutorPlugin) Version() string     { return "1.0.0" }
-func (p *ExecutorPlugin) Description() string { return "批量执行 - 多主机命令执行、实时输出" }
+func (p *ExecutorPlugin) Name() string    { return "executor" }
+func (p *ExecutorPlugin) Version() string { return "1.0.0" }
+func (p *ExecutorPlugin) Description() string {
+	return "批量执行 - 多主机命令执行、实时输出"
+}
 
 func (p *ExecutorPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -39,7 +41,7 @@ func (p *ExecutorPlugin) Migrate() error {
 }
 
 func (p *ExecutorPlugin) RegisterRoutes(g *gin.RouterGroup) {
-	h := NewExecutorHandler(p.core.DB)
+	h := NewExecutorHandler(p.core.DB, p.core.Config.JWT.Secret)
 
 	// 批量执行
 	g.POST("/execute", h.Execute)

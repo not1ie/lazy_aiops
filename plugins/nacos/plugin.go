@@ -13,20 +13,22 @@ func init() {
 }
 
 type NacosPlugin struct {
-	core    *core.Core
-	cfg     map[string]interface{}
-	handler *NacosHandler
+	core      *core.Core
+	cfg       map[string]interface{}
+	handler   *NacosHandler
 	scheduler *Scheduler
 }
 
-func (p *NacosPlugin) Name() string        { return "nacos" }
-func (p *NacosPlugin) Version() string     { return "1.0.0" }
-func (p *NacosPlugin) Description() string { return "Nacos配置中心 - 配置管理、服务发现、命名空间" }
+func (p *NacosPlugin) Name() string    { return "nacos" }
+func (p *NacosPlugin) Version() string { return "1.0.0" }
+func (p *NacosPlugin) Description() string {
+	return "Nacos配置中心 - 配置管理、服务发现、命名空间"
+}
 
 func (p *NacosPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
 	p.cfg = cfg
-	p.handler = NewNacosHandler(c.DB, nil)
+	p.handler = NewNacosHandler(c.DB, nil, c.Config.JWT.Secret)
 	p.scheduler = NewScheduler(c.DB, p.handler)
 	p.handler.scheduler = p.scheduler
 	return nil

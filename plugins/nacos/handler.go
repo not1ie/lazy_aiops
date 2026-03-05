@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/internal/security"
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 )
@@ -19,10 +20,11 @@ import (
 type NacosHandler struct {
 	db        *gorm.DB
 	scheduler *Scheduler
+	secretKey string
 }
 
-func NewNacosHandler(db *gorm.DB, scheduler *Scheduler) *NacosHandler {
-	return &NacosHandler{db: db, scheduler: scheduler}
+func NewNacosHandler(db *gorm.DB, scheduler *Scheduler, secretKey string) *NacosHandler {
+	return &NacosHandler{db: db, scheduler: scheduler, secretKey: secretKey}
 }
 
 // ListServers 服务器列表
@@ -31,6 +33,9 @@ func (h *NacosHandler) ListServers(c *gin.Context) {
 	if err := h.db.Find(&servers).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	for i := range servers {
+		servers[i].Password = ""
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": servers})
 }
@@ -42,13 +47,19 @@ func (h *NacosHandler) CreateServer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
+	var err error
+	server.Password, err = security.Encrypt(h.secretKey, "nacos.server.password", server.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码加密失败"})
+		return
+	}
 	if err := h.db.Create(&server).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	server.Password = ""
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": server})
 }
-
 
 // GetServer 获取服务器详情
 func (h *NacosHandler) GetServer(c *gin.Context) {
@@ -58,26 +69,49 @@ func (h *NacosHandler) GetServer(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "服务器不存在"})
 		return
 	}
+	server.Password = ""
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": server})
 }
 
 // UpdateServer 更新服务器
 func (h *NacosHandler) UpdateServer(c *gin.Context) {
 	id := c.Param("id")
-	var server NacosServer
-	if err := h.db.First(&server, "id = ?", id).Error; err != nil {
+	var current NacosServer
+	if err := h.db.First(&current, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "服务器不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&server); err != nil {
+	var req NacosServer
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&server).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"address":     req.Address,
+		"namespace":   req.Namespace,
+		"username":    req.Username,
+		"description": req.Description,
+		"status":      req.Status,
+	}
+	if strings.TrimSpace(req.Password) != "" {
+		enc, err := security.Encrypt(h.secretKey, "nacos.server.password", req.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码加密失败"})
+			return
+		}
+		updates["password"] = enc
+	}
+	if err := h.db.Model(&NacosServer{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": server})
+	if err := h.db.First(&current, "id = ?", id).Error; err == nil {
+		current.Password = ""
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": current})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
 }
 
 // DeleteServer 删除服务器
@@ -112,9 +146,13 @@ func (h *NacosHandler) TestConnection(c *gin.Context) {
 
 func (h *NacosHandler) login(server *NacosServer) (string, error) {
 	loginURL := fmt.Sprintf("%s/nacos/v1/auth/login", strings.TrimSuffix(server.Address, "/"))
+	password, err := security.Decrypt(h.secretKey, "nacos.server.password", server.Password)
+	if err != nil {
+		return "", fmt.Errorf("密码解密失败")
+	}
 	data := url.Values{}
 	data.Set("username", server.Username)
-	data.Set("password", server.Password)
+	data.Set("password", password)
 
 	resp, err := http.PostForm(loginURL, data)
 	if err != nil {
@@ -241,7 +279,6 @@ func (h *NacosHandler) GetConfig(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": config})
 }
-
 
 // UpdateConfig 更新配置
 func (h *NacosHandler) UpdateConfig(c *gin.Context) {
@@ -388,7 +425,6 @@ func (h *NacosHandler) CompareConfig(c *gin.Context) {
 		},
 	})
 }
-
 
 // SyncServices 同步服务
 func (h *NacosHandler) SyncServices(c *gin.Context) {

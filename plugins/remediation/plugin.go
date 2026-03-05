@@ -30,9 +30,11 @@ type RemediationPlugin struct {
 	running bool
 }
 
-func (p *RemediationPlugin) Name() string        { return "remediation" }
-func (p *RemediationPlugin) Version() string     { return "1.0.0" }
-func (p *RemediationPlugin) Description() string { return "故障自愈 - 监听告警并自动执行修复脚本" }
+func (p *RemediationPlugin) Name() string    { return "remediation" }
+func (p *RemediationPlugin) Version() string { return "1.0.0" }
+func (p *RemediationPlugin) Description() string {
+	return "故障自愈 - 监听告警并自动执行修复脚本"
+}
 
 func (p *RemediationPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -86,7 +88,7 @@ func (p *RemediationPlugin) checkAndRemediate() {
 	// 1. 查找未处理且开启自愈的告警
 	// 我们需要关联 Alert 和 AlertRule
 	var alerts []alert.Alert
-	
+
 	// 查找 status = 0 (触发中) 的告警
 	// 并且没有对应的成功或正在运行的 RemediationLog
 	err := p.db.Table("alerts").
@@ -153,6 +155,14 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 		stderr = "主机未关联凭据"
 		execErr = fmt.Errorf("no credential")
 	} else {
+		if err := cmdb.DecryptCredentialFields(p.core.Config.JWT.Secret, host.Credential); err != nil {
+			stdout = ""
+			stderr = "主机凭据解密失败"
+			execErr = err
+		}
+	}
+
+	if execErr == nil && host.Credential != nil {
 		// 执行远程脚本
 		client := &core.SSHClient{
 			Host:     host.IP,
@@ -170,7 +180,7 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 	remLog.Duration = int(now.Sub(remLog.StartedAt).Seconds())
 	remLog.Stdout = stdout
 	remLog.Stderr = stderr
-	
+
 	if execErr != nil {
 		remLog.Status = "failed"
 		remLog.Error = execErr.Error()
@@ -182,7 +192,7 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 			"resolved_at": now,
 		})
 	}
-	
+
 	p.db.Save(remLog)
 	log.Printf("[Remediation] Finished recovery for alert %s with status %s", a.ID, remLog.Status)
 }

@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"time"
-	
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
@@ -20,20 +20,22 @@ type MonitorPlugin struct {
 	collector *Collector
 }
 
-func (p *MonitorPlugin) Name() string        { return "monitor" }
-func (p *MonitorPlugin) Version() string     { return "1.0.0" }
-func (p *MonitorPlugin) Description() string { return "监控告警模块 - 域名监控、主机监控、告警管理" }
+func (p *MonitorPlugin) Name() string    { return "monitor" }
+func (p *MonitorPlugin) Version() string { return "1.0.0" }
+func (p *MonitorPlugin) Description() string {
+	return "监控告警模块 - 域名监控、主机监控、告警管理"
+}
 
 func (p *MonitorPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
 	p.cfg = cfg
-	
+
 	// 获取采集间隔配置，默认30秒
 	interval := 30 * time.Second
 	if v, ok := cfg["interval"].(int); ok {
 		interval = time.Duration(v) * time.Second
 	}
-	
+
 	p.collector = NewCollector(c.DB, interval)
 	return nil
 }
@@ -64,7 +66,7 @@ func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	if v, ok := p.cfg["agent_timeout"].(int); ok && v > 0 {
 		agentTimeout = time.Duration(v) * time.Second
 	}
-	h := NewMonitorHandler(p.core.DB, p.collector, promURL, pushURL, agentSecret, agentTimeout)
+	h := NewMonitorHandler(p.core.DB, p.collector, promURL, pushURL, agentSecret, agentTimeout, p.core.Config.JWT.Secret)
 
 	// 域名监控
 	domains := g.Group("/domains")
@@ -86,7 +88,7 @@ func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	{
 		alerts.GET("", h.ListAlerts)
 	}
-	
+
 	// 监控指标
 	g.GET("/metrics", h.GetMetrics)
 	g.GET("/metrics/realtime", h.GetRealtimeMetrics)

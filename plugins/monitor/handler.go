@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/internal/security"
 	"gorm.io/gorm"
 )
 
@@ -21,17 +22,19 @@ type MonitorHandler struct {
 	promURL      string
 	pushURL      string
 	agentSecret  string
+	secretKey    string
 	agentTimeout time.Duration
 	httpClient   *http.Client
 }
 
-func NewMonitorHandler(db *gorm.DB, collector *Collector, promURL, pushURL, agentSecret string, agentTimeout time.Duration) *MonitorHandler {
+func NewMonitorHandler(db *gorm.DB, collector *Collector, promURL, pushURL, agentSecret string, agentTimeout time.Duration, secretKey string) *MonitorHandler {
 	return &MonitorHandler{
 		db:           db,
 		collector:    collector,
 		promURL:      promURL,
 		pushURL:      pushURL,
 		agentSecret:  agentSecret,
+		secretKey:    secretKey,
 		agentTimeout: agentTimeout,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
@@ -41,6 +44,9 @@ func NewMonitorHandler(db *gorm.DB, collector *Collector, promURL, pushURL, agen
 func (h *MonitorHandler) ListSettings(c *gin.Context) {
 	var list []MonitorSetting
 	h.db.Order("updated_at desc").Find(&list)
+	for i := range list {
+		h.sanitizeSettingSecrets(&list[i])
+	}
 	if len(list) == 0 && h.promURL != "" {
 		list = append(list, MonitorSetting{
 			Name:           "default",
@@ -80,16 +86,33 @@ func (h *MonitorHandler) CreateSetting(c *gin.Context) {
 	if activeCount == 0 {
 		req.Active = true
 	}
+	var err error
+	req.Password, err = security.Encrypt(h.secretKey, "monitor.setting.password", req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置密码加密失败"})
+		return
+	}
+	req.Token, err = security.Encrypt(h.secretKey, "monitor.setting.token", req.Token)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置令牌加密失败"})
+		return
+	}
 	if err := h.db.Create(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	h.sanitizeSettingSecrets(&req)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": req})
 }
 
 // UpdateSetting 更新监控配置
 func (h *MonitorHandler) UpdateSetting(c *gin.Context) {
 	id := c.Param("id")
+	var current MonitorSetting
+	if err := h.db.First(&current, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
 	var req MonitorSetting
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
@@ -112,11 +135,30 @@ func (h *MonitorHandler) UpdateSetting(c *gin.Context) {
 		"pushgateway_url": req.PushgatewayURL,
 		"auth_type":       req.AuthType,
 		"username":        req.Username,
-		"password":        req.Password,
-		"token":           req.Token,
+	}
+	if strings.TrimSpace(req.Password) != "" {
+		enc, err := security.Encrypt(h.secretKey, "monitor.setting.password", req.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置密码加密失败"})
+			return
+		}
+		updates["password"] = enc
+	}
+	if strings.TrimSpace(req.Token) != "" {
+		enc, err := security.Encrypt(h.secretKey, "monitor.setting.token", req.Token)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置令牌加密失败"})
+			return
+		}
+		updates["token"] = enc
 	}
 	if err := h.db.Model(&MonitorSetting{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&current, "id = ?", id).Error; err == nil {
+		h.sanitizeSettingSecrets(&current)
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": current})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
@@ -153,6 +195,10 @@ func (h *MonitorHandler) TestSetting(c *gin.Context) {
 	}
 	if setting.PrometheusURL == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Prometheus 地址为空"})
+		return
+	}
+	if err := h.decryptSettingSecrets(&setting); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置解密失败"})
 		return
 	}
 	reqURL, _ := url.Parse(setting.PrometheusURL + "/api/v1/query")
@@ -654,6 +700,9 @@ func (h *MonitorHandler) getPromConfig() (string, string, string, string, string
 	var setting MonitorSetting
 	if err := h.db.Where("active = ?", true).Order("updated_at desc").First(&setting).Error; err != nil || setting.PrometheusURL == "" {
 		return h.promURL, "none", "", "", ""
+	}
+	if err := h.decryptSettingSecrets(&setting); err != nil {
+		return setting.PrometheusURL, setting.AuthType, setting.Username, "", ""
 	}
 	return setting.PrometheusURL, setting.AuthType, setting.Username, setting.Password, setting.Token
 }
@@ -1317,4 +1366,28 @@ func (h *MonitorHandler) GetAgentHistory(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": records})
+}
+
+func (h *MonitorHandler) sanitizeSettingSecrets(setting *MonitorSetting) {
+	if setting == nil {
+		return
+	}
+	setting.Password = ""
+	setting.Token = ""
+}
+
+func (h *MonitorHandler) decryptSettingSecrets(setting *MonitorSetting) error {
+	if setting == nil {
+		return nil
+	}
+	var err error
+	setting.Password, err = security.Decrypt(h.secretKey, "monitor.setting.password", setting.Password)
+	if err != nil {
+		return err
+	}
+	setting.Token, err = security.Decrypt(h.secretKey, "monitor.setting.token", setting.Token)
+	if err != nil {
+		return err
+	}
+	return nil
 }

@@ -8,17 +8,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
 
 type ExecutorHandler struct {
 	db         *gorm.DB
+	secretKey  string
 	executions sync.Map // executionID -> cancel chan
 }
 
-func NewExecutorHandler(db *gorm.DB) *ExecutorHandler {
-	return &ExecutorHandler{db: db}
+func NewExecutorHandler(db *gorm.DB, secretKey string) *ExecutorHandler {
+	return &ExecutorHandler{db: db, secretKey: secretKey}
 }
 
 // Execute 批量执行
@@ -109,6 +111,12 @@ func (h *ExecutorHandler) getHosts(hostIDs []string) []hostInfo {
 	for rows.Next() {
 		var host hostInfo
 		rows.Scan(&host.ID, &host.Name, &host.IP, &host.Port, &host.Username, &host.Password, &host.PrivateKey)
+		if decrypted, decErr := cmdb.DecryptCredentialField(h.secretKey, "password", host.Password); decErr == nil {
+			host.Password = decrypted
+		}
+		if decrypted, decErr := cmdb.DecryptCredentialField(h.secretKey, "private_key", host.PrivateKey); decErr == nil {
+			host.PrivateKey = decrypted
+		}
 		if host.Port == 0 {
 			host.Port = 22
 		}
@@ -200,7 +208,7 @@ func (h *ExecutorHandler) executeOnHost(execution *BatchExecution, host hostInfo
 	}
 
 	stdout, stderr, err := client.Execute(execution.Content)
-	
+
 	finishedAt := time.Now()
 	result.FinishedAt = &finishedAt
 	result.Duration = int(finishedAt.Sub(now).Seconds())

@@ -21,12 +21,13 @@ func AuthMiddleware(auth *core.AuthService) gin.HandlerFunc {
 				token = strings.TrimSpace(parts[1])
 			}
 		}
-		// WebSocket 场景无法方便携带 Authorization 头，允许通过 query token 透传。
-		if token == "" {
+		isWebSocketRequest := strings.EqualFold(strings.TrimSpace(c.GetHeader("Upgrade")), "websocket")
+		// 仅在 WebSocket 场景允许 query token，避免 Token 泄漏到 URL。
+		if token == "" && isWebSocketRequest {
 			token = strings.TrimSpace(c.Query("token"))
 		}
-		// 兼容 access_token 参数。
-		if token == "" {
+		// 兼容 access_token 参数（仅限 WebSocket 场景）。
+		if token == "" && isWebSocketRequest {
 			token = strings.TrimSpace(c.Query("access_token"))
 		}
 		// 兼容通过 Cookie 透传 token 的场景。

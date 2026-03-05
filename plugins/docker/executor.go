@@ -11,7 +11,7 @@ import (
 
 // GetExecutorByHost returns a command executor for a Docker host ID.
 // It is shared by docker plugin handlers and cross-plugin integrations.
-func GetExecutorByHost(db *gorm.DB, dockerHostID string) (CommandExecutor, error) {
+func GetExecutorByHost(db *gorm.DB, secretKey, dockerHostID string) (CommandExecutor, error) {
 	var dHost DockerHost
 	if err := db.First(&dHost, "id = ?", dockerHostID).Error; err != nil {
 		return nil, fmt.Errorf("Docker主机不存在")
@@ -27,6 +27,9 @@ func GetExecutorByHost(db *gorm.DB, dockerHostID string) (CommandExecutor, error
 	}
 	if host.Credential == nil {
 		return nil, fmt.Errorf("主机未配置凭据")
+	}
+	if err := cmdb.DecryptCredentialFields(secretKey, host.Credential); err != nil {
+		return nil, fmt.Errorf("主机凭据解密失败")
 	}
 
 	return &core.SSHClient{

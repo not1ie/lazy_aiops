@@ -25,7 +25,8 @@ import (
 )
 
 type TopologyHandler struct {
-	db *gorm.DB
+	db        *gorm.DB
+	secretKey string
 }
 
 type syncNode struct {
@@ -82,8 +83,8 @@ type discoverRequest struct {
 	Namespace     string   `json:"namespace"`
 }
 
-func NewTopologyHandler(db *gorm.DB) *TopologyHandler {
-	return &TopologyHandler{db: db}
+func NewTopologyHandler(db *gorm.DB, secretKey string) *TopologyHandler {
+	return &TopologyHandler{db: db, secretKey: secretKey}
 }
 
 func (h *TopologyHandler) GetTopology(c *gin.Context) {
@@ -961,7 +962,7 @@ func (h *TopologyHandler) discoverFromDocker(hostSet map[string]struct{}, includ
 	}
 
 	for _, host := range hosts {
-		executor, err := docker.GetExecutorByHost(h.db, host.ID)
+		executor, err := docker.GetExecutorByHost(h.db, h.secretKey, host.ID)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("Docker[%s] 连接失败: %v", host.Name, err))
 			continue

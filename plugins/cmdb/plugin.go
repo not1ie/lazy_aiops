@@ -17,9 +17,11 @@ type CMDBPlugin struct {
 	cfg  map[string]interface{}
 }
 
-func (p *CMDBPlugin) Name() string        { return "cmdb" }
-func (p *CMDBPlugin) Version() string     { return "1.0.0" }
-func (p *CMDBPlugin) Description() string { return "资产管理模块 - 主机、数据库、云资源管理" }
+func (p *CMDBPlugin) Name() string    { return "cmdb" }
+func (p *CMDBPlugin) Version() string { return "1.0.0" }
+func (p *CMDBPlugin) Description() string {
+	return "资产管理模块 - 主机、数据库、云资源管理"
+}
 
 func (p *CMDBPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -42,7 +44,7 @@ func (p *CMDBPlugin) Migrate() error {
 }
 
 func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
-	h := NewHostHandler(p.core.DB)
+	h := NewHostHandler(p.core.DB, p.core.Config.JWT.Secret)
 
 	// 主机管理
 	hosts := g.Group("/hosts")

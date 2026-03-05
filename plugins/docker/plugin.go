@@ -33,7 +33,7 @@ func (p *DockerPlugin) Migrate() error {
 }
 
 func (p *DockerPlugin) RegisterRoutes(g *gin.RouterGroup) {
-	h := NewDockerHandler(p.core.DB, p.core.Auth)
+	h := NewDockerHandler(p.core.DB, p.core.Auth, p.core.Config.JWT.Secret)
 	g.GET("/hosts", h.ListHosts)
 	g.POST("/hosts", h.AddHost)
 	g.POST("/hosts/sync", h.SyncHosts) // 全局同步

@@ -9,15 +9,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
+	"github.com/lazyautoops/lazy-auto-ops/internal/security"
 	"gorm.io/gorm"
 )
 
 type HostHandler struct {
-	db *gorm.DB
+	db        *gorm.DB
+	secretKey string
 }
 
-func NewHostHandler(db *gorm.DB) *HostHandler {
-	return &HostHandler{db: db}
+func NewHostHandler(db *gorm.DB, secretKey string) *HostHandler {
+	return &HostHandler{db: db, secretKey: secretKey}
 }
 
 // List 主机列表
@@ -37,6 +39,9 @@ func (h *HostHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	for i := range hosts {
+		h.sanitizeHostForResponse(&hosts[i])
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": hosts})
 }
 
@@ -49,7 +54,7 @@ func (h *HostHandler) detectOS(host *Host, password string) {
 	// 使用 core/ssh 模块探测
 	// 注意：这里需要构造临时的 SSH Client，因为 host 可能还没有保存到数据库，或者 Credential 是分开的
 	// 如果是 Create，我们有 password。如果是 Update，我们需要查库获取 password。
-	
+
 	// 暂时只支持 Linux 探测
 	client := &core.SSHClient{
 		Host:     host.IP,
@@ -58,11 +63,12 @@ func (h *HostHandler) detectOS(host *Host, password string) {
 		Password: password,
 		Timeout:  5 * time.Second,
 	}
-	
+
 	// 如果 Request 中有 Username，更新
 	if host.CredentialID != "" {
 		var cred Credential
 		if err := h.db.First(&cred, "id = ?", host.CredentialID).Error; err == nil {
+			_ = DecryptCredentialFields(h.secretKey, &cred)
 			client.Username = cred.Username
 			if password == "" {
 				client.Password = cred.Password
@@ -98,7 +104,7 @@ func (h *HostHandler) Create(c *gin.Context) {
 		Username  string `json:"username"`
 		Password  string `json:"password"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
 		return
@@ -108,7 +114,7 @@ func (h *HostHandler) Create(c *gin.Context) {
 	if host.Port == 0 {
 		host.Port = 22
 	}
-	
+
 	// ... (分组逻辑)
 	if req.GroupName == "" {
 		req.GroupName = "Default"
@@ -125,6 +131,10 @@ func (h *HostHandler) Create(c *gin.Context) {
 			Type:     "password",
 			Username: req.Username,
 			Password: req.Password,
+		}
+		if err := EncryptCredentialFields(h.secretKey, &cred); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+			return
 		}
 		if err := h.db.Create(&cred).Error; err == nil {
 			host.CredentialID = cred.ID
@@ -155,7 +165,7 @@ func (h *HostHandler) Create(c *gin.Context) {
 				} else if strings.Contains(osName, "Debian") {
 					osName = "Debian"
 				}
-				
+
 				// 更新数据库
 				// 注意：这里需要新的 DB 会话
 				// h.db.Model(h).Update("os", osName) // 这里的 h.db 可能不安全并发使用？GORM DB 是并发安全的。
@@ -171,7 +181,7 @@ func (h *HostHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	
+
 	// 创建后触发探测
 	if req.Username != "" && req.Password != "" {
 		go h.detectOSAsync(host.ID, req.Username, req.Password)
@@ -185,7 +195,7 @@ func (h *HostHandler) detectOSAsync(hostID, username, password string) {
 	if err := h.db.First(&host, "id = ?", hostID).Error; err != nil {
 		return
 	}
-	
+
 	client := &core.SSHClient{
 		Host:     host.IP,
 		Port:     host.Port,
@@ -193,7 +203,7 @@ func (h *HostHandler) detectOSAsync(hostID, username, password string) {
 		Password: password,
 		Timeout:  10 * time.Second,
 	}
-	
+
 	// Prefer PRETTY_NAME, fallback to ID, then uname
 	stdout, _, err := client.Execute("cat /etc/os-release 2>/dev/null")
 	if err == nil && strings.TrimSpace(stdout) != "" {
@@ -236,6 +246,10 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机未配置凭据"})
 		return
 	}
+	if err := DecryptCredentialFields(h.secretKey, host.Credential); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据解密失败"})
+		return
+	}
 
 	client := &core.SSHClient{
 		Host:     host.IP,
@@ -273,7 +287,7 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 	}
 
 	result := gin.H{
-		"uname": gin.H{"out": uname, "err": unameErr},
+		"uname":      gin.H{"out": uname, "err": unameErr},
 		"os_release": gin.H{"out": osrel, "err": osErr},
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
@@ -287,6 +301,7 @@ func (h *HostHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "主机不存在"})
 		return
 	}
+	h.sanitizeHostForResponse(&host)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": host})
 }
 
@@ -302,8 +317,8 @@ func (h *HostHandler) Update(c *gin.Context) {
 	var req struct {
 		Host
 		GroupName string `json:"group_name"`
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -331,11 +346,20 @@ func (h *HostHandler) Update(c *gin.Context) {
 	// 更新或创建凭据
 	if req.Username != "" {
 		if host.CredentialID != "" {
-			// 更新现有凭据
-			h.db.Model(&Credential{}).Where("id = ?", host.CredentialID).Updates(map[string]interface{}{
-				"username": req.Username,
-				"password": req.Password,
-			})
+			// 更新现有凭据（空密码不覆盖）
+			var cred Credential
+			if err := h.db.First(&cred, "id = ?", host.CredentialID).Error; err == nil {
+				updates := map[string]interface{}{"username": req.Username}
+				if strings.TrimSpace(req.Password) != "" {
+					enc, encErr := security.Encrypt(h.secretKey, "cmdb.credential.password", req.Password)
+					if encErr != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + encErr.Error()})
+						return
+					}
+					updates["password"] = enc
+				}
+				_ = h.db.Model(&Credential{}).Where("id = ?", host.CredentialID).Updates(updates).Error
+			}
 		} else {
 			// 创建新凭据
 			cred := Credential{
@@ -343,6 +367,10 @@ func (h *HostHandler) Update(c *gin.Context) {
 				Type:     "password",
 				Username: req.Username,
 				Password: req.Password,
+			}
+			if err := EncryptCredentialFields(h.secretKey, &cred); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+				return
 			}
 			if err := h.db.Create(&cred).Error; err == nil {
 				host.CredentialID = cred.ID
@@ -431,6 +459,9 @@ func (h *HostHandler) ListCredentials(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	for i := range creds {
+		SanitizeCredentialFields(&creds[i])
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": creds})
 }
 
@@ -441,30 +472,90 @@ func (h *HostHandler) CreateCredential(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
+	if err := EncryptCredentialFields(h.secretKey, &cred); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+		return
+	}
 	if err := h.db.Create(&cred).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	SanitizeCredentialFields(&cred)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cred})
 }
 
 // UpdateCredential 更新凭据
 func (h *HostHandler) UpdateCredential(c *gin.Context) {
 	id := c.Param("id")
-	var cred Credential
-	if err := h.db.First(&cred, "id = ?", id).Error; err != nil {
+	var current Credential
+	if err := h.db.First(&current, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "凭据不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&cred); err != nil {
+	var req Credential
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&cred).Error; err != nil {
+
+	updates := map[string]interface{}{
+		"name":     coalesceString(req.Name, current.Name),
+		"type":     coalesceString(req.Type, current.Type),
+		"username": coalesceString(req.Username, current.Username),
+		"notes":    coalesceString(req.Notes, current.Notes),
+	}
+	if strings.TrimSpace(req.Password) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.credential.password", req.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+			return
+		}
+		updates["password"] = enc
+	}
+	if strings.TrimSpace(req.PrivateKey) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.credential.private_key", req.PrivateKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+			return
+		}
+		updates["private_key"] = enc
+	}
+	if strings.TrimSpace(req.Passphrase) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.credential.passphrase", req.Passphrase)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+			return
+		}
+		updates["passphrase"] = enc
+	}
+	if strings.TrimSpace(req.AccessKey) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.credential.access_key", req.AccessKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+			return
+		}
+		updates["access_key"] = enc
+	}
+	if strings.TrimSpace(req.SecretKey) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.credential.secret_key", req.SecretKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+			return
+		}
+		updates["secret_key"] = enc
+	}
+
+	if err := h.db.Model(&Credential{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cred})
+
+	if err := h.db.First(&current, "id = ?", id).Error; err == nil {
+		SanitizeCredentialFields(&current)
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": current})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
 }
 
 // DeleteCredential 删除凭据
@@ -483,6 +574,10 @@ func (h *HostHandler) TestCredential(c *gin.Context) {
 	var cred Credential
 	if err := h.db.First(&cred, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "凭据不存在"})
+		return
+	}
+	if err := DecryptCredentialFields(h.secretKey, &cred); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据解密失败"})
 		return
 	}
 
@@ -546,6 +641,9 @@ func (h *HostHandler) ListDatabases(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	for i := range items {
+		items[i].Password = ""
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
 }
 
@@ -559,10 +657,17 @@ func (h *HostHandler) CreateDatabase(c *gin.Context) {
 	if item.Port == 0 {
 		item.Port = 3306
 	}
+	var err error
+	item.Password, err = security.Encrypt(h.secretKey, "cmdb.database.password", item.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "数据库密码加密失败: " + err.Error()})
+		return
+	}
 	if err := h.db.Create(&item).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	item.Password = ""
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
 }
 
@@ -574,29 +679,57 @@ func (h *HostHandler) GetDatabase(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
 		return
 	}
+	item.Password = ""
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
 }
 
 // UpdateDatabase 更新数据库资产
 func (h *HostHandler) UpdateDatabase(c *gin.Context) {
 	id := c.Param("id")
-	var item DatabaseAsset
-	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+	var current DatabaseAsset
+	if err := h.db.First(&current, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&item); err != nil {
+	var req DatabaseAsset
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if item.Port == 0 {
-		item.Port = 3306
+	if req.Port == 0 {
+		req.Port = 3306
 	}
-	if err := h.db.Save(&item).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"type":        req.Type,
+		"host":        req.Host,
+		"port":        req.Port,
+		"username":    req.Username,
+		"database":    req.Database,
+		"environment": req.Environment,
+		"owner":       req.Owner,
+		"tags":        req.Tags,
+		"status":      req.Status,
+		"description": req.Description,
+	}
+	if strings.TrimSpace(req.Password) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.database.password", req.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "数据库密码加密失败: " + err.Error()})
+			return
+		}
+		updates["password"] = enc
+	}
+	if err := h.db.Model(&DatabaseAsset{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
+	if err := h.db.First(&current, "id = ?", id).Error; err == nil {
+		current.Password = ""
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": current})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
 }
 
 // DeleteDatabase 删除数据库资产
@@ -644,6 +777,10 @@ func (h *HostHandler) ListCloudAccounts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	for i := range accounts {
+		accounts[i].AccessKey = ""
+		accounts[i].SecretKey = ""
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": accounts})
 }
 
@@ -654,10 +791,23 @@ func (h *HostHandler) CreateCloudAccount(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
+	var err error
+	account.AccessKey, err = security.Encrypt(h.secretKey, "cmdb.cloud.access_key", account.AccessKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号密钥加密失败: " + err.Error()})
+		return
+	}
+	account.SecretKey, err = security.Encrypt(h.secretKey, "cmdb.cloud.secret_key", account.SecretKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号密钥加密失败: " + err.Error()})
+		return
+	}
 	if err := h.db.Create(&account).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	account.AccessKey = ""
+	account.SecretKey = ""
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
 }
 
@@ -669,26 +819,58 @@ func (h *HostHandler) GetCloudAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云账号不存在"})
 		return
 	}
+	account.AccessKey = ""
+	account.SecretKey = ""
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
 }
 
 // UpdateCloudAccount 更新云账号
 func (h *HostHandler) UpdateCloudAccount(c *gin.Context) {
 	id := c.Param("id")
-	var account CloudAccount
-	if err := h.db.First(&account, "id = ?", id).Error; err != nil {
+	var current CloudAccount
+	if err := h.db.First(&current, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云账号不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&account); err != nil {
+	var req CloudAccount
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&account).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"provider":    req.Provider,
+		"region":      req.Region,
+		"status":      req.Status,
+		"description": req.Description,
+	}
+	if strings.TrimSpace(req.AccessKey) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.cloud.access_key", req.AccessKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号密钥加密失败: " + err.Error()})
+			return
+		}
+		updates["access_key"] = enc
+	}
+	if strings.TrimSpace(req.SecretKey) != "" {
+		enc, err := security.Encrypt(h.secretKey, "cmdb.cloud.secret_key", req.SecretKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号密钥加密失败: " + err.Error()})
+			return
+		}
+		updates["secret_key"] = enc
+	}
+	if err := h.db.Model(&CloudAccount{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
+	if err := h.db.First(&current, "id = ?", id).Error; err == nil {
+		current.AccessKey = ""
+		current.SecretKey = ""
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": current})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
 }
 
 // DeleteCloudAccount 删除云账号
@@ -709,7 +891,17 @@ func (h *HostHandler) TestCloudAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云账号不存在"})
 		return
 	}
-	if account.AccessKey == "" || account.SecretKey == "" {
+	accessKey, err := security.Decrypt(h.secretKey, "cmdb.cloud.access_key", account.AccessKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号密钥解密失败"})
+		return
+	}
+	secretKey, err := security.Decrypt(h.secretKey, "cmdb.cloud.secret_key", account.SecretKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号密钥解密失败"})
+		return
+	}
+	if strings.TrimSpace(accessKey) == "" || strings.TrimSpace(secretKey) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "AccessKey/SecretKey 不能为空"})
 		return
 	}
@@ -785,4 +977,20 @@ func (h *HostHandler) DeleteCloudResource(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+func (h *HostHandler) sanitizeHostForResponse(host *Host) {
+	if host == nil {
+		return
+	}
+	if host.Credential != nil {
+		SanitizeCredentialFields(host.Credential)
+	}
+}
+
+func coalesceString(newValue, oldValue string) string {
+	if strings.TrimSpace(newValue) == "" {
+		return oldValue
+	}
+	return newValue
 }
