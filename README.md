@@ -192,6 +192,9 @@ cd frontend && npm run build && cd ..
 
 # 一键检查
 bash scripts/verify_all.sh
+
+# 堡垒机 P0 验证（需要可登录管理员密码）
+PASSWORD='your-password' BASE_URL='http://127.0.0.1:8080' bash scripts/verify_jump_p0.sh
 ```
 
 ## 文档

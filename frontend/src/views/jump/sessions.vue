@@ -42,10 +42,13 @@
       <el-table-column label="开始时间" min-width="170">
         <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
       </el-table-column>
+      <el-table-column label="审批人" min-width="120">
+        <template #default="{ row }">{{ row.approved_by || '-' }}</template>
+      </el-table-column>
       <el-table-column label="结束时间" min-width="170">
         <template #default="{ row }">{{ formatTime(row.ended_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="460" fixed="right">
+      <el-table-column label="操作" width="560" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="isAdmin && row.status === 'pending_approval'"
@@ -67,8 +70,19 @@
           </el-button>
           <el-button size="small" type="success" plain :disabled="row.status !== 'active'" @click="connectSession(row)">连接</el-button>
           <el-button size="small" type="primary" plain @click="openCommands(row)">命令审计</el-button>
+          <el-button size="small" type="warning" plain @click="openRiskEvents(row)">风险事件</el-button>
           <el-button size="small" plain :disabled="row.status !== 'active'" @click="openRecordDialog(row)">录入命令</el-button>
           <el-button size="small" type="danger" plain :disabled="row.status !== 'active'" @click="closeSession(row)">关闭</el-button>
+          <el-button
+            v-if="isAdmin"
+            size="small"
+            type="danger"
+            plain
+            :disabled="!['active','pending_approval'].includes(row.status)"
+            @click="disconnectSession(row)"
+          >
+            强制断开
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -155,6 +169,27 @@
       </el-table>
     </template>
   </el-drawer>
+
+  <el-drawer v-model="riskEventsVisible" title="风险事件" size="48%">
+    <template #default>
+      <div class="drawer-subtitle">会话：{{ currentSession?.session_no || '-' }} / {{ currentSession?.asset_name || '-' }}</div>
+      <el-table :fit="true" :data="riskEvents" v-loading="riskEventsLoading" stripe>
+        <el-table-column label="触发时间" min-width="170">
+          <template #default="{ row }">{{ formatTime(row.fired_at) }}</template>
+        </el-table-column>
+        <el-table-column prop="username" label="用户" width="110" />
+        <el-table-column prop="event_type" label="事件类型" width="110" />
+        <el-table-column label="级别" width="90">
+          <template #default="{ row }">
+            <el-tag :type="riskType(row.severity)">{{ row.severity }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="rule_name" label="命中规则" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="description" label="说明" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="command" label="命令" min-width="220" show-overflow-tooltip />
+      </el-table>
+    </template>
+  </el-drawer>
 </template>
 
 <script setup>
@@ -166,17 +201,20 @@ const loading = ref(false)
 const starting = ref(false)
 const recording = ref(false)
 const commandsLoading = ref(false)
+const riskEventsLoading = ref(false)
 
 const sessions = ref([])
 const assets = ref([])
 const accounts = ref([])
 const commands = ref([])
+const riskEvents = ref([])
 
 const currentSession = ref(null)
 
 const startDialogVisible = ref(false)
 const recordDialogVisible = ref(false)
 const commandsVisible = ref(false)
+const riskEventsVisible = ref(false)
 
 const recordSessionID = ref('')
 
@@ -303,6 +341,20 @@ const closeSession = (row) => {
   }).catch(() => {})
 }
 
+const disconnectSession = (row) => {
+  ElMessageBox.prompt(`请输入断开原因（会话 ${row.session_no}）`, '强制断开', {
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
+    inputPlaceholder: '例如：检测到高风险操作'
+  }).then(async ({ value }) => {
+    await axios.post(`/api/v1/jump/sessions/${row.id}/disconnect`, {
+      reason: value || '管理员强制断开'
+    }, { headers: authHeaders() })
+    ElMessage.success('会话已强制断开')
+    loadSessions()
+  }).catch(() => {})
+}
+
 const approveSession = (row) => {
   ElMessageBox.confirm(`确认通过会话 ${row.session_no} 吗？`, '审批确认', { type: 'warning' }).then(async () => {
     await axios.post(`/api/v1/jump/sessions/${row.id}/approve`, {}, { headers: authHeaders() })
@@ -370,6 +422,25 @@ const openCommands = async (row) => {
     ElMessage.error(error?.response?.data?.message || '加载命令失败')
   } finally {
     commandsLoading.value = false
+  }
+}
+
+const openRiskEvents = async (row) => {
+  currentSession.value = row
+  riskEventsVisible.value = true
+  riskEventsLoading.value = true
+  try {
+    const res = await axios.get('/api/v1/jump/risk-events', {
+      headers: authHeaders(),
+      params: { session_id: row.id }
+    })
+    if (res.data.code === 0) {
+      riskEvents.value = res.data.data || []
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || '加载风险事件失败')
+  } finally {
+    riskEventsLoading.value = false
   }
 }
 

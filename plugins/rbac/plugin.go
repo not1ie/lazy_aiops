@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
@@ -33,6 +34,9 @@ func (p *RBACPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 func (p *RBACPlugin) Start() error {
 	// 初始化默认权限
 	if err := p.initDefaultPermissions(); err != nil {
+		return err
+	}
+	if err := p.ensureDefaultRoles(); err != nil {
 		return err
 	}
 	return p.ensureAdminPermissions()
@@ -210,4 +214,97 @@ func (p *RBACPlugin) ensureAdminPermissions() error {
 		permPtrs = append(permPtrs, &perms[i])
 	}
 	return p.core.DB.Model(&admin).Association("Permissions").Replace(permPtrs)
+}
+
+func (p *RBACPlugin) ensureDefaultRoles() error {
+	templates := []struct {
+		Name        string
+		Code        string
+		Description string
+		PermCodes   []string
+	}{
+		{
+			Name:        "堡垒机管理员",
+			Code:        "jump_admin",
+			Description: "负责堡垒机资产、授权策略、命令风控与会话审计",
+			PermCodes: []string{
+				"cmdb", "jump", "jump:asset", "jump:policy", "jump:rule", "jump:session", "terminal",
+			},
+		},
+		{
+			Name:        "堡垒机运维",
+			Code:        "jump_operator",
+			Description: "负责会话接入与审计查看，不具备策略配置权限",
+			PermCodes: []string{
+				"cmdb", "jump", "jump:asset", "jump:session", "terminal",
+			},
+		},
+		{
+			Name:        "审计员",
+			Code:        "auditor",
+			Description: "只读查看审计数据和系统日志",
+			PermCodes: []string{
+				"jump", "jump:session", "system", "system:loginlog", "system:log",
+			},
+		},
+	}
+
+	permMap := map[string]*core.Permission{}
+	var perms []core.Permission
+	if err := p.core.DB.Find(&perms).Error; err != nil {
+		return err
+	}
+	for i := range perms {
+		permMap[perms[i].Code] = &perms[i]
+	}
+
+	for _, tpl := range templates {
+		var role core.Role
+		err := p.core.DB.Where("code = ?", tpl.Code).First(&role).Error
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			role = core.Role{
+				Name:        tpl.Name,
+				Code:        tpl.Code,
+				Description: tpl.Description,
+			}
+			if err := p.core.DB.Create(&role).Error; err != nil {
+				return err
+			}
+		}
+
+		required := make([]*core.Permission, 0, len(tpl.PermCodes))
+		for _, code := range tpl.PermCodes {
+			perm, ok := permMap[code]
+			if !ok {
+				return fmt.Errorf("permission %s not found for role %s", code, tpl.Code)
+			}
+			required = append(required, perm)
+		}
+
+		var boundPerms []core.Permission
+		if err := p.core.DB.Model(&role).Association("Permissions").Find(&boundPerms); err != nil {
+			return err
+		}
+		bound := map[string]struct{}{}
+		for i := range boundPerms {
+			bound[boundPerms[i].Code] = struct{}{}
+		}
+
+		toAppend := make([]*core.Permission, 0)
+		for _, perm := range required {
+			if _, exists := bound[perm.Code]; !exists {
+				toAppend = append(toAppend, perm)
+			}
+		}
+		if len(toAppend) > 0 {
+			if err := p.core.DB.Model(&role).Association("Permissions").Append(toAppend); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

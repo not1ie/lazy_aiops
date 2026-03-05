@@ -62,6 +62,12 @@
           <el-table-column prop="asset_name" label="资产" min-width="140" show-overflow-tooltip />
           <el-table-column prop="account_name" label="账号" min-width="120" />
           <el-table-column prop="protocol" label="协议" width="90" />
+          <el-table-column label="授权时段" min-width="130">
+            <template #default="{ row }">{{ timeWindowText(row) }}</template>
+          </el-table-column>
+          <el-table-column label="会话限制" min-width="180">
+            <template #default="{ row }">{{ sessionLimitText(row) }}</template>
+          </el-table-column>
           <el-table-column label="审批" width="70">
             <template #default="{ row }">{{ row.require_approve ? '是' : '否' }}</template>
           </el-table-column>
@@ -166,6 +172,19 @@
           <el-switch v-model="policyForm.require_approve" active-text="需要审批" inactive-text="无需审批" />
         </div>
       </el-form-item>
+      <el-form-item label="授权时段">
+        <div class="inline-fields">
+          <el-input v-model="policyForm.time_window_start" placeholder="开始 HH:MM（可空）" />
+          <el-input v-model="policyForm.time_window_end" placeholder="结束 HH:MM（可空）" />
+        </div>
+      </el-form-item>
+      <el-form-item label="会话限制">
+        <div class="inline-fields">
+          <el-input-number v-model="policyForm.max_duration_sec" :min="0" :step="300" :controls-position="'right'" />
+          <el-input-number v-model="policyForm.concurrent_limit" :min="0" :step="1" :controls-position="'right'" />
+        </div>
+        <div class="helper-row">最大时长（秒）与并发上限（0 表示不限制）</div>
+      </el-form-item>
       <el-form-item label="说明">
         <el-input v-model="policyForm.description" type="textarea" :rows="3" />
       </el-form-item>
@@ -192,6 +211,8 @@ const policies = ref([])
 const assets = ref([])
 const users = ref([])
 const roles = ref([])
+const userMap = ref({})
+const roleMap = ref({})
 
 const accountDialogVisible = ref(false)
 const policyDialogVisible = ref(false)
@@ -219,17 +240,39 @@ const policyForm = reactive({
   require_approve: false,
   expires_at: null,
   status: 1,
+  time_window_start: '',
+  time_window_end: '',
+  max_duration_sec: 0,
+  concurrent_limit: 0,
   description: ''
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const principalText = (row) => {
-  if (row.user_id && row.role_code) return `用户:${row.user_id} / 角色:${row.role_code}`
-  if (row.user_id) return `用户:${row.user_id}`
-  if (row.role_code) return `角色:${row.role_code}`
+  const userLabel = row.user_id ? (userMap.value[row.user_id] || row.user_id) : ''
+  const roleLabel = row.role_code ? (roleMap.value[row.role_code] || row.role_code) : ''
+  if (userLabel && roleLabel) return `用户:${userLabel} / 角色:${roleLabel}`
+  if (userLabel) return `用户:${userLabel}`
+  if (roleLabel) return `角色:${roleLabel}`
   return '-'
 }
+
+const timeWindowText = (row) => {
+  if (!row?.time_window_start && !row?.time_window_end) return '全天'
+  if (!row?.time_window_start || !row?.time_window_end) return '-'
+  return `${row.time_window_start}-${row.time_window_end}`
+}
+
+const sessionLimitText = (row) => {
+  const duration = Number(row?.max_duration_sec || 0)
+  const concurrent = Number(row?.concurrent_limit || 0)
+  const durationText = duration > 0 ? `${duration}s` : '不限时'
+  const concurrentText = concurrent > 0 ? `并发${concurrent}` : '并发不限'
+  return `${durationText} / ${concurrentText}`
+}
+
+const isHHMM = (v) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(v)
 
 const loadAssets = async () => {
   const res = await axios.get('/api/v1/jump/assets', { headers: authHeaders() })
@@ -272,6 +315,8 @@ const loadUsersAndRoles = async () => {
     ])
     if (usersRes.data.code === 0) users.value = usersRes.data.data || []
     if (rolesRes.data.code === 0) roles.value = rolesRes.data.data || []
+    userMap.value = Object.fromEntries((users.value || []).map(item => [item.id, item.nickname || item.username || item.id]))
+    roleMap.value = Object.fromEntries((roles.value || []).map(item => [item.code, item.name || item.code]))
   } catch {
     // 非管理员角色可能无权限读取，忽略即可
   }
@@ -299,6 +344,10 @@ const resetPolicyForm = () => {
     require_approve: false,
     expires_at: null,
     status: 1,
+    time_window_start: '',
+    time_window_end: '',
+    max_duration_sec: 0,
+    concurrent_limit: 0,
     description: ''
   })
 }
@@ -383,6 +432,10 @@ const openPolicyEdit = (row) => {
     require_approve: row.require_approve === true,
     expires_at: row.expires_at || null,
     status: row.status === 0 ? 0 : 1,
+    time_window_start: row.time_window_start || '',
+    time_window_end: row.time_window_end || '',
+    max_duration_sec: Number(row.max_duration_sec || 0),
+    concurrent_limit: Number(row.concurrent_limit || 0),
     description: row.description || ''
   })
   policyDialogVisible.value = true
@@ -397,12 +450,26 @@ const savePolicy = async () => {
     ElMessage.warning('请至少选择一个用户或角色')
     return
   }
+  const start = (policyForm.time_window_start || '').trim()
+  const end = (policyForm.time_window_end || '').trim()
+  if ((start && !end) || (!start && end)) {
+    ElMessage.warning('授权时段需同时填写开始和结束时间')
+    return
+  }
+  if (start && (!isHHMM(start) || !isHHMM(end))) {
+    ElMessage.warning('授权时段格式错误，应为 HH:MM')
+    return
+  }
 
   policySaving.value = true
   try {
     const payload = {
       ...policyForm,
       protocol: policyForm.protocol || undefined,
+      time_window_start: policyForm.time_window_start || '',
+      time_window_end: policyForm.time_window_end || '',
+      max_duration_sec: Number(policyForm.max_duration_sec || 0),
+      concurrent_limit: Number(policyForm.concurrent_limit || 0),
       expires_at: policyForm.expires_at || null
     }
     let res
@@ -448,6 +515,7 @@ onMounted(async () => {
 .desc { color: #909399; margin-top: 4px; }
 .actions { display: flex; gap: 8px; }
 .inline-fields { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.helper-row { margin-top: 6px; color: #909399; font-size: 12px; }
 @media (max-width: 768px) {
   .header { flex-direction: column; align-items: flex-start; }
   .inline-fields { grid-template-columns: 1fr; }
