@@ -228,6 +228,73 @@ func (h *TerminalHandler) CreateSession(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 
+// UpdateSession 编辑会话（仅待连接会话）
+func (h *TerminalHandler) UpdateSession(c *gin.Context) {
+	id := c.Param("id")
+
+	var session TerminalSession
+	if err := h.db.First(&session, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	if session.Status != 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "仅待连接会话允许编辑"})
+		return
+	}
+
+	var req struct {
+		Host     string `json:"host"`
+		Port     int    `json:"port"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		KeyAuth  string `json:"key_auth"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	host := strings.TrimSpace(req.Host)
+	username := strings.TrimSpace(req.Username)
+	if host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机地址不能为空"})
+		return
+	}
+	if username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名不能为空"})
+		return
+	}
+
+	port := req.Port
+	if port <= 0 {
+		port = 22
+	}
+
+	updates := map[string]interface{}{
+		"host":     host,
+		"port":     port,
+		"username": username,
+	}
+
+	password := strings.TrimSpace(req.Password)
+	keyAuth := strings.TrimSpace(req.KeyAuth)
+	if password != "" || keyAuth != "" {
+		updates["password"] = password
+		updates["private_key"] = keyAuth
+	}
+
+	if err := h.db.Model(&session).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	if err := h.db.First(&session, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "会话刷新失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+}
+
 // CloseSession 关闭会话
 func (h *TerminalHandler) CloseSession(c *gin.Context) {
 	id := c.Param("id")

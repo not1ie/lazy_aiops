@@ -28,9 +28,10 @@
             <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '在线' : '待连' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="openTerminal(row)">连接</el-button>
+            <el-button v-if="row.status === 0" size="small" @click="openEditDialog(row)">编辑</el-button>
             <el-button size="small" @click="openRecordBySession(row)">录像</el-button>
             <el-button size="small" type="danger" @click="closeSession(row)">关闭</el-button>
           </template>
@@ -57,7 +58,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog append-to-body v-model="createVisible" title="新建终端会话" width="680px">
+    <el-dialog append-to-body v-model="createVisible" :title="editingSessionId ? '编辑终端会话' : '新建终端会话'" width="680px">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="主机地址">
           <el-input v-model="createForm.host" placeholder="例如 10.0.0.10" />
@@ -77,7 +78,7 @@
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitCreate">创建并连接</el-button>
+        <el-button type="primary" @click="submitSession">{{ editingSessionId ? '保存' : '创建并连接' }}</el-button>
       </template>
     </el-dialog>
 
@@ -120,6 +121,7 @@ const sessionLoading = ref(false)
 const recordLoading = ref(false)
 
 const createVisible = ref(false)
+const editingSessionId = ref('')
 const createForm = ref({
   host_id: '',
   host: '',
@@ -177,16 +179,30 @@ const reloadAll = async () => {
 }
 
 const openCreateDialog = () => {
+  editingSessionId.value = ''
   createForm.value = { host_id: '', host: '', port: 22, username: '', password: '', key_auth: '' }
   createVisible.value = true
 }
 
-const submitCreate = async () => {
+const openEditDialog = (row) => {
+  editingSessionId.value = row.id
+  createForm.value = {
+    host_id: row.host_id || row.host,
+    host: row.host || '',
+    port: row.port || 22,
+    username: row.username || '',
+    password: '',
+    key_auth: ''
+  }
+  createVisible.value = true
+}
+
+const submitSession = async () => {
   if (!createForm.value.host.trim() || !createForm.value.username.trim()) {
     ElMessage.warning('请填写主机地址和用户名')
     return
   }
-  if (!createForm.value.password && !createForm.value.key_auth) {
+  if (!editingSessionId.value && !createForm.value.password && !createForm.value.key_auth) {
     ElMessage.warning('密码和私钥至少填写一个')
     return
   }
@@ -197,6 +213,15 @@ const submitCreate = async () => {
   }
 
   try {
+    if (editingSessionId.value) {
+      await axios.put(`/api/v1/terminal/sessions/${editingSessionId.value}`, payload, { headers: authHeaders() })
+      ElMessage.success('会话已更新')
+      createVisible.value = false
+      editingSessionId.value = ''
+      await fetchSessions()
+      return
+    }
+
     const res = await axios.post('/api/v1/terminal/sessions', payload, { headers: authHeaders() })
     const sess = res.data?.data
     ElMessage.success('会话创建成功')
@@ -204,7 +229,7 @@ const submitCreate = async () => {
     await fetchSessions()
     if (sess?.id) openTerminal(sess)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建会话失败')
+    ElMessage.error(err.response?.data?.message || (editingSessionId.value ? '编辑会话失败' : '创建会话失败'))
   }
 }
 
