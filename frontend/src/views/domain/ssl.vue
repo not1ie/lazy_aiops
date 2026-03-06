@@ -31,11 +31,13 @@
           <el-table-column label="有效期至" width="180">
             <template #default="{ row }">{{ formatTime(row.not_after) }}</template>
           </el-table-column>
-          <el-table-column prop="days_to_expire" label="剩余天数" width="120" sortable />
+          <el-table-column label="剩余天数" width="120" sortable :sort-method="sortCertDays">
+            <template #default="{ row }">{{ certDays(row) }}</template>
+          </el-table-column>
           <el-table-column label="状态" width="120">
             <template #default="{ row }">
-              <el-tag :type="certStatusTag(row.status, row.days_to_expire)">
-                {{ certStatusText(row.status, row.days_to_expire) }}
+              <el-tag :type="certStatusTag(row.status, certDays(row))">
+                {{ certStatusText(row.status, certDays(row)) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -76,11 +78,13 @@
           <el-table-column label="到期时间" width="180">
             <template #default="{ row }">{{ formatTime(row.expiration_at) }}</template>
           </el-table-column>
-          <el-table-column prop="days_to_expire" label="剩余天数" width="120" sortable />
+          <el-table-column label="剩余天数" width="120" sortable :sort-method="sortDomainDays">
+            <template #default="{ row }">{{ domainDays(row) }}</template>
+          </el-table-column>
           <el-table-column label="状态" width="120">
             <template #default="{ row }">
-              <el-tag :type="domainStatusTag(row.days_to_expire)">
-                {{ domainStatusText(row.days_to_expire) }}
+              <el-tag :type="domainStatusTag(domainDays(row))">
+                {{ domainStatusText(domainDays(row)) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -124,7 +128,7 @@
         <el-descriptions-item label="IP列表" :span="2">{{ (domainCheckResult.ips || []).join(', ') || '-' }}</el-descriptions-item>
         <el-descriptions-item label="证书颁发者">{{ domainCheckResult.ssl?.issuer || '-' }}</el-descriptions-item>
         <el-descriptions-item label="证书到期">{{ formatTime(domainCheckResult.ssl?.not_after) }}</el-descriptions-item>
-        <el-descriptions-item label="剩余天数">{{ domainCheckResult.ssl?.days_to_expire ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="剩余天数">{{ certDays(domainCheckResult.ssl) }}</el-descriptions-item>
         <el-descriptions-item label="SANs" :span="2">{{ domainCheckResult.ssl?.sans || '-' }}</el-descriptions-item>
       </el-descriptions>
     </el-dialog>
@@ -132,7 +136,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -145,6 +149,8 @@ const accounts = ref([])
 const certKeyword = ref('')
 const domainKeyword = ref('')
 const accountFilter = ref('')
+const nowTick = ref(Date.now())
+let dayTicker = null
 
 const createCertVisible = ref(false)
 const createCertForm = ref({ domain: '' })
@@ -188,18 +194,40 @@ const domainStatusTag = (days) => {
 
 const certSummary = computed(() => {
   const total = certs.value.length
-  const expired = certs.value.filter(item => Number(item.days_to_expire) <= 0 || item.status === 0).length
-  const expiring = certs.value.filter(item => Number(item.days_to_expire) > 0 && Number(item.days_to_expire) <= 30).length
+  const expired = certs.value.filter(item => certDays(item) <= 0 || item.status === 0).length
+  const expiring = certs.value.filter(item => certDays(item) > 0 && certDays(item) <= 30).length
   const ok = total - expired - expiring
   return { total, expired, expiring, ok }
 })
 
 const domainSummary = computed(() => {
   const total = domains.value.length
-  const expired = domains.value.filter(item => Number(item.days_to_expire) <= 0).length
-  const expiring = domains.value.filter(item => Number(item.days_to_expire) > 0 && Number(item.days_to_expire) <= 30).length
+  const expired = domains.value.filter(item => domainDays(item) <= 0).length
+  const expiring = domains.value.filter(item => domainDays(item) > 0 && domainDays(item) <= 30).length
   return { total, expired, expiring }
 })
+
+const calcDaysToExpire = (expireValue) => {
+  const current = nowTick.value
+  if (!expireValue) return 0
+  const expireAt = new Date(expireValue)
+  if (Number.isNaN(expireAt.getTime())) return 0
+  const remainMs = expireAt.getTime() - current
+  if (remainMs <= 0) return 0
+  return Math.ceil(remainMs / (24 * 60 * 60 * 1000))
+}
+
+const certDays = (row) => {
+  if (!row?.not_after) return Number(row?.days_to_expire || 0)
+  return calcDaysToExpire(row.not_after)
+}
+
+const domainDays = (row) => {
+  if (!row?.expiration_at) return Number(row?.days_to_expire || 0)
+  return calcDaysToExpire(row.expiration_at)
+}
+const sortCertDays = (a, b) => certDays(a) - certDays(b)
+const sortDomainDays = (a, b) => domainDays(a) - domainDays(b)
 
 const filteredCerts = computed(() => {
   const key = certKeyword.value.trim().toLowerCase()
@@ -326,7 +354,16 @@ const checkDomain = async (row) => {
   }
 }
 
-onMounted(refreshAll)
+onMounted(() => {
+  refreshAll()
+  dayTicker = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 60 * 1000)
+})
+
+onBeforeUnmount(() => {
+  if (dayTicker) window.clearInterval(dayTicker)
+})
 </script>
 
 <style scoped>
