@@ -32,7 +32,8 @@ type TerminalSession struct {
 	PrivateKey string     `gorm:"type:text" json:"-"`
 	UserID     string     `gorm:"size:36;index" json:"user_id"`
 	Operator   string     `gorm:"size:64" json:"operator"`
-	Status     int        `gorm:"default:0" json:"status"` // 0:待连接 1:已连接 2:已断开
+	Status     int        `gorm:"default:0" json:"status"` // 0:待连接 1:已连接 2:已关闭 3:连接失败
+	LastError  string     `gorm:"size:512" json:"last_error"`
 	StartedAt  *time.Time `json:"started_at"`
 	EndedAt    *time.Time `json:"ended_at"`
 }
@@ -43,6 +44,6 @@ type TerminalRecord struct {
 	SessionID string `gorm:"size:36;index" json:"session_id"`
 	Host      string `gorm:"size:128" json:"host"`
 	Operator  string `gorm:"size:64" json:"operator"`
-	Duration  int    `json:"duration"` // 时长(秒)
+	Duration  int    `json:"duration"`                  // 时长(秒)
 	Data      string `gorm:"type:longtext" json:"data"` // 录像数据JSON
 }

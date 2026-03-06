@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,7 +36,10 @@ type SSHSession struct {
 	Client              *ssh.Client
 	Session             *ssh.Session
 	StdinPipe           io.WriteCloser
+	StdoutPipe          io.Reader
+	StderrPipe          io.Reader
 	Conn                *websocket.Conn
+	ConnMu              sync.Mutex
 	Recording           []RecordItem
 	StartTime           time.Time
 	JumpSessionID       string
@@ -299,6 +303,12 @@ func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 func (h *TerminalHandler) CloseSession(c *gin.Context) {
 	id := c.Param("id")
 
+	var exists int64
+	if err := h.db.Model(&TerminalSession{}).Where("id = ?", id).Count(&exists).Error; err != nil || exists == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+
 	if sess, ok := h.sessions.Load(id); ok {
 		sshSess := sess.(*SSHSession)
 		h.closeSSHSession(sshSess)
@@ -306,11 +316,42 @@ func (h *TerminalHandler) CloseSession(c *gin.Context) {
 	}
 
 	h.db.Model(&TerminalSession{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":   2,
-		"ended_at": time.Now(),
+		"status":     2,
+		"ended_at":   time.Now(),
+		"last_error": "",
 	})
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "会话已关闭"})
+}
+
+// DeleteSession 删除会话记录（含关联录像）
+func (h *TerminalHandler) DeleteSession(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "会话ID不能为空"})
+		return
+	}
+
+	if sess, ok := h.sessions.Load(id); ok {
+		sshSess := sess.(*SSHSession)
+		h.closeSSHSession(sshSess)
+		h.sessions.Delete(id)
+	}
+
+	if err := h.db.Unscoped().Where("session_id = ?", id).Delete(&TerminalRecord{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "删除会话录像失败"})
+		return
+	}
+	res := h.db.Unscoped().Where("id = ?", id).Delete(&TerminalSession{})
+	if res.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "删除会话失败"})
+		return
+	}
+	if res.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "会话已删除"})
 }
 
 // HandleWebSocket WebSocket连接
@@ -359,7 +400,13 @@ func (h *TerminalHandler) HandleWebSocket(c *gin.Context) {
 	// 建立SSH连接
 	sshSess, err := h.connectSSH(&session)
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n连接失败: %s\r\n", err.Error())))
+		failReason := normalizeSSHFailureReason(err)
+		h.db.Model(&session).Updates(map[string]interface{}{
+			"status":     3,
+			"ended_at":   time.Now(),
+			"last_error": failReason,
+		})
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\n连接失败: %s\r\n", failReason)))
 		conn.Close()
 		return
 	}
@@ -372,6 +419,7 @@ func (h *TerminalHandler) HandleWebSocket(c *gin.Context) {
 	h.db.Model(&session).Updates(map[string]interface{}{
 		"status":     1,
 		"started_at": time.Now(),
+		"last_error": "",
 	})
 
 	// 处理WebSocket消息
@@ -433,6 +481,20 @@ func (h *TerminalHandler) connectSSH(session *TerminalSession) (*SSHSession, err
 		return nil, err
 	}
 
+	stdout, err := sshSession.StdoutPipe()
+	if err != nil {
+		sshSession.Close()
+		client.Close()
+		return nil, err
+	}
+
+	stderr, err := sshSession.StderrPipe()
+	if err != nil {
+		sshSession.Close()
+		client.Close()
+		return nil, err
+	}
+
 	if err := sshSession.Shell(); err != nil {
 		sshSession.Close()
 		client.Close()
@@ -440,23 +502,53 @@ func (h *TerminalHandler) connectSSH(session *TerminalSession) (*SSHSession, err
 	}
 
 	return &SSHSession{
-		ID:        session.ID,
-		Client:    client,
-		Session:   sshSession,
-		StdinPipe: stdin,
-		Recording: make([]RecordItem, 0),
+		ID:         session.ID,
+		Client:     client,
+		Session:    sshSession,
+		StdinPipe:  stdin,
+		StdoutPipe: stdout,
+		StderrPipe: stderr,
+		Recording:  make([]RecordItem, 0),
 	}, nil
 }
 
 func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *TerminalSession, operator string) {
+	closeReason := ""
+	reasonCh := make(chan string, 1)
+	notifyReason := func(reason string) {
+		reason = strings.TrimSpace(reason)
+		if reason == "" {
+			return
+		}
+		select {
+		case reasonCh <- reason:
+		default:
+		}
+	}
+
 	defer func() {
 		sshSess.PendingCommandInput = ""
 		h.closeSSHSession(sshSess)
 		h.sessions.Delete(sshSess.ID)
-		h.db.Model(session).Updates(map[string]interface{}{
+		endedAt := time.Now()
+		select {
+		case reason := <-reasonCh:
+			if closeReason == "" {
+				closeReason = reason
+			}
+		default:
+		}
+		updates := map[string]interface{}{
 			"status":   2,
-			"ended_at": time.Now(),
-		})
+			"ended_at": endedAt,
+		}
+		if closeReason != "" {
+			updates["status"] = 3
+			updates["last_error"] = closeReason
+		} else {
+			updates["last_error"] = ""
+		}
+		h.db.Model(session).Updates(updates)
 
 		// 保存录像
 		if len(sshSess.Recording) > 0 {
@@ -465,41 +557,38 @@ func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *Termina
 				SessionID: session.ID,
 				Host:      session.Host,
 				Operator:  operator,
-				Duration:  int(time.Since(sshSess.StartTime).Seconds()),
+				Duration:  int(endedAt.Sub(sshSess.StartTime).Seconds()),
 				Data:      string(recordData),
 			}
 			h.db.Create(&record)
 		}
 	}()
 
-	// 读取SSH输出
-	stdout, _ := sshSess.Session.StdoutPipe()
-	go func() {
-		buf := make([]byte, 8192)
-		for {
-			n, err := stdout.Read(buf)
-			if err != nil {
-				sshSess.Conn.Close()
-				return
-			}
-			if n > 0 {
-				data := buf[:n]
-				sshSess.Conn.WriteMessage(websocket.BinaryMessage, data)
+	// 读取SSH输出（stdout/stderr）
+	go h.streamSSHOutput(sshSess, sshSess.StdoutPipe, notifyReason)
+	go h.streamSSHOutput(sshSess, sshSess.StderrPipe, notifyReason)
 
-				// 记录输出
-				sshSess.Recording = append(sshSess.Recording, RecordItem{
-					Time:    time.Since(sshSess.StartTime).Milliseconds(),
-					Type:    "output",
-					Content: string(data),
-				})
-			}
+	// 等待远端shell结束
+	go func() {
+		if err := sshSess.Session.Wait(); err != nil {
+			notifyReason(normalizeSSHFailureReason(err))
 		}
+		_ = h.writeWSMessage(sshSess, websocket.TextMessage, []byte("\r\n[系统] 连接已关闭\r\n"))
+		_ = sshSess.Conn.Close()
 	}()
 
 	// 读取WebSocket输入
 	for {
 		_, message, err := sshSess.Conn.ReadMessage()
 		if err != nil {
+			closeReason = parseWSDisconnectReason(err)
+			select {
+			case reason := <-reasonCh:
+				if reason != "" {
+					closeReason = reason
+				}
+			default:
+			}
 			return
 		}
 
@@ -518,12 +607,19 @@ func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *Termina
 		if blocked {
 			sshSess.JumpBlocked = true
 			sshSess.JumpBlockReason = reason
-			_ = sshSess.Conn.WriteMessage(websocket.TextMessage, []byte("\r\n[风控阻断] "+reason+"\r\n"))
+			closeReason = "风控阻断: " + reason
+			notifyReason(closeReason)
+			_ = h.writeWSMessage(sshSess, websocket.TextMessage, []byte("\r\n[风控阻断] "+reason+"\r\n"))
 			return
 		}
 
 		// 写入SSH
-		sshSess.StdinPipe.Write(message)
+		if _, err := sshSess.StdinPipe.Write(message); err != nil {
+			closeReason = normalizeSSHFailureReason(err)
+			notifyReason(closeReason)
+			_ = h.writeWSMessage(sshSess, websocket.TextMessage, []byte("\r\n[系统] "+closeReason+"\r\n"))
+			return
+		}
 
 		// 记录输入
 		sshSess.Recording = append(sshSess.Recording, RecordItem{
@@ -531,6 +627,83 @@ func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *Termina
 			Type:    "input",
 			Content: string(message),
 		})
+	}
+}
+
+func (h *TerminalHandler) streamSSHOutput(sshSess *SSHSession, stream io.Reader, notifyReason func(string)) {
+	if stream == nil {
+		return
+	}
+	buf := make([]byte, 8192)
+	for {
+		n, err := stream.Read(buf)
+		if n > 0 {
+			data := append([]byte(nil), buf[:n]...)
+			_ = h.writeWSMessage(sshSess, websocket.BinaryMessage, data)
+			sshSess.Recording = append(sshSess.Recording, RecordItem{
+				Time:    time.Since(sshSess.StartTime).Milliseconds(),
+				Type:    "output",
+				Content: string(data),
+			})
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				notifyReason(normalizeSSHFailureReason(err))
+			}
+			return
+		}
+	}
+}
+
+func (h *TerminalHandler) writeWSMessage(sshSess *SSHSession, msgType int, payload []byte) error {
+	if sshSess == nil || sshSess.Conn == nil {
+		return errors.New("websocket 未连接")
+	}
+	sshSess.ConnMu.Lock()
+	defer sshSess.ConnMu.Unlock()
+	return sshSess.Conn.WriteMessage(msgType, payload)
+}
+
+func parseWSDisconnectReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		switch closeErr.Code {
+		case websocket.CloseNormalClosure, websocket.CloseGoingAway:
+			return ""
+		case websocket.ClosePolicyViolation:
+			return "连接被策略拒绝"
+		default:
+			if closeErr.Text != "" {
+				return closeErr.Text
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeSSHFailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, io.EOF) {
+		return "远端会话已结束"
+	}
+	msg := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "unable to authenticate"), strings.Contains(lower, "permission denied"):
+		return "认证失败：用户名或密码/密钥错误"
+	case strings.Contains(lower, "connection refused"):
+		return "连接失败：目标主机端口拒绝连接"
+	case strings.Contains(lower, "no route to host"):
+		return "连接失败：目标主机网络不可达"
+	case strings.Contains(lower, "i/o timeout"), strings.Contains(lower, "timeout"):
+		return "连接超时：请检查网络与防火墙策略"
+	default:
+		return msg
 	}
 }
 

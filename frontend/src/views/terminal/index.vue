@@ -25,15 +25,19 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '在线' : '待连' }}</el-tag>
+            <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="290" fixed="right">
+        <el-table-column prop="last_error" label="失败原因" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.last_error || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="openTerminal(row)">连接</el-button>
             <el-button v-if="row.status === 0" size="small" @click="openEditDialog(row)">编辑</el-button>
             <el-button size="small" @click="openRecordBySession(row)">录像</el-button>
-            <el-button size="small" type="danger" @click="closeSession(row)">关闭</el-button>
+            <el-button size="small" type="warning" @click="closeSession(row)">关闭</el-button>
+            <el-button size="small" type="danger" plain @click="deleteSession(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -150,6 +154,20 @@ const formatTime = (v) => {
   return String(v).slice(0, 19).replace('T', ' ')
 }
 
+const statusText = (status) => {
+  if (status === 1) return '在线'
+  if (status === 2) return '已关闭'
+  if (status === 3) return '失败'
+  return '待连'
+}
+
+const statusType = (status) => {
+  if (status === 1) return 'success'
+  if (status === 3) return 'danger'
+  if (status === 2) return 'warning'
+  return 'info'
+}
+
 const fetchSessions = async () => {
   sessionLoading.value = true
   try {
@@ -244,6 +262,17 @@ const closeSession = async (row) => {
   }
 }
 
+const deleteSession = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除会话 ${row.host} 吗？删除后不可恢复。`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/terminal/sessions/${row.id}/purge`, { headers: authHeaders() })
+    ElMessage.success('会话已删除')
+    await fetchSessions()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+  }
+}
+
 const scrollTerminalToBottom = () => {
   nextTick(() => {
     if (terminalOutputRef.value) {
@@ -308,6 +337,7 @@ const openTerminal = (row) => {
 
   ws.onclose = () => {
     appendOutput('\n[系统] 连接关闭\n')
+    fetchSessions()
   }
 }
 

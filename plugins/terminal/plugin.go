@@ -43,6 +43,7 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/sessions", h.CreateSession)
 	g.PUT("/sessions/:id", h.UpdateSession)
 	g.DELETE("/sessions/:id", h.CloseSession)
+	g.DELETE("/sessions/:id/purge", h.DeleteSession)
 
 	// WebSocket连接
 	g.GET("/ws/:id", h.HandleWebSocket)
