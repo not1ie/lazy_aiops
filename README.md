@@ -54,17 +54,14 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 
 支持三种主部署方式：Docker、Kubernetes、系统服务（systemd）。
 
-### 1) Docker 镜像部署（ACR 私有仓库）
+### 1) Docker 镜像部署（ACR 匿名拉取）
 
-适用于直接拉取已发布镜像快速部署，不需要本地构建。仓库为私有仓库，需先登录。
+适用于直接拉取已发布镜像快速部署，不需要本地构建。当前仓库已开放匿名拉取。
 
 ```bash
 REGISTRY=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com
 IMAGE=$REGISTRY/lazyops/lazyops
 VERSION=v1.0.2
-
-# 先登录（访问凭证用户名 + 固定密码）
-docker login --username=<ACR_USERNAME> $REGISTRY
 
 # 拉取镜像
 docker pull $IMAGE:$VERSION
@@ -115,12 +112,12 @@ curl -s http://127.0.0.1:8080/health
 git clone https://github.com/not1ie/lazy_aiops.git
 cd lazy_aiops
 
-docker build -t <REGISTRY>/lazy-aiops:v1.0.2 -f Dockerfile .
-docker push <REGISTRY>/lazy-aiops:v1.0.2
+IMAGE=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.2
+docker pull $IMAGE
 
 kubectl apply -k deploy/k8s
 kubectl -n lazy-aiops set image deployment/lazy-auto-ops \
-  lazy-auto-ops=<REGISTRY>/lazy-aiops:v1.0.2
+  lazy-auto-ops=$IMAGE
 kubectl -n lazy-aiops rollout status deployment/lazy-auto-ops
 ```
 
