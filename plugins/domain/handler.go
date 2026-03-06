@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -126,6 +127,9 @@ func (h *DomainHandler) ListDomains(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	for i := range domains {
+		h.refreshDomainRuntimeFields(&domains[i])
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": domains})
 }
 
@@ -137,9 +141,14 @@ func (h *DomainHandler) ListExpiringDomains(c *gin.Context) {
 	}
 
 	var domains []CloudDomain
-	if err := h.db.Preload("Account").Where("days_to_expire <= ? AND days_to_expire > 0", days).Order("days_to_expire").Find(&domains).Error; err != nil {
+	now := time.Now()
+	cutoff := now.Add(time.Duration(days) * 24 * time.Hour)
+	if err := h.db.Preload("Account").Where("expiration_at IS NOT NULL AND expiration_at > ? AND expiration_at <= ?", now, cutoff).Order("expiration_at ASC").Find(&domains).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	for i := range domains {
+		h.refreshDomainRuntimeFields(&domains[i])
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": domains})
 }
@@ -185,9 +194,12 @@ func (h *DomainHandler) CheckDomain(c *gin.Context) {
 // ListCerts SSL证书列表
 func (h *DomainHandler) ListCerts(c *gin.Context) {
 	var certs []SSLCertificate
-	if err := h.db.Order("days_to_expire asc").Find(&certs).Error; err != nil {
+	if err := h.db.Order("CASE WHEN not_after IS NULL THEN 1 ELSE 0 END, not_after ASC").Find(&certs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	for i := range certs {
+		h.refreshCertRuntimeFields(&certs[i])
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": certs})
 }
@@ -347,9 +359,14 @@ func (h *DomainHandler) ListExpiringCerts(c *gin.Context) {
 	}
 
 	var certs []SSLCertificate
-	if err := h.db.Where("days_to_expire <= ? AND days_to_expire > 0", days).Order("days_to_expire").Find(&certs).Error; err != nil {
+	now := time.Now()
+	cutoff := now.Add(time.Duration(days) * 24 * time.Hour)
+	if err := h.db.Where("not_after IS NOT NULL AND not_after > ? AND not_after <= ?", now, cutoff).Order("not_after ASC").Find(&certs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	for i := range certs {
+		h.refreshCertRuntimeFields(&certs[i])
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": certs})
 }
@@ -432,4 +449,39 @@ func parseAliyunResponse(data []byte) ([]CloudDomain, error) {
 	}
 
 	return domains, nil
+}
+
+func calcDaysToExpire(expireAt *time.Time) int {
+	if expireAt == nil {
+		return 0
+	}
+	remain := expireAt.Sub(time.Now())
+	if remain <= 0 {
+		return 0
+	}
+	return int(math.Ceil(remain.Hours() / 24))
+}
+
+func (h *DomainHandler) refreshCertRuntimeFields(cert *SSLCertificate) {
+	if cert == nil {
+		return
+	}
+	cert.DaysToExpire = calcDaysToExpire(cert.NotAfter)
+	switch {
+	case cert.NotAfter == nil:
+		// 保持原状态
+	case cert.DaysToExpire <= 0:
+		cert.Status = 0
+	case cert.DaysToExpire <= 30:
+		cert.Status = 2
+	default:
+		cert.Status = 1
+	}
+}
+
+func (h *DomainHandler) refreshDomainRuntimeFields(domain *CloudDomain) {
+	if domain == nil {
+		return
+	}
+	domain.DaysToExpire = calcDaysToExpire(domain.ExpirationAt)
 }
