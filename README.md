@@ -38,7 +38,7 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 - RBAC 权限体系：用户、角色、权限点控制
 - 系统管理：菜单、组织、日志、审计相关页面
 - Web 终端：浏览器内终端能力（含连接预检与错误提示）
-- 堡垒机融合（MVP）：资产接入、授权策略、会话审计
+- 堡垒机融合：资产接入、授权策略、命令规则、会话审计、在线 SQL 审计执行（MySQL / PostgreSQL）
 
 ### AI 相关能力
 
@@ -54,22 +54,29 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 
 支持三种主部署方式：Docker、Kubernetes、系统服务（systemd）。
 
-### 1) Docker 镜像部署（预构建）
+### 1) Docker 镜像部署（ACR 私有仓库）
 
-适用于直接拉取已发布镜像快速部署，不需要本地构建。
+适用于直接拉取已发布镜像快速部署，不需要本地构建。仓库为私有仓库，需先登录。
 
 ```bash
-# 公开拉取（示例）
-docker pull crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.1
+REGISTRY=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com
+IMAGE=$REGISTRY/lazyops/lazyops
+VERSION=v1.0.2
+
+# 先登录（访问凭证用户名 + 固定密码）
+docker login --username=<ACR_USERNAME> $REGISTRY
+
+# 拉取镜像
+docker pull $IMAGE:$VERSION
 
 # 单机运行
 docker run -d --name lazy-aiops \
   -p 8080:8080 \
   -v $(pwd)/data:/app/data \
-  crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.1
+  $IMAGE:$VERSION
 
 # Swarm 发布（按版本固定镜像）
-LAZY_AIOPS_IMAGE=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.1 \
+LAZY_AIOPS_IMAGE=$IMAGE:$VERSION \
 docker stack deploy -c deploy/swarm/stack.yml lazy-aiops
 ```
 
@@ -108,12 +115,12 @@ curl -s http://127.0.0.1:8080/health
 git clone https://github.com/not1ie/lazy_aiops.git
 cd lazy_aiops
 
-docker build -t <REGISTRY>/lazy-aiops:latest -f Dockerfile .
-docker push <REGISTRY>/lazy-aiops:latest
+docker build -t <REGISTRY>/lazy-aiops:v1.0.2 -f Dockerfile .
+docker push <REGISTRY>/lazy-aiops:v1.0.2
 
 kubectl apply -k deploy/k8s
 kubectl -n lazy-aiops set image deployment/lazy-auto-ops \
-  lazy-auto-ops=<REGISTRY>/lazy-aiops:latest
+  lazy-auto-ops=<REGISTRY>/lazy-aiops:v1.0.2
 kubectl -n lazy-aiops rollout status deployment/lazy-auto-ops
 ```
 
@@ -175,11 +182,19 @@ curl -s http://127.0.0.1:8080/health
 
 ```bash
 # Kubernetes
-REGISTRY_IMAGE=registry.example.com/lazy-aiops:latest deploy/scripts/deploy.sh k8s
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.2 deploy/scripts/deploy.sh k8s
 
 # Docker Swarm
-REGISTRY_IMAGE=registry.example.com/lazy-aiops:latest deploy/scripts/deploy.sh swarm
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.2 deploy/scripts/deploy.sh swarm
 ```
+
+## 版本信息
+
+- 当前推荐版本：`v1.0.2`
+- 对应代码提交：`dbd7449dcf3a`
+- ACR 镜像示例：
+  - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.2`
+  - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:latest`
 
 ## 开发与验证
 
