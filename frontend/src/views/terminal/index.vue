@@ -59,6 +59,8 @@
         <div class="section-header">
           <div class="card-title">会话录像</div>
           <div class="record-actions">
+            <el-button size="small" :disabled="!selectedRecordIds.length" @click="exportSelectedRecords('json')">批量导出 JSON</el-button>
+            <el-button size="small" :disabled="!selectedRecordIds.length" @click="exportSelectedRecords('cast')">批量导出 Cast</el-button>
             <el-button size="small" @click="cleanupRecords(7)">清理 7 天前</el-button>
             <el-button size="small" @click="cleanupRecords(30)">清理 30 天前</el-button>
           </div>
@@ -69,7 +71,8 @@
         <el-button @click="fetchRecords">筛选</el-button>
         <el-button @click="resetRecordFilters">重置</el-button>
       </div>
-      <el-table :fit="true" :data="records" v-loading="recordLoading" stripe>
+      <el-table :fit="true" :data="records" v-loading="recordLoading" stripe @selection-change="onRecordSelectionChange">
+        <el-table-column type="selection" width="48" />
         <el-table-column prop="operator" label="操作人" width="120" />
         <el-table-column prop="host" label="主机" min-width="180" />
         <el-table-column prop="duration" label="时长(s)" width="90" />
@@ -128,6 +131,11 @@
         </el-table-column>
         <el-table-column prop="risk_reason" label="说明" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">{{ row.risk_reason || row.rule_name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="90" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="openAuditDetail(row)">详情</el-button>
+          </template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -196,6 +204,35 @@
         <el-button @click="recordVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="auditDetailVisible" title="命令审计详情" size="720px">
+      <div v-if="currentAudit" class="audit-detail">
+        <div class="audit-grid">
+          <div><span class="audit-label">时间</span><span>{{ formatTime(currentAudit.executed_at) }}</span></div>
+          <div><span class="audit-label">会话号</span><span>{{ currentAudit.session_no || '-' }}</span></div>
+          <div><span class="audit-label">主机</span><span>{{ currentAudit.host || '-' }}</span></div>
+          <div><span class="audit-label">资产</span><span>{{ currentAudit.asset_name || '-' }}</span></div>
+          <div><span class="audit-label">操作人</span><span>{{ currentAudit.operator || '-' }}</span></div>
+          <div><span class="audit-label">登录用户</span><span>{{ currentAudit.login_user || '-' }}</span></div>
+          <div><span class="audit-label">协议</span><span>{{ currentAudit.protocol || '-' }}</span></div>
+          <div><span class="audit-label">结果</span><span>{{ currentAudit.blocked ? '阻断' : '放行' }}</span></div>
+          <div><span class="audit-label">风险等级</span><span>{{ currentAudit.risk_level || '-' }}</span></div>
+          <div><span class="audit-label">动作</span><span>{{ currentAudit.risk_action || '-' }}</span></div>
+        </div>
+        <div class="audit-block">
+          <div class="audit-block-title">命令</div>
+          <pre>{{ currentAudit.command || '-' }}</pre>
+        </div>
+        <div class="audit-block">
+          <div class="audit-block-title">命中规则</div>
+          <pre>{{ currentAudit.rule_name || '-' }}</pre>
+        </div>
+        <div class="audit-block">
+          <div class="audit-block-title">风险说明</div>
+          <pre>{{ currentAudit.risk_reason || '-' }}</pre>
+        </div>
+      </div>
+    </el-drawer>
   </el-card>
 </template>
 
@@ -226,6 +263,9 @@ const auditFilters = ref({
   risk_level: '',
   blocked: ''
 })
+const selectedRecordIds = ref([])
+const auditDetailVisible = ref(false)
+const currentAudit = ref(null)
 
 const createVisible = ref(false)
 const editingSessionId = ref('')
@@ -350,6 +390,10 @@ const resetRecordFilters = async () => {
 const resetAuditFilters = async () => {
   auditFilters.value = { keyword: '', risk_level: '', blocked: '' }
   await fetchAudits()
+}
+
+const onRecordSelectionChange = (rows) => {
+  selectedRecordIds.value = Array.isArray(rows) ? rows.map(item => item.id) : []
 }
 
 const openCreateDialog = () => {
@@ -878,6 +922,39 @@ const downloadRecordCast = async (row) => {
   }
 }
 
+const exportSelectedRecords = async (format) => {
+  if (!selectedRecordIds.value.length) {
+    ElMessage.warning('请先选择录像')
+    return
+  }
+  try {
+    const res = await axios.post('/api/v1/terminal/records/export', {
+      ids: selectedRecordIds.value,
+      format
+    }, {
+      headers: authHeaders(),
+      responseType: 'blob'
+    })
+    const blob = new Blob([res.data], { type: 'application/zip' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `terminal-records-${format}-${Date.now()}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success(`批量导出 ${selectedRecordIds.value.length} 条录像成功`)
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '批量导出失败')
+  }
+}
+
+const openAuditDetail = (row) => {
+  currentAudit.value = row
+  auditDetailVisible.value = true
+}
+
 const auditRiskTagType = (level) => {
   if (level === 'critical') return 'danger'
   if (level === 'warning') return 'warning'
@@ -939,4 +1016,11 @@ onBeforeUnmount(() => {
 .record-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .record-progress { margin-left: auto; color: #606266; font-size: 13px; }
 .record-output { height: 460px; overflow: auto; background: #111827; border-radius: 6px; padding: 10px; }
+.audit-detail { display: flex; flex-direction: column; gap: 16px; }
+.audit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.audit-grid > div { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 10px; background: #f8fafc; }
+.audit-label { color: #909399; font-size: 12px; }
+.audit-block { border-radius: 10px; background: #0f172a; color: #e5e7eb; padding: 14px; }
+.audit-block-title { margin-bottom: 8px; color: #93c5fd; font-weight: 600; }
+.audit-block pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 </style>

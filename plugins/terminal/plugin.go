@@ -55,6 +55,7 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/records/:id", h.GetRecord)
 	g.GET("/records/:id/download", h.DownloadRecord)
 	g.GET("/records/:id/asciinema", h.DownloadRecordAsciinema)
+	g.POST("/records/export", h.ExportRecords)
 	g.DELETE("/records/:id", h.DeleteRecord)
 	g.POST("/records/cleanup", h.CleanupRecords)
 }

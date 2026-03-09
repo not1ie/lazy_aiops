@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
@@ -1405,6 +1406,53 @@ func (h *TerminalHandler) DownloadRecordAsciinema(c *gin.Context) {
 	_, _ = c.Writer.Write(castData)
 }
 
+// ExportRecords 批量导出录像
+func (h *TerminalHandler) ExportRecords(c *gin.Context) {
+	var req struct {
+		IDs    []string `json:"ids"`
+		Format string   `json:"format"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if len(req.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请选择至少一条录像"})
+		return
+	}
+
+	format := strings.ToLower(strings.TrimSpace(req.Format))
+	if format == "" {
+		format = "json"
+	}
+	if format != "json" && format != "cast" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "导出格式不支持"})
+		return
+	}
+
+	var records []TerminalRecord
+	if err := h.db.Where("id IN ?", req.IDs).Order("created_at DESC").Find(&records).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "读取录像失败"})
+		return
+	}
+	if len(records) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "未找到可导出的录像"})
+		return
+	}
+
+	zipData, err := buildRecordZip(records, format)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成导出包失败"})
+		return
+	}
+
+	filename := fmt.Sprintf("terminal-records-%s.zip", time.Now().Format("20060102-150405"))
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Writer.WriteHeader(http.StatusOK)
+	_, _ = c.Writer.Write(zipData)
+}
+
 // DeleteRecord 删除单条录像
 func (h *TerminalHandler) DeleteRecord(c *gin.Context) {
 	id := c.Param("id")
@@ -1514,5 +1562,54 @@ func buildAsciinemaCast(record TerminalRecord) ([]byte, error) {
 		buf.WriteByte('\n')
 	}
 
+	return buf.Bytes(), nil
+}
+
+func buildRecordZip(records []TerminalRecord, format string) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	for _, record := range records {
+		base := fmt.Sprintf("terminal-record-%s-%s", sanitizeRecordFilePart(record.Host), record.ID)
+		var (
+			name    string
+			content []byte
+			err     error
+		)
+		if format == "cast" {
+			name = base + ".cast"
+			content, err = buildAsciinemaCast(record)
+		} else {
+			name = base + ".json"
+			payload := map[string]interface{}{
+				"id":         record.ID,
+				"session_id": record.SessionID,
+				"host":       record.Host,
+				"operator":   record.Operator,
+				"duration":   record.Duration,
+				"created_at": record.CreatedAt,
+				"updated_at": record.UpdatedAt,
+				"events":     json.RawMessage(record.Data),
+			}
+			content, err = json.MarshalIndent(payload, "", "  ")
+		}
+		if err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		fw, err := zw.Create(name)
+		if err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		if _, err = fw.Write(content); err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+	}
+
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
