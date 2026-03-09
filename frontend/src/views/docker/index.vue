@@ -2261,7 +2261,7 @@ const fetchData = async () => {
       tableData.value = res.data.data
     }
   } catch (e) {
-    ElMessage.error('加载失败')
+    ElMessage.error(extractErrorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -2272,7 +2272,7 @@ const syncAll = async () => {
   try {
     await axios.post('/api/v1/docker/hosts/sync', {}, { headers: authHeaders() })
   } catch (e) {
-    ElMessage.error('同步失败')
+    ElMessage.error(extractErrorMessage(e, '同步失败'))
   } finally {
     await fetchData()
   }
@@ -2844,8 +2844,8 @@ const formatImageLabel = (row) => {
   return row.id || repo || '-'
 }
 
-const extractErrorMessage = (e) => {
-  const msg = e?.response?.data?.message || e?.message || '操作失败'
+const extractErrorMessage = (e, fallback = '操作失败') => {
+  const msg = e?.response?.data?.message || e?.message || fallback
   return String(msg)
 }
 
@@ -4253,7 +4253,7 @@ const submitCreate = async () => {
       ElMessage.error(res.data.message || '创建失败')
     }
   } catch (e) {
-    ElMessage.error('创建失败')
+    ElMessage.error(extractErrorMessage(e, '创建失败'))
   } finally {
     createLoading.value = false
   }
@@ -4268,7 +4268,7 @@ const containerAction = async (row, action) => {
     ElMessage.success('操作成功')
     loadContainers()
   } catch (e) {
-    ElMessage.error('操作失败')
+    ElMessage.error(extractErrorMessage(e, '操作失败'))
   }
 }
 
@@ -4570,7 +4570,7 @@ const downloadJson = (filename, content) => {
     document.body.removeChild(link)
     URL.revokeObjectURL(link.href)
   } catch (e) {
-    ElMessage.error('导出失败')
+    ElMessage.error(extractErrorMessage(e, '导出失败'))
   }
 }
 
@@ -5178,7 +5178,7 @@ const handleBuildContextChange = async (file) => {
   try {
     buildForm.contextTar = await readFileAsBase64(file.raw)
   } catch (e) {
-    ElMessage.error('读取文件失败')
+    ElMessage.error(extractErrorMessage(e, '读取文件失败'))
   }
 }
 
@@ -5187,7 +5187,7 @@ const handleLoadTarChange = async (file) => {
   try {
     loadForm.tar = await readFileAsBase64(file.raw)
   } catch (e) {
-    ElMessage.error('读取文件失败')
+    ElMessage.error(extractErrorMessage(e, '读取文件失败'))
   }
 }
 
@@ -5266,7 +5266,7 @@ const submitPull = async () => {
       ElMessage.error(res.data.message || '拉取失败')
     }
   } catch (e) {
-    ElMessage.error('拉取失败')
+    ElMessage.error(extractErrorMessage(e, '拉取失败'))
   } finally {
     pullLoading.value = false
   }

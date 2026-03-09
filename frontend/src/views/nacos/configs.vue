@@ -149,10 +149,20 @@ const scheduleForm = reactive({
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchServers = async () => {
-  const res = await axios.get('/api/v1/nacos/servers', { headers: headers() })
-  if (res.data.code === 0) {
-    servers.value = res.data.data
+  try {
+    const res = await axios.get('/api/v1/nacos/servers', { headers: headers() })
+    if (res.data.code === 0) {
+      servers.value = res.data.data
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载服务器失败'))
   }
 }
 
@@ -167,7 +177,7 @@ const fetchConfigs = async () => {
       configs.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载配置失败')
+    ElMessage.error(getErrorMessage(error, '加载配置失败'))
   } finally {
     loadingConfigs.value = false
   }
@@ -186,10 +196,10 @@ const saveConfig = async () => {
     if (res.data.code === 0) {
       ElMessage.success('更新成功')
       configDialog.value = false
-      fetchConfigs()
+      await fetchConfigs()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     savingConfig.value = false
   }
@@ -203,7 +213,7 @@ const fetchSchedules = async () => {
       schedules.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载计划失败')
+    ElMessage.error(getErrorMessage(error, '加载计划失败'))
   } finally {
     loadingSchedules.value = false
   }
@@ -241,27 +251,36 @@ const saveSchedule = async () => {
     if (res.data.code === 0) {
       ElMessage.success('保存成功')
       scheduleDialog.value = false
-      fetchSchedules()
+      await fetchSchedules()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     savingSchedule.value = false
   }
 }
 
-const deleteSchedule = (row) => {
-  ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' }).then(async () => {
+const deleteSchedule = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/nacos/schedules/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
-    fetchSchedules()
-  })
+    await fetchSchedules()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
 }
 
 const toggleSchedule = async (row) => {
-  await axios.post(`/api/v1/nacos/schedules/${row.id}/toggle`, {}, { headers: headers() })
-  ElMessage.success('已更新状态')
-  fetchSchedules()
+  try {
+    await axios.post(`/api/v1/nacos/schedules/${row.id}/toggle`, {}, { headers: headers() })
+    ElMessage.success('已更新状态')
+    await fetchSchedules()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '更新状态失败'))
+  }
 }
 
 const refreshActive = () => {

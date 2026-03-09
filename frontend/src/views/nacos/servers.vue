@@ -85,6 +85,12 @@ const form = reactive({
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
@@ -93,7 +99,7 @@ const fetchData = async () => {
       servers.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(error, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -126,36 +132,49 @@ const saveServer = async () => {
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
-      fetchData()
+      await fetchData()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
 const testConnection = async (row) => {
-  const res = await axios.post(`/api/v1/nacos/servers/${row.id}/test`, {}, { headers: headers() })
-  if (res.data.code === 0 && res.data.data.success) {
-    ElMessage.success('连接成功')
-  } else {
-    ElMessage.error(`连接失败: ${res.data.data?.error || '未知错误'}`)
+  try {
+    const res = await axios.post(`/api/v1/nacos/servers/${row.id}/test`, {}, { headers: headers() })
+    if (res.data.code === 0 && res.data.data.success) {
+      ElMessage.success('连接成功')
+    } else {
+      ElMessage.error(`连接失败: ${res.data.data?.error || res.data.message || '未知错误'}`)
+    }
+    await fetchData()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '连接失败'))
   }
-  fetchData()
 }
 
 const syncConfigs = async (row) => {
-  await axios.post(`/api/v1/nacos/servers/${row.id}/sync-configs`, {}, { headers: headers() })
-  ElMessage.success('同步完成')
+  try {
+    await axios.post(`/api/v1/nacos/servers/${row.id}/sync-configs`, {}, { headers: headers() })
+    ElMessage.success('同步完成')
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '同步失败'))
+  }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' }).then(async () => {
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/nacos/servers/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
-    fetchData()
-  })
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
 }
 
 onMounted(fetchData)
