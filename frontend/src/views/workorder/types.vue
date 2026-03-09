@@ -30,7 +30,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="760px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="760px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -85,6 +85,18 @@ const form = ref({
   description: ''
 })
 
+const resetForm = () => {
+  form.value = {
+    name: '',
+    code: '',
+    icon: '',
+    flow_id: '',
+    template: '',
+    enabled: true,
+    description: ''
+  }
+}
+
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const fetchTypes = async () => {
@@ -103,15 +115,7 @@ const openCreate = () => {
   isEdit.value = false
   dialogTitle.value = '新增类型'
   currentId.value = ''
-  form.value = {
-    name: '',
-    code: '',
-    icon: '',
-    flow_id: '',
-    template: '',
-    enabled: true,
-    description: ''
-  }
+  resetForm()
   dialogVisible.value = true
 }
 
@@ -129,6 +133,13 @@ const openEdit = (row) => {
     description: row.description || ''
   }
   dialogVisible.value = true
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  dialogTitle.value = '新增类型'
+  currentId.value = ''
+  resetForm()
 }
 
 const submitForm = async () => {

@@ -32,7 +32,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑流水线' : '新增流水线'" width="720px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑流水线' : '新增流水线'" width="720px" @closed="handleDialogClosed">
     <el-form :model="form" label-width="110px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -119,7 +119,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog append-to-body v-model="triggerVisible" title="触发流水线" width="520px">
+  <el-dialog append-to-body v-model="triggerVisible" title="触发流水线" width="520px" @closed="handleTriggerDialogClosed">
     <el-form :model="triggerForm" label-width="90px">
       <el-form-item label="参数(JSON)">
         <el-input v-model="triggerForm.parameters" type="textarea" :rows="4" placeholder='{"env":"prod"}' />
@@ -175,6 +175,36 @@ const triggerForm = reactive({
   parameters: ''
 })
 
+const resetForm = () => {
+  Object.assign(form, {
+    name: '',
+    description: '',
+    provider: 'jenkins',
+    jenkins_url: '',
+    jenkins_job: '',
+    jenkins_user: '',
+    jenkins_token: '',
+    gitlab_url: '',
+    gitlab_project_id: '',
+    gitlab_token: '',
+    gitlab_ref: 'main',
+    argocd_url: '',
+    argocd_app: '',
+    argocd_token: '',
+    github_repo: '',
+    github_token: '',
+    github_workflow: '',
+    parameters: '',
+    env_vars: '',
+    status: 1
+  })
+}
+
+const resetTriggerForm = () => {
+  triggerPipelineId.value = ''
+  triggerForm.parameters = ''
+}
+
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const getErrorMessage = (error, fallback) => {
@@ -200,28 +230,7 @@ const fetchData = async () => {
 const openCreate = () => {
   isEdit.value = false
   currentId.value = ''
-  Object.assign(form, {
-    name: '',
-    description: '',
-    provider: 'jenkins',
-    jenkins_url: '',
-    jenkins_job: '',
-    jenkins_user: '',
-    jenkins_token: '',
-    gitlab_url: '',
-    gitlab_project_id: '',
-    gitlab_token: '',
-    gitlab_ref: 'main',
-    argocd_url: '',
-    argocd_app: '',
-    argocd_token: '',
-    github_repo: '',
-    github_token: '',
-    github_workflow: '',
-    parameters: '',
-    env_vars: '',
-    status: 1
-  })
+  resetForm()
   dialogVisible.value = true
 }
 
@@ -230,6 +239,16 @@ const openEdit = (row) => {
   currentId.value = row.id
   Object.assign(form, row)
   dialogVisible.value = true
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  resetForm()
+}
+
+const handleTriggerDialogClosed = () => {
+  resetTriggerForm()
 }
 
 const savePipeline = async () => {
@@ -256,7 +275,8 @@ const savePipeline = async () => {
 
 const openTrigger = (row) => {
   triggerPipelineId.value = row.id
-  triggerForm.parameters = ''
+  resetTriggerForm()
+  triggerPipelineId.value = row.id
   triggerVisible.value = true
 }
 

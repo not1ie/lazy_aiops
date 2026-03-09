@@ -61,7 +61,7 @@
     </el-card>
   </div>
 
-  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑Playbook' : '新增Playbook'" width="760px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑Playbook' : '新增Playbook'" width="760px" @closed="handleDialogClosed">
     <el-form :model="form" label-width="90px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -85,7 +85,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog append-to-body v-model="executeVisible" title="执行Playbook" width="560px">
+  <el-dialog append-to-body v-model="executeVisible" title="执行Playbook" width="560px" @closed="handleExecuteDialogClosed">
     <el-form :model="executeForm" label-width="90px">
       <el-form-item label="Inventory">
         <el-select v-model="executeForm.inventory_id" style="width: 100%" clearable>
@@ -114,7 +114,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog append-to-body v-model="outputVisible" title="执行输出" width="760px">
+  <el-dialog append-to-body v-model="outputVisible" title="执行输出" width="760px" @closed="handleOutputClosed">
     <pre class="log-block">{{ outputText }}</pre>
   </el-dialog>
 </template>
@@ -123,6 +123,7 @@
 import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const playbooks = ref([])
 const inventories = ref([])
@@ -159,6 +160,14 @@ const executeForm = reactive({
   check: false
 })
 
+const resetForm = () => {
+  Object.assign(form, { name: '', description: '', content: '', tags: '', category: '' })
+}
+
+const resetExecuteForm = () => {
+  Object.assign(executeForm, { inventory_id: '', hosts: '', extra_vars: '', tags: '', limit: '', check: false })
+}
+
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const fetchPlaybooks = async () => {
@@ -169,7 +178,7 @@ const fetchPlaybooks = async () => {
       playbooks.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(error, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -190,7 +199,7 @@ const fetchExecutions = async () => {
       executions.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载执行记录失败')
+    ElMessage.error(getErrorMessage(error, '加载执行记录失败'))
   } finally {
     loadingExecutions.value = false
   }
@@ -199,7 +208,7 @@ const fetchExecutions = async () => {
 const openCreate = () => {
   isEdit.value = false
   currentId.value = ''
-  Object.assign(form, { name: '', description: '', content: '', tags: '', category: '' })
+  resetForm()
   dialogVisible.value = true
 }
 
@@ -223,26 +232,37 @@ const savePlaybook = async () => {
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
-      fetchPlaybooks()
+      await fetchPlaybooks()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' }).then(async () => {
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/ansible/playbooks/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
-    fetchPlaybooks()
-  })
+    await fetchPlaybooks()
+  } catch (error) {
+    if (!isCancelError(error)) {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  resetForm()
 }
 
 const openExecute = async (row) => {
   selectedPlaybookId.value = row.id
-  Object.assign(executeForm, { inventory_id: '', hosts: '', extra_vars: '', tags: '', limit: '', check: false })
+  resetExecuteForm()
   await fetchInventories()
   executeVisible.value = true
 }
@@ -262,12 +282,25 @@ const executePlaybook = async () => {
     if (res.data.code === 0) {
       ElMessage.success('已提交执行')
       executeVisible.value = false
-      fetchExecutions()
+      await fetchExecutions()
     }
   } catch (error) {
-    ElMessage.error('执行失败：请检查Extra Vars格式')
+    ElMessage.error(error instanceof SyntaxError ? '执行失败：请检查Extra Vars格式' : getErrorMessage(error, '执行失败'))
   } finally {
     executing.value = false
+  }
+}
+
+const handleExecuteDialogClosed = () => {
+  selectedPlaybookId.value = ''
+  resetExecuteForm()
+}
+
+const handleOutputClosed = () => {
+  outputText.value = ''
+  if (outputSource) {
+    outputSource.close()
+    outputSource = null
   }
 }
 
@@ -283,6 +316,7 @@ const openOutput = (row) => {
   })
   outputSource.addEventListener('done', () => {
     outputSource.close()
+    outputSource = null
   })
 }
 

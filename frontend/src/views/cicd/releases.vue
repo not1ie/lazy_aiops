@@ -34,7 +34,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑发布' : '新增发布'" width="600px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑发布' : '新增发布'" width="600px" @closed="handleDialogClosed">
     <el-form :model="form" label-width="100px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -96,6 +96,18 @@ const form = reactive({
   notes: ''
 })
 
+const resetForm = () => {
+  Object.assign(form, {
+    name: '',
+    pipeline_id: '',
+    pipeline_name: '',
+    version: '',
+    environment: 'dev',
+    status: 0,
+    notes: ''
+  })
+}
+
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const getErrorMessage = (error, fallback) => {
@@ -138,7 +150,7 @@ const openCreate = async () => {
   await fetchPipelines()
   isEdit.value = false
   currentId.value = ''
-  Object.assign(form, { name: '', pipeline_id: '', pipeline_name: '', version: '', environment: 'dev', status: 0, notes: '' })
+  resetForm()
   dialogVisible.value = true
 }
 
@@ -148,6 +160,12 @@ const openEdit = async (row) => {
   currentId.value = row.id
   Object.assign(form, row)
   dialogVisible.value = true
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  resetForm()
 }
 
 const saveRelease = async () => {

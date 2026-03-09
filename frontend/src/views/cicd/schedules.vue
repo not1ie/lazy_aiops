@@ -37,7 +37,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑计划' : '新增计划'" width="600px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑计划' : '新增计划'" width="600px" @closed="handleDialogClosed">
     <el-form :model="form" label-width="100px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -89,6 +89,17 @@ const form = reactive({
   enabled: true
 })
 
+const resetForm = () => {
+  Object.assign(form, {
+    name: '',
+    pipeline_id: '',
+    cron: '',
+    parameters: '',
+    description: '',
+    enabled: true
+  })
+}
+
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const getErrorMessage = (error, fallback) => {
@@ -131,7 +142,7 @@ const openCreate = async () => {
   await fetchPipelines()
   isEdit.value = false
   currentId.value = ''
-  Object.assign(form, { name: '', pipeline_id: '', cron: '', parameters: '', description: '', enabled: true })
+  resetForm()
   dialogVisible.value = true
 }
 
@@ -141,6 +152,12 @@ const openEdit = async (row) => {
   currentId.value = row.id
   Object.assign(form, row)
   dialogVisible.value = true
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  resetForm()
 }
 
 const saveSchedule = async () => {

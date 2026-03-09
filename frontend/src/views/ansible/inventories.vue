@@ -27,7 +27,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑Inventory' : '新增Inventory'" width="700px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑Inventory' : '新增Inventory'" width="700px" @closed="handleDialogClosed">
     <el-form :model="form" label-width="90px">
       <el-form-item label="名称" required>
         <el-input v-model="form.name" />
@@ -64,6 +64,10 @@ const form = reactive({
   content: ''
 })
 
+const resetForm = () => {
+  Object.assign(form, { name: '', description: '', content: '' })
+}
+
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const getErrorMessage = (error, fallback) => {
@@ -89,7 +93,7 @@ const fetchData = async () => {
 const openCreate = () => {
   isEdit.value = false
   currentId.value = ''
-  Object.assign(form, { name: '', description: '', content: '' })
+  resetForm()
   dialogVisible.value = true
 }
 
@@ -98,6 +102,12 @@ const openEdit = (row) => {
   currentId.value = row.id
   Object.assign(form, { name: row.name, description: row.description, content: row.content || '' })
   dialogVisible.value = true
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  resetForm()
 }
 
 const saveItem = async () => {
