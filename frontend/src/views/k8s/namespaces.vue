@@ -13,7 +13,8 @@
       </div>
     </div>
 
-    <el-table :fit="true" :data="namespaces" stripe style="width: 100%">
+    <div class="table-scroll">
+      <el-table :fit="true" :data="namespaces" stripe style="width: 100%; min-width: 980px">
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="status" label="状态" width="120" />
       <el-table-column label="标签" min-width="220">
@@ -22,7 +23,8 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" min-width="180" />
-    </el-table>
+      </el-table>
+    </div>
   </el-card>
 </template>
 
@@ -63,4 +65,5 @@ onMounted(async () => {
 .page-actions { display: flex; gap: 8px; }
 .w-64 { width: 260px; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
+.table-scroll { overflow-x: auto; }
 </style>

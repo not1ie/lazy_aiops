@@ -80,7 +80,8 @@
           </div>
         </div>
       </template>
-      <el-table :fit="true" :data="accounts" v-loading="accountLoading" stripe>
+      <div class="table-scroll">
+        <el-table :fit="true" :data="accounts" v-loading="accountLoading" stripe style="min-width: 1120px">
         <el-table-column prop="name" label="账号" min-width="140" />
         <el-table-column prop="provider" label="云厂商" width="120" />
         <el-table-column prop="region" label="Region" width="140" />
@@ -97,7 +98,8 @@
             <el-button size="small" type="danger" @click="removeAccount(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </div>
     </el-card>
 
     <el-row :gutter="12" class="table-row">
@@ -106,13 +108,15 @@
           <template #header>
             <div class="card-title">成本 Top 资源</div>
           </template>
-          <el-table :fit="true" :data="topResources" v-loading="resourceLoading" stripe height="320">
+          <div class="table-scroll">
+            <el-table :fit="true" :data="topResources" v-loading="resourceLoading" stripe height="320" style="min-width: 720px">
             <el-table-column prop="resource_name" label="资源" min-width="170" show-overflow-tooltip />
             <el-table-column prop="product_name" label="产品" min-width="130" show-overflow-tooltip />
             <el-table-column prop="amount" label="成本" width="120">
               <template #default="{ row }">¥{{ formatCurrency(row.amount) }}</template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-card>
       </el-col>
       <el-col :xs="24" :lg="12">
@@ -120,7 +124,8 @@
           <template #header>
             <div class="card-title">最近费用记录（最多200条）</div>
           </template>
-          <el-table :fit="true" :data="records" v-loading="recordLoading" stripe height="320">
+          <div class="table-scroll">
+            <el-table :fit="true" :data="records" v-loading="recordLoading" stripe height="320" style="min-width: 840px">
             <el-table-column prop="billing_date" label="账期" width="120">
               <template #default="{ row }">{{ formatDay(row.billing_date) }}</template>
             </el-table-column>
@@ -130,7 +135,8 @@
             <el-table-column prop="amount" label="金额" width="110">
               <template #default="{ row }">¥{{ formatCurrency(row.amount) }}</template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-card>
       </el-col>
     </el-row>

@@ -40,7 +40,8 @@
           <el-button type="primary" plain icon="Plus" @click="openCreateBudget">新增预算</el-button>
         </div>
       </template>
-      <el-table :fit="true" :data="budgets" v-loading="budgetLoading" stripe>
+      <div class="table-scroll">
+        <el-table :fit="true" :data="budgets" v-loading="budgetLoading" stripe style="min-width: 1040px">
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column prop="budget_type" label="类型" width="120" />
         <el-table-column prop="amount" label="预算金额" width="130">
@@ -65,7 +66,8 @@
             <el-button size="small" type="danger" @click="removeBudget(row)">删除</el-button>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </div>
     </el-card>
 
     <el-row :gutter="12" class="table-row">
@@ -74,7 +76,8 @@
           <template #header>
             <div class="card-title">费用告警</div>
           </template>
-          <el-table :fit="true" :data="alerts" v-loading="alertLoading" stripe height="320">
+          <div class="table-scroll">
+            <el-table :fit="true" :data="alerts" v-loading="alertLoading" stripe height="320" style="min-width: 720px">
             <el-table-column prop="budget_name" label="预算" min-width="130" show-overflow-tooltip />
             <el-table-column prop="message" label="内容" min-width="180" show-overflow-tooltip />
             <el-table-column prop="percentage" label="占比" width="90">
@@ -94,7 +97,8 @@
                 <span v-else>-</span>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-card>
       </el-col>
       <el-col :xs="24" :lg="12">
@@ -102,7 +106,8 @@
           <template #header>
             <div class="card-title">优化建议</div>
           </template>
-          <el-table :fit="true" :data="optimizations" v-loading="optimizationLoading" stripe height="320">
+          <div class="table-scroll">
+            <el-table :fit="true" :data="optimizations" v-loading="optimizationLoading" stripe height="320" style="min-width: 760px">
             <el-table-column prop="resource_name" label="资源" min-width="150" show-overflow-tooltip />
             <el-table-column prop="resource_type" label="类型" width="110" />
             <el-table-column prop="opt_type" label="建议" width="100" />
@@ -128,7 +133,8 @@
                 </el-dropdown>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-card>
       </el-col>
     </el-row>

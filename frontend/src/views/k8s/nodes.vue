@@ -13,7 +13,8 @@
       </div>
     </div>
 
-    <el-table :fit="true" :data="nodes" stripe style="width: 100%">
+    <div class="table-scroll">
+      <el-table :fit="true" :data="nodes" stripe style="width: 100%; min-width: 1240px">
       <el-table-column prop="name" label="节点" min-width="200" />
       <el-table-column prop="status" label="状态" width="120" />
       <el-table-column label="角色" min-width="140">
@@ -27,7 +28,8 @@
       <el-table-column prop="cpu" label="CPU" width="100" />
       <el-table-column prop="memory" label="内存" width="120" />
       <el-table-column prop="creation_time" label="创建时间" min-width="180" />
-    </el-table>
+      </el-table>
+    </div>
   </el-card>
 </template>
 
@@ -68,4 +70,5 @@ onMounted(async () => {
 .page-actions { display: flex; gap: 8px; }
 .w-64 { width: 260px; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
+.table-scroll { overflow-x: auto; }
 </style>

@@ -23,7 +23,8 @@
         <el-row :gutter="16" class="summary-row">
           <el-col :span="6"><el-card><div class="card-title">StorageClass</div><div class="card-value">{{ storageStats.sc }}</div></el-card></el-col>
         </el-row>
-        <el-table :fit="true" :data="filteredStorageClasses" stripe style="width: 100%">
+        <div class="table-scroll">
+          <el-table :fit="true" :data="filteredStorageClasses" stripe style="width: 100%; min-width: 1160px">
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="provisioner" label="Provisioner" min-width="220" />
           <el-table-column prop="reclaim_policy" label="回收策略" width="120" />
@@ -41,7 +42,8 @@
               <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="PersistentVolume" name="pv">
@@ -57,7 +59,8 @@
             <el-option label="Failed" value="Failed" />
           </el-select>
         </div>
-        <el-table :fit="true" :data="filteredPvs" stripe style="width: 100%">
+        <div class="table-scroll">
+          <el-table :fit="true" :data="filteredPvs" stripe style="width: 100%; min-width: 1280px">
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="capacity" label="容量" width="120" />
           <el-table-column label="访问模式" min-width="160">
@@ -74,7 +77,8 @@
               <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="PersistentVolumeClaim" name="pvc">
@@ -89,7 +93,8 @@
             <el-option label="Lost" value="Lost" />
           </el-select>
         </div>
-        <el-table :fit="true" :data="filteredPvcs" stripe style="width: 100%">
+        <div class="table-scroll">
+          <el-table :fit="true" :data="filteredPvcs" stripe style="width: 100%; min-width: 1420px">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="180" />
           <el-table-column prop="capacity" label="容量" width="120" />
@@ -107,7 +112,8 @@
               <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </div>
       </el-tab-pane>
     </el-tabs>
   </el-card>
@@ -246,4 +252,5 @@ onMounted(async () => {
 .w-52 { width: 220px; }
 .w-40 { width: 160px; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
+.table-scroll { overflow-x: auto; }
 </style>
