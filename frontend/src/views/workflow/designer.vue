@@ -102,7 +102,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog append-to-body v-model="workflowDialogVisible" :title="workflowEditing ? '编辑流程' : '新建流程'" width="860px">
+    <el-dialog append-to-body v-model="workflowDialogVisible" :title="workflowEditing ? '编辑流程' : '新建流程'" width="860px" @closed="handleWorkflowDialogClosed">
       <el-form :model="workflowForm" label-width="96px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="流程名称" required><el-input v-model="workflowForm.name" /></el-form-item></el-col>
@@ -121,7 +121,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="executeDialogVisible" title="执行流程" width="600px">
+    <el-dialog append-to-body v-model="executeDialogVisible" title="执行流程" width="600px" @closed="handleExecuteDialogClosed">
       <el-form :model="executeForm" label-width="90px">
         <el-form-item label="流程">
           <el-input :model-value="executeWorkflow?.name || '-'" disabled />
@@ -136,7 +136,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="executionDetailVisible" title="执行详情" size="55%" append-to-body>
+    <el-drawer v-model="executionDetailVisible" title="执行详情" size="55%" append-to-body @closed="handleExecutionDetailClosed">
       <el-descriptions :column="2" border v-if="executionDetail.execution">
         <el-descriptions-item label="流程">{{ executionDetail.execution.workflow_name }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ executionStatusText(executionDetail.execution.status) }}</el-descriptions-item>
@@ -204,6 +204,20 @@ const executeForm = reactive({
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const handleWorkflowDialogClosed = () => {
+  workflowEditing.value = false
+  resetWorkflowForm()
+}
+
+const handleExecuteDialogClosed = () => {
+  executeWorkflow.value = null
+  executeForm.variables = '{}'
+}
+
+const handleExecutionDetailClosed = () => {
+  executionDetail.value = { execution: null, nodes: [] }
+}
+
 const formatTime = (value) => {
   if (!value) return '-'
   const date = new Date(value)
@@ -248,8 +262,12 @@ const nodeStatusType = (status) => {
 }
 
 const fetchStats = async () => {
-  const res = await axios.get('/api/v1/workflow/stats', { headers: authHeaders() })
-  if (res.data?.code === 0) stats.value = res.data.data || stats.value
+  try {
+    const res = await axios.get('/api/v1/workflow/stats', { headers: authHeaders() })
+    if (res.data?.code === 0) stats.value = res.data.data || stats.value
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载统计失败'))
+  }
 }
 
 const fetchWorkflows = async () => {

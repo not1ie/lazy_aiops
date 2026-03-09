@@ -3,7 +3,7 @@
     <template #header>
       <div class="flex justify-between items-center">
         <span class="font-bold">应用列表</span>
-        <el-button type="primary" icon="Plus" @click="visible = true">创建应用</el-button>
+        <el-button type="primary" icon="Plus" @click="openCreate">创建应用</el-button>
       </div>
     </template>
 
@@ -26,7 +26,7 @@
       </el-card>
     </div>
 
-    <el-dialog append-to-body v-model="visible" title="创建应用" width="600px">
+    <el-dialog append-to-body v-model="visible" title="创建应用" width="600px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="100px">
         <el-form-item label="应用名称" required>
           <el-input v-model="form.name" placeholder="如: 用户中心" />
@@ -64,30 +64,51 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const list = ref([])
 const visible = ref(false)
-const form = reactive({
+const defaultForm = () => ({
   name: '', code: '', language: 'java', git_repo: '', owner: '', description: ''
 })
+const form = reactive(defaultForm())
+
+const authHeaders = () => ({ Authorization: 'Bearer ' + localStorage.getItem('token') })
+
+const resetForm = () => {
+  Object.assign(form, defaultForm())
+}
+
+const openCreate = () => {
+  resetForm()
+  visible.value = true
+}
+
+const handleDialogClosed = () => {
+  resetForm()
+}
 
 const fetchData = async () => {
-  const res = await axios.get('/api/v1/application/apps', {
-    headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-  })
-  if (res.data.code === 0) list.value = res.data.data
+  try {
+    const res = await axios.get('/api/v1/application/apps', {
+      headers: authHeaders()
+    })
+    if (res.data.code === 0) list.value = res.data.data
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '加载应用失败'))
+  }
 }
 
 const submit = async () => {
   try {
     await axios.post('/api/v1/application/apps', form, {
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      headers: authHeaders()
     })
     ElMessage.success('创建成功')
     visible.value = false
-    fetchData()
+    await fetchData()
   } catch (e) {
-    ElMessage.error('创建失败')
+    ElMessage.error(getErrorMessage(e, '创建应用失败'))
   }
 }
 

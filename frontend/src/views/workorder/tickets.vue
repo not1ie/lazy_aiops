@@ -79,7 +79,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="createVisible" title="新建工单" width="760px">
+    <el-dialog append-to-body v-model="createVisible" title="新建工单" width="760px" @closed="handleCreateClosed">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="标题">
           <el-input v-model="createForm.title" />
@@ -107,7 +107,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="approveVisible" :title="approveForm.approved ? '审批通过' : '审批拒绝'" width="560px">
+    <el-dialog append-to-body v-model="approveVisible" :title="approveForm.approved ? '审批通过' : '审批拒绝'" width="560px" @closed="handleApproveClosed">
       <el-form :model="approveForm" label-width="80px">
         <el-form-item label="备注">
           <el-input v-model="approveForm.comment" type="textarea" :rows="4" />
@@ -119,7 +119,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="工单详情" size="62%" destroy-on-close append-to-body>
+    <el-drawer v-model="detailVisible" title="工单详情" size="62%" destroy-on-close append-to-body @closed="handleDetailClosed">
       <el-descriptions :column="2" border class="mb-3">
         <el-descriptions-item label="标题">{{ detail.order?.title || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ statusText(detail.order?.status) }}</el-descriptions-item>
@@ -210,6 +210,29 @@ const statusOptions = [
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const defaultCreateForm = () => ({
+  title: '',
+  type_id: '',
+  content: '',
+  priority: 3
+})
+
+const handleCreateClosed = () => {
+  createForm.value = defaultCreateForm()
+}
+
+const handleApproveClosed = () => {
+  approveOrderId.value = ''
+  approveForm.value = { approved: true, comment: '' }
+}
+
+const handleDetailClosed = () => {
+  detailVisible.value = false
+  detailOrderId.value = ''
+  detail.value = { order: null, steps: [], comments: [] }
+  commentInput.value = ''
+}
+
 const formatTime = (v) => {
   if (!v) return '-'
   return String(v).slice(0, 19).replace('T', ' ')
@@ -273,7 +296,7 @@ const reloadAll = async () => {
 }
 
 const openCreate = () => {
-  createForm.value = { title: '', type_id: '', content: '', priority: 3 }
+  createForm.value = defaultCreateForm()
   createVisible.value = true
 }
 
