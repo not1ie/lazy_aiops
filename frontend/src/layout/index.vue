@@ -308,8 +308,14 @@ onMounted(fetchUserInfo)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  gap: 12px;
+  padding: 10px 20px;
+  min-height: 60px;
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+.header-left,
+.header-right {
+  min-width: 0;
 }
 .main { background: transparent; padding: 20px; overflow: auto; }
 .page-view { min-height: calc(100vh - 110px); }
@@ -350,5 +356,35 @@ onMounted(fetchUserInfo)
 :deep(.el-menu-item.is-active) {
   background: linear-gradient(90deg, rgba(10, 132, 255, 0.24) 0%, rgba(10, 132, 255, 0.1) 100%) !important;
   color: #fff !important;
+}
+
+@media (max-width: 1200px) {
+  .header {
+    align-items: flex-start;
+    padding: 12px 16px;
+  }
+
+  .header-left,
+  .header-right {
+    width: 100%;
+  }
+
+  .header-right {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 768px) {
+  .layout-container {
+    min-width: 0;
+  }
+
+  .header-right {
+    justify-content: flex-start;
+  }
+
+  .quick-logout {
+    margin-right: 0;
+  }
 }
 </style>
