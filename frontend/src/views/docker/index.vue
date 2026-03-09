@@ -17,7 +17,8 @@
       </div>
     </template>
 
-    <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%">
+    <div class="table-scroll">
+      <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%; min-width: 980px">
       <el-table-column prop="name" label="名称" width="180">
         <template #default="{ row }">
           <div class="flex items-center gap-2">
@@ -45,7 +46,8 @@
           </el-space>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
 
     <!-- 添加主机弹窗 -->
     <el-dialog append-to-body v-model="dialogVisible" title="添加 Docker 环境" width="500px">
@@ -119,11 +121,12 @@
               <el-button icon="Refresh" @click="loadContainers">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="true"
+          <div class="table-scroll">
+            <el-table :fit="true"
             ref="containerTableRef"
             :data="filteredContainers"
             v-loading="containersLoading"
-            style="width: 100%"
+            style="width: 100%; min-width: 1880px"
             :row-key="row => row.id"
             @selection-change="onContainerSelectionChange"
           >
@@ -162,7 +165,8 @@
                 </el-space>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="镜像" name="images">
@@ -185,11 +189,12 @@
               <el-button icon="Refresh" @click="loadImages">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="true"
+          <div class="table-scroll">
+            <el-table :fit="true"
             ref="imageTableRef"
             :data="filteredImages"
             v-loading="imagesLoading"
-            style="width: 100%"
+            style="width: 100%; min-width: 1120px"
             :row-key="row => row.id"
             @selection-change="onImageSelectionChange"
           >
@@ -208,7 +213,8 @@
                 <el-button size="small" type="danger" plain @click="removeImage(row)">删除</el-button>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="网络" name="networks">
@@ -221,11 +227,12 @@
               <el-button icon="Refresh" @click="loadNetworks">刷新</el-button>
             </div>
           </div>
-          <el-table :fit="true"
+          <div class="table-scroll">
+            <el-table :fit="true"
             ref="networkTableRef"
             :data="networks"
             v-loading="networksLoading"
-            style="width: 100%"
+            style="width: 100%; min-width: 980px"
             :row-key="row => row.id"
             @selection-change="onNetworkSelectionChange"
           >
@@ -239,7 +246,8 @@
                 <el-button size="small" @click="openNetworkInspect(row)">详情</el-button>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="Events" name="events">

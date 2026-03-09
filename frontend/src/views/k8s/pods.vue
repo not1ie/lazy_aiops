@@ -48,7 +48,8 @@
       <el-col :span="4"><el-card><div class="card-title">重启次数</div><div class="card-value">{{ podStats.restarts }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="true" :data="filteredPods" stripe style="width: 100%" v-loading="loading" @selection-change="selectedRows = $event">
+    <div class="table-scroll">
+      <el-table :fit="true" :data="filteredPods" stripe style="width: 100%; min-width: 1780px" v-loading="loading" @selection-change="selectedRows = $event">
       <el-table-column type="selection" width="48" />
       <el-table-column prop="namespace" label="命名空间" min-width="140" />
       <el-table-column prop="name" label="名称" min-width="220" />
@@ -118,7 +119,8 @@
           <el-button size="small" type="danger" @click="deletePod(scope.row)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
 
     <el-dialog append-to-body v-model="logVisible" title="Pod 日志" width="880px">
       <div class="log-controls">
@@ -419,6 +421,7 @@ onMounted(async () => {
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
 .w-40 { width: 160px; }
+.table-scroll { overflow-x: auto; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
 .label-grid { display: flex; flex-wrap: wrap; }
 .label-preview { display: flex; flex-wrap: wrap; }

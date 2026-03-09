@@ -11,7 +11,8 @@
       </div>
     </div>
 
-    <el-table :fit="true" :data="clusters" stripe style="width: 100%">
+    <div class="table-scroll">
+      <el-table :fit="true" :data="clusters" stripe style="width: 100%; min-width: 1160px">
       <el-table-column prop="name" label="名称" min-width="140" />
       <el-table-column prop="display_name" label="显示名" min-width="140" />
       <el-table-column prop="api_server" label="API Server" min-width="200" />
@@ -31,7 +32,8 @@
           <el-button size="small" type="danger" @click="removeCluster(scope.row)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
 
     <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="640px">
       <el-form :model="form" label-width="110px">
@@ -79,10 +81,15 @@ const form = ref({
 const testingId = ref('')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const fetchClusters = async () => {
-  const res = await axios.get('/api/v1/k8s/clusters', { headers: authHeaders() })
-  clusters.value = res.data.data || []
+  try {
+    const res = await axios.get('/api/v1/k8s/clusters', { headers: authHeaders() })
+    clusters.value = res.data.data || []
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '加载集群失败'))
+  }
 }
 
 const openCreate = () => {
@@ -107,24 +114,28 @@ const openEdit = (row) => {
 }
 
 const submitForm = async () => {
-  const payload = {
-    name: form.value.name,
-    display_name: form.value.display_name,
-    api_server: form.value.api_server,
-    kube_config: form.value.kubeconfig,
-    description: form.value.description
-  }
+  try {
+    const payload = {
+      name: form.value.name,
+      display_name: form.value.display_name,
+      api_server: form.value.api_server,
+      kube_config: form.value.kubeconfig,
+      description: form.value.description
+    }
 
-  if (isEdit.value) {
-    await axios.put(`/api/v1/k8s/clusters/${currentId.value}`, payload, { headers: authHeaders() })
-    ElMessage.success('更新成功')
-  } else {
-    await axios.post('/api/v1/k8s/clusters', payload, { headers: authHeaders() })
-    ElMessage.success('创建成功')
-  }
+    if (isEdit.value) {
+      await axios.put(`/api/v1/k8s/clusters/${currentId.value}`, payload, { headers: authHeaders() })
+      ElMessage.success('更新成功')
+    } else {
+      await axios.post('/api/v1/k8s/clusters', payload, { headers: authHeaders() })
+      ElMessage.success('创建成功')
+    }
 
-  dialogVisible.value = false
-  fetchClusters()
+    dialogVisible.value = false
+    await fetchClusters()
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '保存失败'))
+  }
 }
 
 const testConnection = async (row) => {
@@ -137,15 +148,19 @@ const testConnection = async (row) => {
     ElMessage.error(msg)
   } finally {
     testingId.value = ''
-    fetchClusters()
+    await fetchClusters()
   }
 }
 
 const removeCluster = async (row) => {
-  await ElMessageBox.confirm(`确认删除集群 ${row.name} 吗？`, '提示', { type: 'warning' })
-  await axios.delete(`/api/v1/k8s/clusters/${row.id}`, { headers: authHeaders() })
-  ElMessage.success('删除成功')
-  fetchClusters()
+  try {
+    await ElMessageBox.confirm(`确认删除集群 ${row.name} 吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/k8s/clusters/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    await fetchClusters()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(getErrorMessage(e, '删除失败'))
+  }
 }
 
 onMounted(fetchClusters)
@@ -156,4 +171,5 @@ onMounted(fetchClusters)
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
 .page-desc { color: #606266; margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
+.table-scroll { overflow-x: auto; }
 </style>

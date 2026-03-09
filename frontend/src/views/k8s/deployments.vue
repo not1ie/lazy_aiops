@@ -26,7 +26,8 @@
       <el-col :span="6"><el-card><div class="card-title">副本总数</div><div class="card-value">{{ stats.replicas }}</div></el-card></el-col>
     </el-row>
 
-    <el-table :fit="true" :data="filteredDeployments" stripe v-loading="loading">
+    <div class="table-scroll">
+      <el-table :fit="true" :data="filteredDeployments" stripe v-loading="loading" style="width: 100%; min-width: 1620px">
       <el-table-column prop="namespace" label="命名空间" min-width="130" />
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column label="域名解析" min-width="220">
@@ -75,7 +76,8 @@
           <el-button size="small" type="danger" plain @click="deleteDeployment(row)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
 
     <el-dialog append-to-body v-model="createVisible" title="创建 Deployment" width="720px">
       <el-form :model="form" label-width="120px">
@@ -423,6 +425,7 @@ onMounted(async () => {
 .card-title { color: #909399; font-size: 12px; }
 .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
 .w-52 { width: 220px; }
+.table-scroll { overflow-x: auto; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
 .domain-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .domain-link { font-size: 12px; }

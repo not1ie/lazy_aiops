@@ -31,7 +31,8 @@
       </div>
     </div>
 
-    <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%" @selection-change="selectedRows = $event">
+    <div class="table-scroll">
+      <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%; min-width: 1120px" @selection-change="selectedRows = $event">
       <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="主机名" width="180">
         <template #default="{ row }">
@@ -58,7 +59,8 @@
           <el-button size="small" type="danger" plain icon="Delete" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
 
     <!-- 添加/编辑主机弹窗 -->
     <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑主机' : '添加主机'" width="500px">
@@ -442,6 +444,10 @@ onMounted(() => {
   fetchData()
 })
 </script>
+
+<style scoped>
+.table-scroll { overflow-x: auto; }
+</style>
 
 <style scoped>
 .flex { display: flex; }

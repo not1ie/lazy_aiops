@@ -35,7 +35,8 @@
             <el-option label="ExternalName" value="ExternalName" />
           </el-select>
         </div>
-        <el-table :fit="true" :data="filteredServices" stripe style="width: 100%">
+        <div class="table-scroll">
+          <el-table :fit="true" :data="filteredServices" stripe style="width: 100%; min-width: 1240px">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column prop="type" label="类型" width="120" />
@@ -56,7 +57,8 @@
               <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="Ingresses" name="ingresses">
@@ -65,7 +67,8 @@
           <el-col :span="6"><el-card><div class="card-title">带 Host</div><div class="card-value">{{ ingressStats.withHosts }}</div></el-card></el-col>
           <el-col :span="6"><el-card><div class="card-title">Class 数</div><div class="card-value">{{ ingressStats.classes }}</div></el-card></el-col>
         </el-row>
-        <el-table :fit="true" :data="filteredIngresses" stripe style="width: 100%">
+        <div class="table-scroll">
+          <el-table :fit="true" :data="filteredIngresses" stripe style="width: 100%; min-width: 1080px">
           <el-table-column prop="namespace" label="命名空间" min-width="140" />
           <el-table-column prop="name" label="名称" min-width="200" />
           <el-table-column prop="class_name" label="Class" width="160" />
@@ -80,7 +83,8 @@
               <div class="text-xs text-gray-400">{{ formatSince(scope.row.created_at) }}</div>
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </div>
       </el-tab-pane>
     </el-tabs>
   </el-card>
@@ -216,4 +220,5 @@ onMounted(async () => {
 .w-52 { width: 220px; }
 .mr-2 { margin-right: 6px; margin-bottom: 6px; }
 .w-40 { width: 160px; }
+.table-scroll { overflow-x: auto; }
 </style>
