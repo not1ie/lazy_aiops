@@ -96,12 +96,11 @@
 
     <el-dialog append-to-body v-model="terminalVisible" :title="`终端: ${currentSession?.host || ''}`" width="980px" top="4vh" @closed="onTerminalDialogClosed">
       <div class="terminal-toolbar">
-        <el-input v-model="commandInput" placeholder="输入命令后回车发送" @keyup.enter="sendCommand" clearable />
-        <el-button type="primary" @click="sendCommand">发送</el-button>
         <el-button @click="sendCtrlC">Ctrl+C</el-button>
         <el-button @click="sendResize">同步窗口</el-button>
+        <el-button @click="clearTerminal">清屏</el-button>
       </div>
-      <div ref="terminalOutputRef" class="terminal-output">{{ terminalOutput }}</div>
+      <div ref="terminalRef" class="terminal-output"></div>
       <template #footer>
         <el-button @click="terminalVisible = false">关闭终端窗口</el-button>
       </template>
@@ -126,6 +125,9 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Terminal } from 'xterm'
+import { FitAddon } from 'xterm-addon-fit'
+import 'xterm/css/xterm.css'
 
 const sessions = ref([])
 const records = ref([])
@@ -145,11 +147,12 @@ const createForm = ref({
 })
 
 const terminalVisible = ref(false)
-const terminalOutputRef = ref(null)
+const terminalRef = ref(null)
 const currentSession = ref(null)
-const commandInput = ref('')
-const terminalOutput = ref('')
 let ws = null
+let term = null
+let fitAddon = null
+let terminalDataListener = null
 
 const recordVisible = ref(false)
 const currentRecord = ref(null)
@@ -303,20 +306,62 @@ const deleteSession = async (row) => {
   }
 }
 
-const scrollTerminalToBottom = () => {
-  nextTick(() => {
-    if (terminalOutputRef.value) {
-      terminalOutputRef.value.scrollTop = terminalOutputRef.value.scrollHeight
+const writeTerminal = (text) => {
+  if (!term) return
+  term.write(text)
+}
+
+const writelnTerminal = (text) => {
+  if (!term) return
+  term.writeln(text)
+}
+
+const initTerminal = async () => {
+  await nextTick()
+  if (!terminalRef.value) return
+
+  if (terminalDataListener) {
+    terminalDataListener.dispose()
+    terminalDataListener = null
+  }
+  if (term) {
+    term.dispose()
+    term = null
+  }
+
+  term = new Terminal({
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily: 'SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+    theme: {
+      background: '#08152f',
+      foreground: '#dbeafe',
+      cursor: '#60a5fa',
+      selectionBackground: 'rgba(96, 165, 250, 0.25)'
+    },
+    scrollback: 3000
+  })
+  fitAddon = new FitAddon()
+  term.loadAddon(fitAddon)
+  term.open(terminalRef.value)
+  fitAddon.fit()
+  terminalDataListener = term.onData((data) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(data)
     }
   })
 }
 
-const appendOutput = (text) => {
-  terminalOutput.value += text
-  if (terminalOutput.value.length > 200000) {
-    terminalOutput.value = terminalOutput.value.slice(-120000)
+const destroyTerminal = () => {
+  if (terminalDataListener) {
+    terminalDataListener.dispose()
+    terminalDataListener = null
   }
-  scrollTerminalToBottom()
+  if (term) {
+    term.dispose()
+    term = null
+  }
+  fitAddon = null
 }
 
 const closeWebSocket = () => {
@@ -336,33 +381,32 @@ const buildWsUrl = (sessionId) => {
   return `${proto}://${window.location.host}/api/v1/terminal/ws/${sessionId}?token=${encodeURIComponent(token)}`
 }
 
-const openTerminal = (row) => {
+const openTerminal = async (row) => {
   closeWebSocket()
   currentSession.value = row
-  commandInput.value = ''
-  terminalOutput.value = ''
   terminalVisible.value = true
+  await initTerminal()
 
   const url = buildWsUrl(row.id)
   ws = new WebSocket(url)
   ws.binaryType = 'arraybuffer'
 
   ws.onopen = () => {
-    appendOutput(`\n[系统] 已连接 ${row.host}:${row.port}\n`)
+    writelnTerminal(`[系统] 已连接 ${row.host}:${row.port}`)
     sendResize()
   }
 
   ws.onmessage = (event) => {
     if (typeof event.data === 'string') {
-      appendOutput(event.data)
+      writeTerminal(event.data)
       return
     }
     const decoder = new TextDecoder('utf-8')
-    appendOutput(decoder.decode(event.data))
+    writeTerminal(decoder.decode(event.data))
   }
 
   ws.onerror = () => {
-    appendOutput('\n[系统] 连接异常：网络抖动或服务端中断\n')
+    writelnTerminal('\r\n[系统] 连接异常：网络抖动或服务端中断')
   }
 
   ws.onclose = async (event) => {
@@ -371,7 +415,7 @@ const openTerminal = (row) => {
     const backendReason = latest?.last_error ? String(latest.last_error).trim() : ''
     const wsReason = parseWsCloseReason(event)
     const reason = backendReason || wsReason
-    appendOutput(reason ? `\n[系统] 连接关闭：${reason}\n` : '\n[系统] 连接关闭\n')
+    writelnTerminal(reason ? `\r\n[系统] 连接关闭：${reason}` : '\r\n[系统] 连接关闭')
   }
 }
 
@@ -389,6 +433,7 @@ const openTerminalByID = async (id) => {
 
 const onTerminalDialogClosed = () => {
   closeWebSocket()
+  destroyTerminal()
 }
 
 const sendMessage = (payload) => {
@@ -400,22 +445,14 @@ const sendMessage = (payload) => {
   return true
 }
 
-const sendCommand = () => {
-  const cmd = commandInput.value.trim()
-  if (!cmd) return
-  if (sendMessage(`${cmd}\n`)) {
-    commandInput.value = ''
-  }
-}
-
 const sendCtrlC = () => {
   sendMessage('\u0003')
 }
 
 const sendResize = () => {
-  const cols = Math.max(80, Math.floor((window.innerWidth - 240) / 8))
-  const rows = 40
-  sendMessage(JSON.stringify({ type: 'resize', cols, rows }))
+  if (!term || !fitAddon) return
+  fitAddon.fit()
+  sendMessage(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
 }
 
 const parseWsCloseReason = (event) => {
@@ -435,6 +472,15 @@ const parseWsCloseReason = (event) => {
     default:
       return event.code ? `连接关闭(code=${event.code})` : ''
   }
+}
+
+const clearTerminal = () => {
+  if (term) term.clear()
+}
+
+const handleWindowResize = () => {
+  if (!terminalVisible.value) return
+  sendResize()
 }
 
 const viewRecord = async (row) => {
@@ -488,6 +534,7 @@ const openRecordBySession = (row) => {
 }
 
 onMounted(async () => {
+  window.addEventListener('resize', handleWindowResize)
   await reloadAll()
   const sid = route.query.session_id
   if (typeof sid === 'string' && sid) {
@@ -496,7 +543,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleWindowResize)
   closeWebSocket()
+  destroyTerminal()
 })
 </script>
 
