@@ -152,17 +152,31 @@ let eventSource = null
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchHosts = async () => {
-  const res = await axios.get('/api/v1/cmdb/hosts', { headers: headers() })
-  if (res.data.code === 0) {
-    hosts.value = res.data.data
+  try {
+    const res = await axios.get('/api/v1/cmdb/hosts', { headers: headers() })
+    if (res.data.code === 0) {
+      hosts.value = res.data.data
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载主机失败'))
   }
 }
 
 const fetchTemplates = async () => {
-  const res = await axios.get('/api/v1/executor/templates', { headers: headers() })
-  if (res.data.code === 0) {
-    templates.value = res.data.data
+  try {
+    const res = await axios.get('/api/v1/executor/templates', { headers: headers() })
+    if (res.data.code === 0) {
+      templates.value = res.data.data
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载模板失败'))
   }
 }
 
@@ -174,7 +188,7 @@ const fetchExecutions = async () => {
       executions.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载执行记录失败')
+    ElMessage.error(getErrorMessage(error, '加载执行记录失败'))
   } finally {
     loadingExecutions.value = false
   }
@@ -188,7 +202,7 @@ const fetchResults = async (executionId) => {
       results.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载执行结果失败')
+    ElMessage.error(getErrorMessage(error, '加载执行结果失败'))
   } finally {
     loadingResults.value = false
   }
@@ -225,7 +239,7 @@ const submitExecution = async () => {
       handleSelectExecution(res.data.data)
     }
   } catch (error) {
-    ElMessage.error('提交失败')
+    ElMessage.error(getErrorMessage(error, '提交失败'))
   } finally {
     submitting.value = false
   }
@@ -263,9 +277,13 @@ const openStream = (id) => {
 
 const cancelExecution = async (row) => {
   if (!row || row.status !== 0) return
-  await axios.post(`/api/v1/executor/executions/${row.id}/cancel`, {}, { headers: headers() })
-  ElMessage.success('已取消')
-  fetchExecutions()
+  try {
+    await axios.post(`/api/v1/executor/executions/${row.id}/cancel`, {}, { headers: headers() })
+    ElMessage.success('已取消')
+    await fetchExecutions()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '取消失败'))
+  }
 }
 
 const openOutput = (row) => {

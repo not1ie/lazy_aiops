@@ -51,6 +51,12 @@ const logText = ref('')
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
@@ -59,7 +65,7 @@ const fetchData = async () => {
       executions.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(error, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -67,20 +73,30 @@ const fetchData = async () => {
 
 const openLogs = async (row) => {
   logText.value = ''
-  const res = await axios.get(`/api/v1/cicd/executions/${row.id}/logs`, { headers: headers() })
-  if (res.data.code === 0) {
-    logText.value = res.data.data.logs || '-'
+  try {
+    const res = await axios.get(`/api/v1/cicd/executions/${row.id}/logs`, { headers: headers() })
+    if (res.data.code === 0) {
+      logText.value = res.data.data.logs || '-'
+    } else {
+      logText.value = res.data.message || '-'
+    }
+    logVisible.value = true
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载日志失败'))
   }
-  logVisible.value = true
 }
 
 const cancelExecution = async (row) => {
   if (row.status !== 0) {
     return
   }
-  await axios.post(`/api/v1/cicd/executions/${row.id}/cancel`, {}, { headers: headers() })
-  ElMessage.success('已取消')
-  fetchData()
+  try {
+    await axios.post(`/api/v1/cicd/executions/${row.id}/cancel`, {}, { headers: headers() })
+    ElMessage.success('已取消')
+    await fetchData()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '取消失败'))
+  }
 }
 
 const statusLabel = (status) => {

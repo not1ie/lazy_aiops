@@ -177,6 +177,12 @@ const triggerForm = reactive({
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
@@ -185,7 +191,7 @@ const fetchData = async () => {
       pipelines.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(error, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -239,10 +245,10 @@ const savePipeline = async () => {
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
-      fetchData()
+      await fetchData()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -267,18 +273,27 @@ const triggerPipeline = async () => {
       triggerVisible.value = false
     }
   } catch (error) {
-    ElMessage.error('触发失败：参数格式错误')
+    if (error instanceof SyntaxError) {
+      ElMessage.error('触发失败：参数 JSON 格式错误')
+    } else {
+      ElMessage.error(getErrorMessage(error, '触发失败'))
+    }
   } finally {
     triggering.value = false
   }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除流水线“${row.name}”吗？`, '提示', { type: 'warning' }).then(async () => {
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除流水线“${row.name}”吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/cicd/pipelines/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
-    fetchData()
-  })
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
 }
 
 onMounted(fetchData)

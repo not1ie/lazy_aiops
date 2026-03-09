@@ -98,10 +98,20 @@ const form = reactive({
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchPipelines = async () => {
-  const res = await axios.get('/api/v1/cicd/pipelines', { headers: headers() })
-  if (res.data.code === 0) {
-    pipelines.value = res.data.data
+  try {
+    const res = await axios.get('/api/v1/cicd/pipelines', { headers: headers() })
+    if (res.data.code === 0) {
+      pipelines.value = res.data.data
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载流水线失败'))
   }
 }
 
@@ -113,7 +123,7 @@ const fetchData = async () => {
       releases.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(error, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -153,21 +163,26 @@ const saveRelease = async () => {
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
-      fetchData()
+      await fetchData()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' }).then(async () => {
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除“${row.name}”吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/cicd/releases/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
-    fetchData()
-  })
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
 }
 
 const statusLabel = (status) => {

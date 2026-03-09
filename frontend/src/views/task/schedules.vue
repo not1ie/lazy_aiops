@@ -129,10 +129,20 @@ const form = reactive({
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchHosts = async () => {
-  const res = await axios.get('/api/v1/cmdb/hosts', { headers: headers() })
-  if (res.data.code === 0) {
-    hosts.value = res.data.data
+  try {
+    const res = await axios.get('/api/v1/cmdb/hosts', { headers: headers() })
+    if (res.data.code === 0) {
+      hosts.value = res.data.data
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载主机失败'))
   }
 }
 
@@ -144,7 +154,7 @@ const fetchTasks = async () => {
       tasks.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载任务失败')
+    ElMessage.error(getErrorMessage(error, '加载任务失败'))
   } finally {
     loading.value = false
   }
@@ -161,7 +171,7 @@ const fetchExecutions = async () => {
       executions.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载执行记录失败')
+    ElMessage.error(getErrorMessage(error, '加载执行记录失败'))
   } finally {
     loadingExecutions.value = false
   }
@@ -219,34 +229,47 @@ const saveTask = async () => {
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
-      fetchTasks()
+      await fetchTasks()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
 const runTask = async (row) => {
-  await axios.post(`/api/v1/task/tasks/${row.id}/run`, {}, { headers: headers() })
-  ElMessage.success('已提交执行')
-  fetchExecutions()
+  try {
+    await axios.post(`/api/v1/task/tasks/${row.id}/run`, {}, { headers: headers() })
+    ElMessage.success('已提交执行')
+    await fetchExecutions()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '执行失败'))
+  }
 }
 
 const toggleTask = async (row) => {
   const action = row.enabled ? 'disable' : 'enable'
-  await axios.post(`/api/v1/task/tasks/${row.id}/${action}`, {}, { headers: headers() })
-  ElMessage.success(row.enabled ? '已停用' : '已启用')
-  fetchTasks()
+  try {
+    await axios.post(`/api/v1/task/tasks/${row.id}/${action}`, {}, { headers: headers() })
+    ElMessage.success(row.enabled ? '已停用' : '已启用')
+    await fetchTasks()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '更新状态失败'))
+  }
 }
 
-const deleteTask = (row) => {
-  ElMessageBox.confirm(`确定删除任务“${row.name}”吗？`, '提示', { type: 'warning' }).then(async () => {
+const deleteTask = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除任务“${row.name}”吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/task/tasks/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
-    fetchTasks()
-  })
+    await fetchTasks()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
 }
 
 const executionStatusLabel = (status) => {
