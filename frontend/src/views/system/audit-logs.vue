@@ -51,6 +51,7 @@ const filters = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const fetchLogs = async () => {
   loading.value = true
@@ -60,8 +61,8 @@ const fetchLogs = async () => {
       params: { username: filters.username, module: filters.module }
     })
     if (res.data.code === 0) logs.value = res.data.data || []
-  } catch {
-    ElMessage.error('获取日志失败')
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取日志失败'))
   } finally {
     loading.value = false
   }

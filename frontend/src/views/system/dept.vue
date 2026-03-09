@@ -95,6 +95,7 @@ const form = reactive({
 const authHeaders = () => ({
   Authorization: 'Bearer ' + localStorage.getItem('token')
 })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const resetForm = () => {
   form.id = ''
@@ -108,8 +109,12 @@ const resetForm = () => {
 }
 
 const fetchData = async () => {
-  const res = await axios.get('/api/v1/system/depts', { headers: authHeaders() })
-  if (res.data.code === 0) tableData.value = res.data.data
+  try {
+    const res = await axios.get('/api/v1/system/depts', { headers: authHeaders() })
+    if (res.data.code === 0) tableData.value = res.data.data
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '获取部门失败'))
+  }
 }
 
 const handleAdd = () => {
@@ -143,9 +148,9 @@ const handleDelete = async (row) => {
     await ElMessageBox.confirm(`确认删除部门 "${row.name}" 吗？`, '删除确认', { type: 'warning' })
     await axios.delete(`/api/v1/system/depts/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    fetchData()
+    await fetchData()
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除失败')
+    if (e !== 'cancel') ElMessage.error(getErrorMessage(e, '删除失败'))
   }
 }
 
@@ -171,9 +176,9 @@ const submit = async () => {
     }
     ElMessage.success('操作成功')
     visible.value = false
-    fetchData()
+    await fetchData()
   } catch (e) {
-    ElMessage.error('操作失败')
+    ElMessage.error(getErrorMessage(e, '操作失败'))
   }
 }
 

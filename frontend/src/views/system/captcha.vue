@@ -87,6 +87,7 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const backgroundText = computed(() => {
   if (form.background === 'gray') return '灰色'
@@ -115,7 +116,7 @@ const fetchConfig = async () => {
       form.case_sensitive = !!data.case_sensitive
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载配置失败')
+    ElMessage.error(getErrorMessage(err, '加载配置失败'))
   } finally {
     loading.value = false
   }
@@ -136,7 +137,7 @@ const saveConfig = async () => {
     ElMessage.success('保存成功')
     await fetchConfig()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   } finally {
     saving.value = false
   }

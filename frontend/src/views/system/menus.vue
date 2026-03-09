@@ -91,14 +91,15 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const fetchPermissions = async () => {
   loading.value = true
   try {
     const res = await axios.get('/api/v1/rbac/permissions', { headers: authHeaders() })
     if (res.data.code === 0) permissions.value = res.data.data || []
-  } catch {
-    ElMessage.error('获取权限失败')
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取权限失败'))
   } finally {
     loading.value = false
   }
@@ -144,9 +145,9 @@ const savePermission = async () => {
     }
     ElMessage.success('保存成功')
     dialogVisible.value = false
-    fetchPermissions()
+    await fetchPermissions()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -157,10 +158,10 @@ const removePermission = async (row) => {
     await ElMessageBox.confirm(`确认删除权限 ${row.name}？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/rbac/permissions/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    fetchPermissions()
+    await fetchPermissions()
   } catch (e) {
     if (e !== 'cancel') {
-      ElMessage.error(e?.response?.data?.message || '删除失败')
+      ElMessage.error(getErrorMessage(e, '删除失败'))
     }
   }
 }

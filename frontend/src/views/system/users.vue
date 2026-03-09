@@ -135,13 +135,14 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const fetchRoles = async () => {
   try {
     const res = await axios.get('/api/v1/rbac/roles', { headers: authHeaders() })
     if (res.data.code === 0) roles.value = res.data.data || []
-  } catch {
-    // ignore
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取角色失败'))
   }
 }
 
@@ -153,8 +154,8 @@ const fetchUsers = async () => {
       params: { username: keyword.value }
     })
     if (res.data.code === 0) users.value = res.data.data || []
-  } catch {
-    ElMessage.error('获取用户失败')
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取用户失败'))
   } finally {
     loading.value = false
   }
@@ -218,9 +219,9 @@ const saveUser = async () => {
     }
     ElMessage.success('保存成功')
     dialogVisible.value = false
-    fetchUsers()
+    await fetchUsers()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -245,7 +246,7 @@ const submitPassword = async () => {
     ElMessage.success('密码已更新')
     passwordVisible.value = false
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '更新失败')
+    ElMessage.error(getErrorMessage(e, '更新失败'))
   } finally {
     passwordLoading.value = false
   }
@@ -258,7 +259,7 @@ const toggleStatus = async (row) => {
     ElMessage.success('状态已更新')
     fetchUsers()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '更新失败')
+    ElMessage.error(getErrorMessage(e, '更新失败'))
   }
 }
 
@@ -267,10 +268,10 @@ const removeUser = async (row) => {
     await ElMessageBox.confirm(`确认删除用户 ${row.username}？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/rbac/users/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    fetchUsers()
+    await fetchUsers()
   } catch (e) {
     if (e !== 'cancel') {
-      ElMessage.error(e?.response?.data?.message || '删除失败')
+      ElMessage.error(getErrorMessage(e, '删除失败'))
     }
   }
 }

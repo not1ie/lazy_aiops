@@ -98,14 +98,15 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const fetchRoles = async () => {
   loading.value = true
   try {
     const res = await axios.get('/api/v1/rbac/roles', { headers: authHeaders() })
     if (res.data.code === 0) roles.value = res.data.data || []
-  } catch {
-    ElMessage.error('获取角色失败')
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取角色失败'))
   } finally {
     loading.value = false
   }
@@ -156,9 +157,9 @@ const saveRole = async () => {
     }
     ElMessage.success('保存成功')
     dialogVisible.value = false
-    fetchRoles()
+    await fetchRoles()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -184,9 +185,9 @@ const submitPermissions = async () => {
     }, { headers: authHeaders() })
     ElMessage.success('权限已更新')
     permVisible.value = false
-    fetchRoles()
+    await fetchRoles()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(e, '保存失败'))
   } finally {
     permSaving.value = false
   }
@@ -197,10 +198,10 @@ const removeRole = async (row) => {
     await ElMessageBox.confirm(`确认删除角色 ${row.name}？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/rbac/roles/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    fetchRoles()
+    await fetchRoles()
   } catch (e) {
     if (e !== 'cancel') {
-      ElMessage.error(e?.response?.data?.message || '删除失败')
+      ElMessage.error(getErrorMessage(e, '删除失败'))
     }
   }
 }

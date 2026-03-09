@@ -94,12 +94,15 @@ const defaultForm = () => ({
 const form = ref(defaultForm())
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const fetchTemplates = async () => {
   loading.value = true
   try {
     const res = await axios.get('/api/v1/notify/templates', { headers: authHeaders() })
     templates.value = res.data?.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载模板失败'))
   } finally {
     loading.value = false
   }
@@ -136,7 +139,7 @@ const submitForm = async () => {
     dialogVisible.value = false
     await fetchTemplates()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   }
 }
 
@@ -147,7 +150,7 @@ const removeTemplate = async (row) => {
     ElMessage.success('删除成功')
     await fetchTemplates()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error('删除失败')
+    if (err !== 'cancel') ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 

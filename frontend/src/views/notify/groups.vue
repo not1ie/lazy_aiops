@@ -63,6 +63,7 @@ const currentId = ref('')
 const form = ref({ name: '', description: '', channels: [] })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const parseList = (txt) => {
   if (!txt) return []
@@ -74,13 +75,21 @@ const parseList = (txt) => {
 }
 
 const fetchGroups = async () => {
-  const res = await axios.get('/api/v1/notify/groups', { headers: authHeaders() })
-  groups.value = res.data.data || []
+  try {
+    const res = await axios.get('/api/v1/notify/groups', { headers: authHeaders() })
+    groups.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载通知组失败'))
+  }
 }
 
 const fetchChannels = async () => {
-  const res = await axios.get('/api/v1/notify/channels', { headers: authHeaders() })
-  channels.value = res.data.data || []
+  try {
+    const res = await axios.get('/api/v1/notify/channels', { headers: authHeaders() })
+    channels.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载通知渠道失败'))
+  }
 }
 
 const openCreate = () => {
@@ -99,23 +108,31 @@ const openEdit = (row) => {
 }
 
 const submitForm = async () => {
-  const payload = { ...form.value, channels: JSON.stringify(form.value.channels || []) }
-  if (isEdit.value) {
-    await axios.put(`/api/v1/notify/groups/${currentId.value}`, payload, { headers: authHeaders() })
-    ElMessage.success('更新成功')
-  } else {
-    await axios.post('/api/v1/notify/groups', payload, { headers: authHeaders() })
-    ElMessage.success('创建成功')
+  try {
+    const payload = { ...form.value, channels: JSON.stringify(form.value.channels || []) }
+    if (isEdit.value) {
+      await axios.put(`/api/v1/notify/groups/${currentId.value}`, payload, { headers: authHeaders() })
+      ElMessage.success('更新成功')
+    } else {
+      await axios.post('/api/v1/notify/groups', payload, { headers: authHeaders() })
+      ElMessage.success('创建成功')
+    }
+    dialogVisible.value = false
+    await fetchGroups()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   }
-  dialogVisible.value = false
-  fetchGroups()
 }
 
 const removeGroup = async (row) => {
-  await ElMessageBox.confirm(`确认删除通知组 ${row.name} 吗？`, '提示', { type: 'warning' })
-  await axios.delete(`/api/v1/notify/groups/${row.id}`, { headers: authHeaders() })
-  ElMessage.success('删除成功')
-  fetchGroups()
+  try {
+    await ElMessageBox.confirm(`确认删除通知组 ${row.name} 吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/notify/groups/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    await fetchGroups()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(getErrorMessage(err, '删除失败'))
+  }
 }
 
 onMounted(() => {

@@ -92,6 +92,7 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const formatTime = (value) => {
   if (!value) return '-'
@@ -123,7 +124,7 @@ const fetchPosts = async () => {
       posts.value = res.data.data || []
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取岗位列表失败')
+    ElMessage.error(getErrorMessage(err, '获取岗位列表失败'))
   } finally {
     loading.value = false
   }
@@ -177,7 +178,7 @@ const savePost = async () => {
     dialogVisible.value = false
     await fetchPosts()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -191,7 +192,7 @@ const removePost = async (row) => {
     await fetchPosts()
   } catch (err) {
     if (err !== 'cancel') {
-      ElMessage.error(err.response?.data?.message || '删除失败')
+      ElMessage.error(getErrorMessage(err, '删除失败'))
     }
   }
 }

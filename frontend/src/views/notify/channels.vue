@@ -143,6 +143,7 @@ const defaultForm = () => ({
 const form = ref(defaultForm())
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
 const showWebhook = computed(() => ['webhook', 'feishu', 'dingtalk', 'wecom'].includes(form.value.type))
 const showAppAuth = computed(() => ['feishu', 'wecom'].includes(form.value.type))
@@ -152,6 +153,8 @@ const fetchChannels = async () => {
   try {
     const res = await axios.get('/api/v1/notify/channels', { headers: authHeaders() })
     channels.value = res.data?.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载渠道失败'))
   } finally {
     loading.value = false
   }
@@ -191,7 +194,7 @@ const submitForm = async () => {
     dialogVisible.value = false
     await fetchChannels()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   }
 }
 
@@ -202,7 +205,7 @@ const removeChannel = async (row) => {
     ElMessage.success('删除成功')
     await fetchChannels()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error('删除失败')
+    if (err !== 'cancel') ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -218,7 +221,7 @@ const testChannel = async () => {
     ElMessage.success('测试发送成功')
     testVisible.value = false
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '测试发送失败')
+    ElMessage.error(getErrorMessage(err, '测试发送失败'))
   }
 }
 
