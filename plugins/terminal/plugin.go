@@ -51,8 +51,10 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// 录像回放
 	g.GET("/records", h.ListRecords)
+	g.GET("/audits", h.ListCommandAudits)
 	g.GET("/records/:id", h.GetRecord)
 	g.GET("/records/:id/download", h.DownloadRecord)
+	g.GET("/records/:id/asciinema", h.DownloadRecordAsciinema)
 	g.DELETE("/records/:id", h.DeleteRecord)
 	g.POST("/records/cleanup", h.CleanupRecords)
 }

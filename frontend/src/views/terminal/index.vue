@@ -76,12 +76,58 @@
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="viewRecord(row)">回放</el-button>
             <el-button size="small" @click="downloadRecord(row)">下载</el-button>
+            <el-button size="small" @click="downloadRecordCast(row)">导出 Cast</el-button>
             <el-button size="small" type="danger" plain @click="deleteRecord(row)">删除</el-button>
           </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="section-card">
+      <template #header>
+        <div class="card-title">命令审计</div>
+      </template>
+      <div class="section-filters">
+        <el-input v-model="auditFilters.keyword" clearable placeholder="搜索命令/主机/操作人/登录用户/会话号" style="width: 320px" @keyup.enter="fetchAudits" />
+        <el-select v-model="auditFilters.risk_level" clearable placeholder="风险等级" style="width: 130px">
+          <el-option label="info" value="info" />
+          <el-option label="warning" value="warning" />
+          <el-option label="critical" value="critical" />
+        </el-select>
+        <el-select v-model="auditFilters.blocked" clearable placeholder="执行结果" style="width: 130px">
+          <el-option label="已阻断" value="true" />
+          <el-option label="已放行" value="false" />
+        </el-select>
+        <el-button @click="fetchAudits">筛选</el-button>
+        <el-button @click="resetAuditFilters">重置</el-button>
+      </div>
+      <el-table :fit="true" :data="audits" v-loading="auditLoading" stripe>
+        <el-table-column prop="executed_at" label="时间" width="170">
+          <template #default="{ row }">{{ formatTime(row.executed_at) }}</template>
+        </el-table-column>
+        <el-table-column prop="session_no" label="会话号" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="host" label="主机" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="operator" label="操作人" width="110" />
+        <el-table-column prop="login_user" label="登录用户" width="110" />
+        <el-table-column prop="protocol" label="协议" width="100" />
+        <el-table-column prop="command" label="命令" min-width="280" show-overflow-tooltip />
+        <el-table-column label="风险" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.risk_level" :type="auditRiskTagType(row.risk_level)">{{ row.risk_level }}</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.blocked ? 'danger' : 'success'">{{ row.blocked ? '阻断' : '放行' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="risk_reason" label="说明" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.risk_reason || row.rule_name || '-' }}</template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -116,6 +162,7 @@
         <el-button @click="sendCtrlC">Ctrl+C</el-button>
         <el-button @click="sendResize">同步窗口</el-button>
         <el-button @click="clearTerminal">清屏</el-button>
+        <span class="terminal-status">{{ terminalStatus }}</span>
       </div>
       <div ref="terminalRef" class="terminal-output"></div>
       <template #footer>
@@ -165,12 +212,19 @@ const sessions = ref([])
 const records = ref([])
 const sessionLoading = ref(false)
 const recordLoading = ref(false)
+const audits = ref([])
+const auditLoading = ref(false)
 const sessionFilters = ref({
   keyword: '',
   status: ''
 })
 const recordFilters = ref({
   keyword: ''
+})
+const auditFilters = ref({
+  keyword: '',
+  risk_level: '',
+  blocked: ''
 })
 
 const createVisible = ref(false)
@@ -188,10 +242,16 @@ const createForm = ref({
 const terminalVisible = ref(false)
 const terminalRef = ref(null)
 const currentSession = ref(null)
+const terminalStatus = ref('未连接')
 let ws = null
 let term = null
 let fitAddon = null
 let terminalDataListener = null
+let keepAliveTimer = null
+let reconnectTimer = null
+let reconnectAttempts = 0
+let manualTerminalClose = false
+let wsGeneration = 0
 
 const recordVisible = ref(false)
 const currentRecord = ref(null)
@@ -257,8 +317,24 @@ const fetchRecords = async () => {
   }
 }
 
+const fetchAudits = async () => {
+  auditLoading.value = true
+  try {
+    const params = {}
+    if (auditFilters.value.keyword.trim()) params.keyword = auditFilters.value.keyword.trim()
+    if (auditFilters.value.risk_level) params.risk_level = auditFilters.value.risk_level
+    if (auditFilters.value.blocked) params.blocked = auditFilters.value.blocked
+    const res = await axios.get('/api/v1/terminal/audits', { headers: authHeaders(), params })
+    audits.value = res.data?.data || []
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '获取命令审计失败')
+  } finally {
+    auditLoading.value = false
+  }
+}
+
 const reloadAll = async () => {
-  await Promise.all([fetchSessions(), fetchRecords()])
+  await Promise.all([fetchSessions(), fetchRecords(), fetchAudits()])
 }
 
 const resetSessionFilters = async () => {
@@ -269,6 +345,11 @@ const resetSessionFilters = async () => {
 const resetRecordFilters = async () => {
   recordFilters.value = { keyword: '' }
   await fetchRecords()
+}
+
+const resetAuditFilters = async () => {
+  auditFilters.value = { keyword: '', risk_level: '', blocked: '' }
+  await fetchAudits()
 }
 
 const openCreateDialog = () => {
@@ -427,6 +508,29 @@ const destroyTerminal = () => {
   fitAddon = null
 }
 
+const stopKeepAlive = () => {
+  if (keepAliveTimer) {
+    window.clearInterval(keepAliveTimer)
+    keepAliveTimer = null
+  }
+}
+
+const startKeepAlive = () => {
+  stopKeepAlive()
+  keepAliveTimer = window.setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'ping', ts: Date.now() }))
+    }
+  }, 20000)
+}
+
+const clearReconnectTimer = () => {
+  if (reconnectTimer) {
+    window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
 const initRecordTerminal = async () => {
   await nextTick()
   if (!recordTerminalRef.value) return
@@ -462,6 +566,8 @@ const destroyRecordTerminal = () => {
 }
 
 const closeWebSocket = () => {
+  stopKeepAlive()
+  clearReconnectTimer()
   if (ws) {
     try {
       ws.close()
@@ -478,23 +584,49 @@ const buildWsUrl = (sessionId) => {
   return `${proto}://${window.location.host}/api/v1/terminal/ws/${sessionId}?token=${encodeURIComponent(token)}`
 }
 
-const openTerminal = async (row) => {
-  closeWebSocket()
-  currentSession.value = row
-  terminalVisible.value = true
-  await initTerminal()
+const scheduleReconnect = (row) => {
+  if (!terminalVisible.value || manualTerminalClose || !row?.id) return
+  if (reconnectAttempts >= 3) {
+    terminalStatus.value = '已断开'
+    writelnTerminal('\r\n[系统] 自动重连失败，已停止重试')
+    return
+  }
+  reconnectAttempts += 1
+  const delay = Math.min(5000, reconnectAttempts * 1500)
+  terminalStatus.value = `重连中(${reconnectAttempts}/3)...`
+  writelnTerminal(`\r\n[系统] ${delay / 1000}s 后尝试自动重连(${reconnectAttempts}/3)`)
+  clearReconnectTimer()
+  reconnectTimer = window.setTimeout(() => {
+    connectTerminalSocket(row, true)
+  }, delay)
+}
 
+const connectTerminalSocket = (row, isReconnect = false) => {
+  clearReconnectTimer()
   const url = buildWsUrl(row.id)
+  const currentGeneration = ++wsGeneration
+  manualTerminalClose = false
   ws = new WebSocket(url)
   ws.binaryType = 'arraybuffer'
 
   ws.onopen = () => {
-    writelnTerminal(`[系统] 已连接 ${row.host}:${row.port}`)
+    if (currentGeneration !== wsGeneration) return
+    terminalStatus.value = isReconnect ? '已重连' : '在线'
+    reconnectAttempts = 0
+    startKeepAlive()
+    writelnTerminal(isReconnect ? `\r\n[系统] 已重新连接 ${row.host}:${row.port}` : `[系统] 已连接 ${row.host}:${row.port}`)
     sendResize()
   }
 
   ws.onmessage = (event) => {
+    if (currentGeneration !== wsGeneration) return
     if (typeof event.data === 'string') {
+      try {
+        const control = JSON.parse(event.data)
+        if (control?.type === 'pong') return
+      } catch {
+        // noop
+      }
       writeTerminal(event.data)
       return
     }
@@ -503,17 +635,35 @@ const openTerminal = async (row) => {
   }
 
   ws.onerror = () => {
+    if (currentGeneration !== wsGeneration) return
+    terminalStatus.value = '连接异常'
     writelnTerminal('\r\n[系统] 连接异常：网络抖动或服务端中断')
   }
 
   ws.onclose = async (event) => {
+    if (currentGeneration !== wsGeneration) return
+    stopKeepAlive()
     await fetchSessions()
     const latest = sessions.value.find(item => item.id === row.id)
     const backendReason = latest?.last_error ? String(latest.last_error).trim() : ''
     const wsReason = parseWsCloseReason(event)
     const reason = backendReason || wsReason
+    terminalStatus.value = reason ? '连接关闭' : '已断开'
     writelnTerminal(reason ? `\r\n[系统] 连接关闭：${reason}` : '\r\n[系统] 连接关闭')
+    if (!manualTerminalClose && event.code !== 1000 && event.code !== 1001) {
+      scheduleReconnect(row)
+    }
   }
+}
+
+const openTerminal = async (row) => {
+  closeWebSocket()
+  currentSession.value = row
+  terminalVisible.value = true
+  terminalStatus.value = '连接中'
+  reconnectAttempts = 0
+  await initTerminal()
+  connectTerminalSocket(row, false)
 }
 
 const openTerminalByID = async (id) => {
@@ -529,6 +679,8 @@ const openTerminalByID = async (id) => {
 }
 
 const onTerminalDialogClosed = () => {
+  manualTerminalClose = true
+  terminalStatus.value = '未连接'
   closeWebSocket()
   destroyTerminal()
 }
@@ -705,6 +857,34 @@ const downloadRecord = async (row) => {
   }
 }
 
+const downloadRecordCast = async (row) => {
+  try {
+    const res = await axios.get(`/api/v1/terminal/records/${row.id}/asciinema`, {
+      headers: authHeaders(),
+      responseType: 'blob'
+    })
+    const blob = new Blob([res.data], { type: 'application/x-asciicast;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `terminal-record-${row.host || 'unknown'}-${row.id}.cast`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('Cast 导出已开始')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '导出 Cast 失败')
+  }
+}
+
+const auditRiskTagType = (level) => {
+  if (level === 'critical') return 'danger'
+  if (level === 'warning') return 'warning'
+  if (level === 'info') return 'info'
+  return 'info'
+}
+
 const cleanupRecords = async (keepDays) => {
   try {
     await ElMessageBox.confirm(`确认清理 ${keepDays} 天前的历史录像吗？`, '提示', { type: 'warning' })
@@ -753,6 +933,7 @@ onBeforeUnmount(() => {
 .section-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .record-actions { display: flex; gap: 8px; }
 .terminal-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+.terminal-status { margin-left: auto; color: #606266; font-size: 13px; align-self: center; }
 .terminal-output { height: 480px; overflow: auto; background: #0f172a; color: #dbeafe; padding: 10px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; line-height: 1.4; }
 .record-meta { display: flex; gap: 16px; margin-bottom: 10px; color: #606266; }
 .record-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }

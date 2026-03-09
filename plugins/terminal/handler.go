@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -138,6 +139,24 @@ type generatedAlert struct {
 
 func (generatedAlert) TableName() string {
 	return "alerts"
+}
+
+type terminalCommandAuditItem struct {
+	ID         string    `json:"id"`
+	SessionID  string    `json:"session_id"`
+	SessionNo  string    `json:"session_no"`
+	Host       string    `json:"host"`
+	AssetName  string    `json:"asset_name"`
+	Operator   string    `json:"operator"`
+	LoginUser  string    `json:"login_user"`
+	Protocol   string    `json:"protocol"`
+	Command    string    `json:"command"`
+	RuleName   string    `json:"rule_name"`
+	RiskLevel  string    `json:"risk_level"`
+	RiskAction string    `json:"risk_action"`
+	RiskReason string    `json:"risk_reason"`
+	Blocked    bool      `json:"blocked"`
+	ExecutedAt time.Time `json:"executed_at"`
 }
 
 type jumpRiskDecision struct {
@@ -679,6 +698,10 @@ func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *Termina
 		}
 		if json.Unmarshal(message, &msg) == nil && msg.Type == "resize" {
 			sshSess.Session.WindowChange(msg.Rows, msg.Cols)
+			continue
+		}
+		if json.Unmarshal(message, &msg) == nil && msg.Type == "ping" {
+			_ = h.writeWSMessage(sshSess, websocket.TextMessage, []byte(`{"type":"pong"}`))
 			continue
 		}
 
@@ -1265,6 +1288,64 @@ func (h *TerminalHandler) ListRecords(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": records})
 }
 
+// ListCommandAudits 命令审计列表
+func (h *TerminalHandler) ListCommandAudits(c *gin.Context) {
+	var audits []terminalCommandAuditItem
+	query := h.db.Table("jump_commands jc").
+		Select(`
+			jc.id,
+			jc.session_id,
+			COALESCE(js.session_no, '') AS session_no,
+			COALESCE(ts.host, js.asset_name, '') AS host,
+			COALESCE(js.asset_name, '') AS asset_name,
+			COALESCE(jc.username, '') AS operator,
+			COALESCE(js.account_name, '') AS login_user,
+			COALESCE(js.protocol, '') AS protocol,
+			jc.command,
+			COALESCE(jc.rule_name, '') AS rule_name,
+			COALESCE(jc.risk_level, '') AS risk_level,
+			COALESCE(jc.risk_action, '') AS risk_action,
+			COALESCE(jc.risk_reason, '') AS risk_reason,
+			jc.blocked,
+			jc.executed_at
+		`).
+		Joins("LEFT JOIN jump_sessions js ON js.id = jc.session_id").
+		Joins("LEFT JOIN terminal_sessions ts ON ts.id = js.relay_session_id").
+		Order("jc.executed_at DESC")
+
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where(`
+			jc.command LIKE ?
+			OR COALESCE(ts.host, js.asset_name, '') LIKE ?
+			OR COALESCE(jc.username, '') LIKE ?
+			OR COALESCE(js.account_name, '') LIKE ?
+			OR COALESCE(js.session_no, '') LIKE ?
+			OR COALESCE(jc.risk_reason, '') LIKE ?
+		`, like, like, like, like, like, like)
+	}
+	if riskLevel := strings.TrimSpace(c.Query("risk_level")); riskLevel != "" {
+		query = query.Where("jc.risk_level = ?", riskLevel)
+	}
+	if protocol := strings.TrimSpace(c.Query("protocol")); protocol != "" {
+		query = query.Where("js.protocol = ?", protocol)
+	}
+	if blocked := strings.TrimSpace(c.Query("blocked")); blocked != "" {
+		switch strings.ToLower(blocked) {
+		case "1", "true", "yes":
+			query = query.Where("jc.blocked = ?", true)
+		case "0", "false", "no":
+			query = query.Where("jc.blocked = ?", false)
+		}
+	}
+
+	if err := query.Limit(200).Scan(&audits).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": audits})
+}
+
 // GetRecord 获取录像详情
 func (h *TerminalHandler) GetRecord(c *gin.Context) {
 	id := c.Param("id")
@@ -1300,6 +1381,28 @@ func (h *TerminalHandler) DownloadRecord(c *gin.Context) {
 	c.Header("Content-Type", "application/json; charset=utf-8")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	c.JSON(http.StatusOK, payload)
+}
+
+// DownloadRecordAsciinema 下载 asciinema cast
+func (h *TerminalHandler) DownloadRecordAsciinema(c *gin.Context) {
+	id := c.Param("id")
+	var record TerminalRecord
+	if err := h.db.First(&record, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "录像不存在"})
+		return
+	}
+
+	castData, err := buildAsciinemaCast(record)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "生成 cast 失败"})
+		return
+	}
+
+	filename := fmt.Sprintf("terminal-record-%s-%s.cast", sanitizeRecordFilePart(record.Host), record.ID)
+	c.Header("Content-Type", "application/x-asciicast; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Writer.WriteHeader(http.StatusOK)
+	_, _ = c.Writer.Write(castData)
 }
 
 // DeleteRecord 删除单条录像
@@ -1362,4 +1465,54 @@ func sanitizeRecordFilePart(v string) string {
 		return "unknown"
 	}
 	return v
+}
+
+func buildAsciinemaCast(record TerminalRecord) ([]byte, error) {
+	var items []RecordItem
+	raw := strings.TrimSpace(record.Data)
+	if raw == "" {
+		raw = "[]"
+	}
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil, err
+	}
+
+	header := map[string]interface{}{
+		"version":   2,
+		"width":     120,
+		"height":    40,
+		"timestamp": record.CreatedAt.Unix(),
+		"title":     fmt.Sprintf("%s@%s", record.Operator, record.Host),
+		"env": map[string]string{
+			"SHELL": "/bin/bash",
+			"TERM":  "xterm-256color",
+		},
+	}
+
+	var buf bytes.Buffer
+	head, err := json.Marshal(header)
+	if err != nil {
+		return nil, err
+	}
+	buf.Write(head)
+	buf.WriteByte('\n')
+
+	for _, item := range items {
+		eventType := "o"
+		if item.Type == "input" {
+			eventType = "i"
+		}
+		entry, err := json.Marshal([]interface{}{
+			float64(item.Time) / 1000.0,
+			eventType,
+			item.Content,
+		})
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(entry)
+		buf.WriteByte('\n')
+	}
+
+	return buf.Bytes(), nil
 }
