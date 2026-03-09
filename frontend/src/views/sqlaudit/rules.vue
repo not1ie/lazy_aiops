@@ -119,6 +119,7 @@
 import { onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const rules = ref([])
@@ -153,7 +154,7 @@ const fetchRules = async () => {
     const res = await axios.get('/api/v1/sqlaudit/rules', { headers: authHeaders() })
     rules.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取规则失败')
+    ElMessage.error(getErrorMessage(err, '获取规则失败'))
   } finally {
     loading.value = false
   }
@@ -213,7 +214,7 @@ const submitRule = async () => {
     dialogVisible.value = false
     await fetchRules()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   }
 }
 
@@ -224,7 +225,7 @@ const removeRule = async (row) => {
     ElMessage.success('删除成功')
     await fetchRules()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -237,7 +238,7 @@ const analyzeNow = async () => {
     const res = await axios.post('/api/v1/sqlaudit/analyze', { sql_content: analyzeSql.value }, { headers: authHeaders() })
     analyzeResult.value = res.data?.data || null
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '分析失败')
+    ElMessage.error(getErrorMessage(err, '分析失败'))
   }
 }
 

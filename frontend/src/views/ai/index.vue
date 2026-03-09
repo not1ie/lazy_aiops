@@ -408,6 +408,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const activeTab = ref('chat')
 const chatting = ref(false)
@@ -506,7 +507,7 @@ const fetchSessions = async () => {
       }
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取会话失败')
+    ElMessage.error(getErrorMessage(err, '获取会话失败'))
   }
 }
 
@@ -519,7 +520,7 @@ const fetchMessages = async () => {
     const res = await axios.get(`/api/v1/ai/sessions/${activeSessionId.value}/messages`, { headers: authHeaders() })
     if (res.data?.code === 0) messages.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取消息失败')
+    ElMessage.error(getErrorMessage(err, '获取消息失败'))
   }
 }
 
@@ -540,7 +541,7 @@ const startNewSession = async () => {
       return
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建会话失败')
+    ElMessage.error(getErrorMessage(err, '创建会话失败'))
   }
   // 兜底：保留本地清空态
   activeSessionId.value = ''
@@ -585,7 +586,7 @@ const sendChat = async () => {
       await fetchMessages()
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '发送失败')
+    ElMessage.error(getErrorMessage(err, '发送失败'))
   } finally {
     chatting.value = false
   }
@@ -637,7 +638,7 @@ const removeSession = async (item) => {
     }
     await fetchSessions()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -889,7 +890,7 @@ const pullTargetLogs = async () => {
       ElMessage.error(res.data?.message || '日志拉取失败')
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '日志拉取失败')
+    ElMessage.error(getErrorMessage(err, '日志拉取失败'))
   } finally {
     pullingLogs.value = false
   }
@@ -955,7 +956,7 @@ const analyzeLogs = async () => {
       await fetchHistory()
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '分析失败')
+    ElMessage.error(getErrorMessage(err, '分析失败'))
   } finally {
     analyzing.value = false
   }
@@ -971,7 +972,7 @@ const fetchHistory = async () => {
     })
     if (res.data?.code === 0) analysisHistory.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载历史失败')
+    ElMessage.error(getErrorMessage(err, '加载历史失败'))
   } finally {
     historyLoading.value = false
   }
@@ -986,7 +987,7 @@ const fetchConfigs = async () => {
       runtimeConfig.value = res.data.data?.runtime || null
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载模型配置失败')
+    ElMessage.error(getErrorMessage(err, '加载模型配置失败'))
   } finally {
     configLoading.value = false
   }
@@ -1069,7 +1070,7 @@ const saveConfig = async () => {
     configDialogVisible.value = false
     await fetchConfigs()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存配置失败')
+    ElMessage.error(getErrorMessage(err, '保存配置失败'))
   } finally {
     configSaving.value = false
   }
@@ -1081,7 +1082,7 @@ const activateConfig = async (row) => {
     ElMessage.success('已切换为当前模型配置')
     await fetchConfigs()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '激活失败')
+    ElMessage.error(getErrorMessage(err, '激活失败'))
   }
 }
 
@@ -1091,7 +1092,7 @@ const testConfig = async (row) => {
     const info = res.data?.data?.reply ? `，返回: ${String(res.data.data.reply).slice(0, 30)}` : ''
     ElMessage.success(`测试通过${info}`)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '测试失败')
+    ElMessage.error(getErrorMessage(err, '测试失败'))
   }
 }
 
@@ -1102,7 +1103,7 @@ const removeConfig = async (row) => {
     ElMessage.success('删除成功')
     await fetchConfigs()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 

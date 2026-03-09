@@ -201,6 +201,7 @@
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const activeTab = ref('orders')
 
@@ -287,7 +288,7 @@ const fetchStats = async () => {
     const res = await axios.get('/api/v1/sqlaudit/statistics', { headers: authHeaders() })
     stats.value = res.data?.data || {}
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取统计失败')
+    ElMessage.error(getErrorMessage(err, '获取统计失败'))
   }
 }
 
@@ -297,7 +298,7 @@ const fetchInstances = async () => {
     const res = await axios.get('/api/v1/sqlaudit/instances', { headers: authHeaders() })
     instances.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取实例失败')
+    ElMessage.error(getErrorMessage(err, '获取实例失败'))
   } finally {
     instanceLoading.value = false
   }
@@ -312,7 +313,7 @@ const fetchOrders = async () => {
     const res = await axios.get('/api/v1/sqlaudit/orders', { headers: authHeaders(), params })
     orders.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取工单失败')
+    ElMessage.error(getErrorMessage(err, '获取工单失败'))
   } finally {
     orderLoading.value = false
   }
@@ -327,7 +328,7 @@ const fetchLogs = async () => {
     const res = await axios.get('/api/v1/sqlaudit/logs', { headers: authHeaders(), params })
     logs.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取日志失败')
+    ElMessage.error(getErrorMessage(err, '获取日志失败'))
   } finally {
     logLoading.value = false
   }
@@ -380,7 +381,7 @@ const submitInstance = async () => {
     instanceVisible.value = false
     await fetchInstances()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   }
 }
 
@@ -389,7 +390,7 @@ const testInstance = async (row) => {
     await axios.post(`/api/v1/sqlaudit/instances/${row.id}/test`, {}, { headers: authHeaders() })
     ElMessage.success('连接成功')
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '连接失败')
+    ElMessage.error(getErrorMessage(err, '连接失败'))
   }
 }
 
@@ -400,7 +401,7 @@ const removeInstance = async (row) => {
     ElMessage.success('删除成功')
     await fetchInstances()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -420,7 +421,7 @@ const submitOrder = async () => {
     orderVisible.value = false
     await Promise.all([fetchOrders(), fetchStats()])
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建工单失败')
+    ElMessage.error(getErrorMessage(err, '创建工单失败'))
   }
 }
 
@@ -430,7 +431,7 @@ const openOrderDetail = async (row) => {
     detailOrder.value = res.data?.data || null
     detailVisible.value = true
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '读取详情失败')
+    ElMessage.error(getErrorMessage(err, '读取详情失败'))
   }
 }
 
@@ -447,7 +448,7 @@ const submitReview = async () => {
     reviewVisible.value = false
     await Promise.all([fetchOrders(), fetchStats()])
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '审核失败')
+    ElMessage.error(getErrorMessage(err, '审核失败'))
   }
 }
 
@@ -457,7 +458,7 @@ const executeOrder = async (row) => {
     ElMessage.success('执行完成')
     await Promise.all([fetchOrders(), fetchLogs(), fetchStats()])
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '执行失败')
+    ElMessage.error(getErrorMessage(err, '执行失败'))
     await Promise.all([fetchOrders(), fetchLogs(), fetchStats()])
   }
 }

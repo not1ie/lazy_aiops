@@ -210,6 +210,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const shiftLoading = ref(false)
@@ -285,7 +286,7 @@ const fetchSchedules = async () => {
       }
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载排班失败')
+    ElMessage.error(getErrorMessage(err, '加载排班失败'))
   } finally {
     loading.value = false
   }
@@ -296,7 +297,7 @@ const fetchTeams = async () => {
     const res = await axios.get('/api/v1/oncall/teams', { headers: authHeaders() })
     if (res.data?.code === 0) teams.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载团队失败')
+    ElMessage.error(getErrorMessage(err, '加载团队失败'))
   }
 }
 
@@ -305,7 +306,7 @@ const fetchCurrentOncall = async () => {
     const res = await axios.get('/api/v1/oncall/whoisoncall', { headers: authHeaders() })
     if (res.data?.code === 0) currentOncall.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取当前值班失败')
+    ElMessage.error(getErrorMessage(err, '获取当前值班失败'))
   }
 }
 
@@ -319,7 +320,7 @@ const fetchShifts = async () => {
     const res = await axios.get(`/api/v1/oncall/schedules/${selectedSchedule.value.id}/shifts`, { headers: authHeaders() })
     if (res.data?.code === 0) shifts.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载班次失败')
+    ElMessage.error(getErrorMessage(err, '加载班次失败'))
   } finally {
     shiftLoading.value = false
   }
@@ -407,7 +408,7 @@ const saveSchedule = async () => {
     scheduleDialogVisible.value = false
     await fetchSchedules()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存排班失败')
+    ElMessage.error(getErrorMessage(err, '保存排班失败'))
   } finally {
     saving.value = false
   }
@@ -421,7 +422,7 @@ const removeSchedule = async (row) => {
     if (selectedSchedule.value?.id === row.id) selectedSchedule.value = null
     await refreshAll()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -457,7 +458,7 @@ const createTeam = async () => {
     teamDialogVisible.value = false
     await fetchTeams()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建团队失败')
+    ElMessage.error(getErrorMessage(err, '创建团队失败'))
   } finally {
     teamSaving.value = false
   }
@@ -487,7 +488,7 @@ const generateShifts = async () => {
     if (selectedSchedule.value?.id === generateTarget.value.id) await fetchShifts()
     await fetchCurrentOncall()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '生成失败')
+    ElMessage.error(getErrorMessage(err, '生成失败'))
   } finally {
     generating.value = false
   }
@@ -519,7 +520,7 @@ const swapShift = async () => {
     await fetchShifts()
     await fetchCurrentOncall()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '换班失败')
+    ElMessage.error(getErrorMessage(err, '换班失败'))
   } finally {
     swapping.value = false
   }

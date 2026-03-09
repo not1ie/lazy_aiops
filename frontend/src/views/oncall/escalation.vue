@@ -77,6 +77,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -121,7 +122,7 @@ const fetchSchedules = async () => {
     const res = await axios.get('/api/v1/oncall/schedules', { headers: authHeaders() })
     if (res.data?.code === 0) schedules.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载排班失败')
+    ElMessage.error(getErrorMessage(err, '加载排班失败'))
   }
 }
 
@@ -134,7 +135,7 @@ const fetchEscalations = async () => {
     })
     if (res.data?.code === 0) escalations.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载策略失败')
+    ElMessage.error(getErrorMessage(err, '加载策略失败'))
   } finally {
     loading.value = false
   }
@@ -187,7 +188,7 @@ const saveItem = async () => {
     dialogVisible.value = false
     await fetchEscalations()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -200,7 +201,7 @@ const removeItem = async (row) => {
     ElMessage.success('删除成功')
     await fetchEscalations()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 

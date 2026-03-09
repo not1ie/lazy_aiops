@@ -156,6 +156,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const metricsLoading = ref(false)
@@ -265,7 +266,7 @@ const fetchDevices = async () => {
       await loadDetailData()
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载设备失败')
+    ElMessage.error(getErrorMessage(err, '加载设备失败'))
   } finally {
     loading.value = false
   }
@@ -303,7 +304,7 @@ const fetchMetrics = async () => {
     })
     if (res.data?.code === 0) metrics.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载指标失败')
+    ElMessage.error(getErrorMessage(err, '加载指标失败'))
   } finally {
     metricsLoading.value = false
   }
@@ -316,7 +317,7 @@ const fetchRules = async () => {
     const res = await axios.get(`/api/v1/firewall/devices/${selectedDevice.value.id}/rules`, { headers: authHeaders() })
     if (res.data?.code === 0) rules.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载规则失败')
+    ElMessage.error(getErrorMessage(err, '加载规则失败'))
   } finally {
     rulesLoading.value = false
   }
@@ -391,7 +392,7 @@ const saveDevice = async () => {
     deviceDialogVisible.value = false
     await fetchDevices()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存设备失败')
+    ElMessage.error(getErrorMessage(err, '保存设备失败'))
   } finally {
     savingDevice.value = false
   }
@@ -405,7 +406,7 @@ const removeDevice = async (row) => {
     if (selectedDevice.value?.id === row.id) selectedDevice.value = null
     await fetchDevices()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -415,7 +416,7 @@ const testSNMP = async (row) => {
     const res = await axios.post(`/api/v1/firewall/devices/${row.id}/snmp/test`, {}, { headers: authHeaders() })
     ElMessage.success(`SNMP连接成功：${res.data?.data?.sys_desc || ''}`)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || 'SNMP连接失败')
+    ElMessage.error(getErrorMessage(err, 'SNMP连接失败'))
   } finally {
     testingId.value = ''
   }
@@ -429,7 +430,7 @@ const collectSNMP = async (row) => {
     if (selectedDevice.value?.id === row.id) await loadDetailData()
     await fetchDevices()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '采集失败')
+    ElMessage.error(getErrorMessage(err, '采集失败'))
   } finally {
     collectingId.value = ''
   }
@@ -489,7 +490,7 @@ const saveRule = async () => {
     ruleDialogVisible.value = false
     await fetchRules()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建规则失败')
+    ElMessage.error(getErrorMessage(err, '创建规则失败'))
   } finally {
     savingRule.value = false
   }
@@ -503,7 +504,7 @@ const removeRule = async (row) => {
     ElMessage.success('删除成功')
     await fetchRules()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除规则失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除规则失败'))
   }
 }
 
