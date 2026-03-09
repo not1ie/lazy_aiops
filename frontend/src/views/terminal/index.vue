@@ -45,7 +45,13 @@
 
     <el-card shadow="never" class="section-card">
       <template #header>
-        <div class="card-title">会话录像</div>
+        <div class="section-header">
+          <div class="card-title">会话录像</div>
+          <div class="record-actions">
+            <el-button size="small" @click="cleanupRecords(7)">清理 7 天前</el-button>
+            <el-button size="small" @click="cleanupRecords(30)">清理 30 天前</el-button>
+          </div>
+        </div>
       </template>
       <el-table :fit="true" :data="records" v-loading="recordLoading" stripe>
         <el-table-column prop="operator" label="操作人" width="120" />
@@ -54,9 +60,10 @@
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="viewRecord(row)">回放</el-button>
+            <el-button size="small" type="danger" plain @click="deleteRecord(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -82,6 +89,7 @@
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
+        <el-button :loading="precheckLoading" @click="precheckConnection">测试连接</el-button>
         <el-button type="primary" @click="submitSession">{{ editingSessionId ? '保存' : '创建并连接' }}</el-button>
       </template>
     </el-dialog>
@@ -126,6 +134,7 @@ const recordLoading = ref(false)
 
 const createVisible = ref(false)
 const editingSessionId = ref('')
+const precheckLoading = ref(false)
 const createForm = ref({
   host_id: '',
   host: '',
@@ -248,6 +257,27 @@ const submitSession = async () => {
     if (sess?.id) openTerminal(sess)
   } catch (err) {
     ElMessage.error(err.response?.data?.message || (editingSessionId.value ? '编辑会话失败' : '创建会话失败'))
+  }
+}
+
+const precheckConnection = async () => {
+  if (!createForm.value.host.trim() || !createForm.value.username.trim()) {
+    ElMessage.warning('请填写主机地址和用户名')
+    return
+  }
+  if (!createForm.value.password && !createForm.value.key_auth) {
+    ElMessage.warning('密码和私钥至少填写一个')
+    return
+  }
+
+  precheckLoading.value = true
+  try {
+    const res = await axios.post('/api/v1/terminal/sessions/precheck', createForm.value, { headers: authHeaders() })
+    ElMessage.success(res.data?.data?.message || res.data?.message || '连接测试通过')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '连接测试失败')
+  } finally {
+    precheckLoading.value = false
   }
 }
 
@@ -426,6 +456,28 @@ const viewRecord = async (row) => {
   }
 }
 
+const deleteRecord = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除 ${row.host} 的这条录像吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/terminal/records/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('录像已删除')
+    await fetchRecords()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除录像失败')
+  }
+}
+
+const cleanupRecords = async (keepDays) => {
+  try {
+    await ElMessageBox.confirm(`确认清理 ${keepDays} 天前的历史录像吗？`, '提示', { type: 'warning' })
+    const res = await axios.post('/api/v1/terminal/records/cleanup', { keep_days: keepDays }, { headers: authHeaders() })
+    ElMessage.success(`清理完成，删除 ${res.data?.data?.deleted || 0} 条录像`)
+    await fetchRecords()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '清理录像失败')
+  }
+}
+
 const openRecordBySession = (row) => {
   const found = records.value.find(item => item.session_id === row.id)
   if (!found) {
@@ -455,6 +507,8 @@ onBeforeUnmount(() => {
 .page-actions { display: flex; gap: 8px; align-items: center; }
 .section-card { margin-bottom: 12px; }
 .card-title { font-weight: 600; }
+.section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.record-actions { display: flex; gap: 8px; }
 .terminal-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
 .terminal-output { height: 480px; overflow: auto; background: #0f172a; color: #dbeafe; padding: 10px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; line-height: 1.4; }
 .record-meta { display: flex; gap: 16px; margin-bottom: 10px; color: #606266; }

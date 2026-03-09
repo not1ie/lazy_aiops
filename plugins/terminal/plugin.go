@@ -41,6 +41,7 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/sessions", h.ListSessions)
 	g.GET("/sessions/:id", h.GetSession)
 	g.POST("/sessions", h.CreateSession)
+	g.POST("/sessions/precheck", h.PrecheckConnection)
 	g.PUT("/sessions/:id", h.UpdateSession)
 	g.DELETE("/sessions/:id", h.CloseSession)
 	g.DELETE("/sessions/:id/purge", h.DeleteSession)
@@ -51,4 +52,6 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	// 录像回放
 	g.GET("/records", h.ListRecords)
 	g.GET("/records/:id", h.GetRecord)
+	g.DELETE("/records/:id", h.DeleteRecord)
+	g.POST("/records/cleanup", h.CleanupRecords)
 }

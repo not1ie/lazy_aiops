@@ -51,6 +51,14 @@ type SSHSession struct {
 	JumpBlockReason     string
 }
 
+type terminalConnectPayload struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	KeyAuth  string `json:"key_auth"`
+}
+
 type RecordItem struct {
 	Time    int64  `json:"time"` // 相对于开始时间的毫秒数
 	Type    string `json:"type"` // input, output
@@ -157,6 +165,29 @@ func NewTerminalHandler(db *gorm.DB, auth *core.AuthService) *TerminalHandler {
 	return &TerminalHandler{db: db, auth: auth}
 }
 
+func normalizeConnectPayload(req *terminalConnectPayload) error {
+	if req == nil {
+		return errors.New("参数错误")
+	}
+	req.Host = strings.TrimSpace(req.Host)
+	req.Username = strings.TrimSpace(req.Username)
+	req.Password = strings.TrimSpace(req.Password)
+	req.KeyAuth = strings.TrimSpace(req.KeyAuth)
+	if req.Host == "" {
+		return errors.New("主机地址不能为空")
+	}
+	if req.Username == "" {
+		return errors.New("用户名不能为空")
+	}
+	if req.Password == "" && req.KeyAuth == "" {
+		return errors.New("密码和私钥至少填写一个")
+	}
+	if req.Port <= 0 {
+		req.Port = 22
+	}
+	return nil
+}
+
 // ListSessions 会话列表
 func (h *TerminalHandler) ListSessions(c *gin.Context) {
 	var sessions []TerminalSession
@@ -185,31 +216,16 @@ func (h *TerminalHandler) GetSession(c *gin.Context) {
 // CreateSession 创建会话
 func (h *TerminalHandler) CreateSession(c *gin.Context) {
 	var req struct {
-		HostID   string `json:"host_id"`
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		KeyAuth  string `json:"key_auth"` // 私钥内容
+		HostID string `json:"host_id"`
+		terminalConnectPayload
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if req.Host == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机地址不能为空"})
+	if err := normalizeConnectPayload(&req.terminalConnectPayload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
-	}
-	if req.Username == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名不能为空"})
-		return
-	}
-	if req.Password == "" && req.KeyAuth == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "密码或私钥至少填写一个"})
-		return
-	}
-	if req.Port <= 0 {
-		req.Port = 22
 	}
 
 	// 创建会话记录
@@ -246,49 +262,38 @@ func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		KeyAuth  string `json:"key_auth"`
-	}
+	var req terminalConnectPayload
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-
-	host := strings.TrimSpace(req.Host)
-	username := strings.TrimSpace(req.Username)
-	if host == "" {
+	if req.Port <= 0 {
+		req.Port = 22
+	}
+	req.Host = strings.TrimSpace(req.Host)
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Host == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机地址不能为空"})
 		return
 	}
-	if username == "" {
+	if req.Username == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名不能为空"})
 		return
 	}
 
-	port := req.Port
-	if port <= 0 {
-		port = 22
-	}
-
 	updates := map[string]interface{}{
-		"host":       host,
-		"port":       port,
-		"username":   username,
+		"host":       req.Host,
+		"port":       req.Port,
+		"username":   req.Username,
 		"status":     0,
 		"started_at": nil,
 		"ended_at":   nil,
 		"last_error": "",
 	}
 
-	password := strings.TrimSpace(req.Password)
-	keyAuth := strings.TrimSpace(req.KeyAuth)
-	if password != "" || keyAuth != "" {
-		updates["password"] = password
-		updates["private_key"] = keyAuth
+	if req.Password != "" || req.KeyAuth != "" {
+		updates["password"] = strings.TrimSpace(req.Password)
+		updates["private_key"] = strings.TrimSpace(req.KeyAuth)
 	}
 
 	if err := h.db.Model(&session).Updates(updates).Error; err != nil {
@@ -301,6 +306,52 @@ func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+}
+
+// PrecheckConnection 在创建会话前做一次连接预检查
+func (h *TerminalHandler) PrecheckConnection(c *gin.Context) {
+	var req terminalConnectPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := normalizeConnectPayload(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	session := TerminalSession{
+		Host:       req.Host,
+		Port:       req.Port,
+		Username:   req.Username,
+		Password:   req.Password,
+		PrivateKey: req.KeyAuth,
+	}
+	sshSess, err := h.connectSSH(&session)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    400,
+			"message": normalizeSSHFailureReason(err),
+			"data": gin.H{
+				"ok":      false,
+				"host":    req.Host,
+				"port":    req.Port,
+				"message": normalizeSSHFailureReason(err),
+			},
+		})
+		return
+	}
+	h.closeSSHSession(sshSess)
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "连接测试通过",
+		"data": gin.H{
+			"ok":      true,
+			"host":    req.Host,
+			"port":    req.Port,
+			"message": "SSH 连通且认证成功",
+		},
+	})
 }
 
 // CloseSession 关闭会话
@@ -1146,4 +1197,52 @@ func (h *TerminalHandler) GetRecord(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": record})
+}
+
+// DeleteRecord 删除单条录像
+func (h *TerminalHandler) DeleteRecord(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "录像ID不能为空"})
+		return
+	}
+	res := h.db.Unscoped().Where("id = ?", id).Delete(&TerminalRecord{})
+	if res.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "删除录像失败"})
+		return
+	}
+	if res.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "录像不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "录像已删除"})
+}
+
+// CleanupRecords 清理历史录像
+func (h *TerminalHandler) CleanupRecords(c *gin.Context) {
+	var req struct {
+		KeepDays int `json:"keep_days"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if req.KeepDays <= 0 {
+		req.KeepDays = 30
+	}
+	cutoff := time.Now().AddDate(0, 0, -req.KeepDays)
+	res := h.db.Unscoped().Where("created_at < ?", cutoff).Delete(&TerminalRecord{})
+	if res.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "清理录像失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "历史录像清理完成",
+		"data": gin.H{
+			"deleted":   res.RowsAffected,
+			"keep_days": req.KeepDays,
+			"before_at": cutoff,
+		},
+	})
 }
