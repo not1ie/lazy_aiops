@@ -232,7 +232,7 @@ func (h *TerminalHandler) CreateSession(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 
-// UpdateSession 编辑会话（仅待连接会话）
+// UpdateSession 编辑会话（在线会话需先关闭）
 func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 	id := c.Param("id")
 
@@ -241,8 +241,8 @@ func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
 		return
 	}
-	if session.Status != 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "仅待连接会话允许编辑"})
+	if session.Status == 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "在线会话请先关闭后再编辑"})
 		return
 	}
 
@@ -275,9 +275,13 @@ func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"host":     host,
-		"port":     port,
-		"username": username,
+		"host":       host,
+		"port":       port,
+		"username":   username,
+		"status":     0,
+		"started_at": nil,
+		"ended_at":   nil,
+		"last_error": "",
 	}
 
 	password := strings.TrimSpace(req.Password)
@@ -571,9 +575,12 @@ func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *Termina
 	// 等待远端shell结束
 	go func() {
 		if err := sshSess.Session.Wait(); err != nil {
-			notifyReason(normalizeSSHFailureReason(err))
+			reason := normalizeSSHFailureReason(err)
+			notifyReason(reason)
+			_ = h.writeWSMessage(sshSess, websocket.TextMessage, []byte("\r\n[系统] 连接关闭: "+reason+"\r\n"))
+		} else {
+			_ = h.writeWSMessage(sshSess, websocket.TextMessage, []byte("\r\n[系统] 连接已关闭\r\n"))
 		}
-		_ = h.writeWSMessage(sshSess, websocket.TextMessage, []byte("\r\n[系统] 连接已关闭\r\n"))
 		_ = sshSess.Conn.Close()
 	}()
 
@@ -668,17 +675,26 @@ func parseWSDisconnectReason(err error) string {
 	if err == nil {
 		return ""
 	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(msg, "use of closed network connection") || strings.Contains(msg, "broken pipe") {
+		return ""
+	}
 	var closeErr *websocket.CloseError
 	if errors.As(err, &closeErr) {
 		switch closeErr.Code {
 		case websocket.CloseNormalClosure, websocket.CloseGoingAway:
 			return ""
+		case websocket.CloseAbnormalClosure:
+			return "连接中断：网络异常或服务端意外断开"
 		case websocket.ClosePolicyViolation:
 			return "连接被策略拒绝"
+		case websocket.CloseUnsupportedData:
+			return "连接断开：终端消息格式不支持"
 		default:
 			if closeErr.Text != "" {
 				return closeErr.Text
 			}
+			return fmt.Sprintf("连接关闭(code=%d)", closeErr.Code)
 		}
 	}
 	return ""
@@ -696,12 +712,18 @@ func normalizeSSHFailureReason(err error) string {
 	switch {
 	case strings.Contains(lower, "unable to authenticate"), strings.Contains(lower, "permission denied"):
 		return "认证失败：用户名或密码/密钥错误"
+	case strings.Contains(lower, "handshake failed"):
+		return "SSH握手失败：请检查账号、密码/密钥与服务端认证策略"
 	case strings.Contains(lower, "connection refused"):
 		return "连接失败：目标主机端口拒绝连接"
 	case strings.Contains(lower, "no route to host"):
 		return "连接失败：目标主机网络不可达"
+	case strings.Contains(lower, "connection reset by peer"), strings.Contains(lower, "connection closed by remote host"):
+		return "连接被远端主机重置"
 	case strings.Contains(lower, "i/o timeout"), strings.Contains(lower, "timeout"):
 		return "连接超时：请检查网络与防火墙策略"
+	case strings.Contains(lower, "exited without exit status"), strings.Contains(lower, "process exited with status"):
+		return "远端会话已结束"
 	default:
 		return msg
 	}

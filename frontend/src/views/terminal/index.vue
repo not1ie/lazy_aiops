@@ -34,7 +34,7 @@
         <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="openTerminal(row)">连接</el-button>
-            <el-button v-if="row.status === 0" size="small" @click="openEditDialog(row)">编辑</el-button>
+            <el-button v-if="row.status !== 1" size="small" @click="openEditDialog(row)">编辑</el-button>
             <el-button size="small" @click="openRecordBySession(row)">录像</el-button>
             <el-button size="small" type="warning" @click="closeSession(row)">关闭</el-button>
             <el-button size="small" type="danger" plain @click="deleteSession(row)">删除</el-button>
@@ -332,12 +332,16 @@ const openTerminal = (row) => {
   }
 
   ws.onerror = () => {
-    appendOutput('\n[系统] 连接异常\n')
+    appendOutput('\n[系统] 连接异常：网络抖动或服务端中断\n')
   }
 
-  ws.onclose = () => {
-    appendOutput('\n[系统] 连接关闭\n')
-    fetchSessions()
+  ws.onclose = async (event) => {
+    await fetchSessions()
+    const latest = sessions.value.find(item => item.id === row.id)
+    const backendReason = latest?.last_error ? String(latest.last_error).trim() : ''
+    const wsReason = parseWsCloseReason(event)
+    const reason = backendReason || wsReason
+    appendOutput(reason ? `\n[系统] 连接关闭：${reason}\n` : '\n[系统] 连接关闭\n')
   }
 }
 
@@ -382,6 +386,25 @@ const sendResize = () => {
   const cols = Math.max(80, Math.floor((window.innerWidth - 240) / 8))
   const rows = 40
   sendMessage(JSON.stringify({ type: 'resize', cols, rows }))
+}
+
+const parseWsCloseReason = (event) => {
+  if (!event) return ''
+  const reason = String(event.reason || '').trim()
+  if (reason) return reason
+  switch (event.code) {
+    case 1000:
+    case 1001:
+      return ''
+    case 1006:
+      return '连接中断：网络异常或服务端断开'
+    case 1008:
+      return '连接被策略拒绝'
+    case 1011:
+      return '服务端处理异常'
+    default:
+      return event.code ? `连接关闭(code=${event.code})` : ''
+  }
 }
 
 const viewRecord = async (row) => {
