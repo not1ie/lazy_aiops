@@ -31,7 +31,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -61,31 +61,45 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const silences = ref([])
 const dialogVisible = ref(false)
 const dialogTitle = ref('')
 const isEdit = ref(false)
 const currentId = ref('')
-const form = ref({
+const defaultForm = () => ({
   name: '',
   matchers: '',
   starts_at: '',
   ends_at: '',
   comment: ''
 })
+const form = ref(defaultForm())
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  dialogTitle.value = '新增静默'
+  form.value = defaultForm()
+}
+
 const fetchSilences = async () => {
-  const res = await axios.get('/api/v1/alert/silences', { headers: authHeaders() })
-  silences.value = res.data.data || []
+  try {
+    const res = await axios.get('/api/v1/alert/silences', { headers: authHeaders() })
+    silences.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载静默失败'))
+  }
 }
 
 const openCreate = () => {
   isEdit.value = false
+  currentId.value = ''
   dialogTitle.value = '新增静默'
-  form.value = { name: '', matchers: '', starts_at: '', ends_at: '', comment: '' }
+  form.value = defaultForm()
   dialogVisible.value = true
 }
 
@@ -98,22 +112,32 @@ const openEdit = (row) => {
 }
 
 const submitForm = async () => {
-  if (isEdit.value) {
-    await axios.put(`/api/v1/alert/silences/${currentId.value}`, form.value, { headers: authHeaders() })
-    ElMessage.success('更新成功')
-  } else {
-    await axios.post('/api/v1/alert/silences', form.value, { headers: authHeaders() })
-    ElMessage.success('创建成功')
+  try {
+    if (isEdit.value) {
+      await axios.put(`/api/v1/alert/silences/${currentId.value}`, form.value, { headers: authHeaders() })
+      ElMessage.success('更新成功')
+    } else {
+      await axios.post('/api/v1/alert/silences', form.value, { headers: authHeaders() })
+      ElMessage.success('创建成功')
+    }
+    dialogVisible.value = false
+    await fetchSilences()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '保存静默失败'))
   }
-  dialogVisible.value = false
-  fetchSilences()
 }
 
 const removeSilence = async (row) => {
-  await ElMessageBox.confirm(`确认删除静默 ${row.name} 吗？`, '提示', { type: 'warning' })
-  await axios.delete(`/api/v1/alert/silences/${row.id}`, { headers: authHeaders() })
-  ElMessage.success('删除成功')
-  fetchSilences()
+  try {
+    await ElMessageBox.confirm(`确认删除静默 ${row.name} 吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/alert/silences/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    await fetchSilences()
+  } catch (err) {
+    if (!isCancelError(err)) {
+      ElMessage.error(getErrorMessage(err, '删除静默失败'))
+    }
+  }
 }
 
 onMounted(fetchSilences)

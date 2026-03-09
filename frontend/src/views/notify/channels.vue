@@ -29,7 +29,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -93,7 +93,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="testVisible" title="测试通知渠道" width="420px">
+    <el-dialog append-to-body v-model="testVisible" title="测试通知渠道" width="420px" @closed="handleTestDialogClosed">
       <el-form :model="testForm" label-width="80px">
         <el-form-item label="接收人">
           <el-input v-model="testForm.receiver" placeholder="可选：邮箱/手机号/用户ID" />
@@ -148,6 +148,18 @@ const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?
 const showWebhook = computed(() => ['webhook', 'feishu', 'dingtalk', 'wecom'].includes(form.value.type))
 const showAppAuth = computed(() => ['feishu', 'wecom'].includes(form.value.type))
 
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  dialogTitle.value = '新增渠道'
+  form.value = defaultForm()
+}
+
+const handleTestDialogClosed = () => {
+  testId.value = ''
+  testForm.value = { receiver: '' }
+}
+
 const fetchChannels = async () => {
   loading.value = true
   try {
@@ -162,6 +174,7 @@ const fetchChannels = async () => {
 
 const openCreate = () => {
   isEdit.value = false
+  currentId.value = ''
   dialogTitle.value = '新增渠道'
   form.value = defaultForm()
   dialogVisible.value = true

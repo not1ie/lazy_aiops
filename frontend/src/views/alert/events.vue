@@ -58,6 +58,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const alerts = ref([])
 const status = ref('')
@@ -68,29 +69,45 @@ const router = useRouter()
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const fetchAlerts = async () => {
-  const res = await axios.get('/api/v1/alert/alerts', {
-    headers: authHeaders(),
-    params: {
-      status: status.value === '' ? undefined : status.value,
-      severity: severity.value || undefined,
-      target: target.value || undefined
-    }
-  })
-  alerts.value = res.data.data || []
+  try {
+    const res = await axios.get('/api/v1/alert/alerts', {
+      headers: authHeaders(),
+      params: {
+        status: status.value === '' ? undefined : status.value,
+        severity: severity.value || undefined,
+        target: target.value || undefined
+      }
+    })
+    alerts.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载告警事件失败'))
+  }
 }
 
 const ack = async (row) => {
-  await ElMessageBox.confirm('确认该告警？', '提示', { type: 'warning' })
-  await axios.post(`/api/v1/alert/alerts/${row.id}/ack`, {}, { headers: authHeaders() })
-  ElMessage.success('已确认')
-  fetchAlerts()
+  try {
+    await ElMessageBox.confirm('确认该告警？', '提示', { type: 'warning' })
+    await axios.post(`/api/v1/alert/alerts/${row.id}/ack`, {}, { headers: authHeaders() })
+    ElMessage.success('已确认')
+    await fetchAlerts()
+  } catch (err) {
+    if (!isCancelError(err)) {
+      ElMessage.error(getErrorMessage(err, '确认告警失败'))
+    }
+  }
 }
 
 const resolve = async (row) => {
-  await ElMessageBox.confirm('标记为已恢复？', '提示', { type: 'warning' })
-  await axios.post(`/api/v1/alert/alerts/${row.id}/resolve`, {}, { headers: authHeaders() })
-  ElMessage.success('已恢复')
-  fetchAlerts()
+  try {
+    await ElMessageBox.confirm('标记为已恢复？', '提示', { type: 'warning' })
+    await axios.post(`/api/v1/alert/alerts/${row.id}/resolve`, {}, { headers: authHeaders() })
+    ElMessage.success('已恢复')
+    await fetchAlerts()
+  } catch (err) {
+    if (!isCancelError(err)) {
+      ElMessage.error(getErrorMessage(err, '恢复告警失败'))
+    }
+  }
 }
 
 const openDetail = (row) => {

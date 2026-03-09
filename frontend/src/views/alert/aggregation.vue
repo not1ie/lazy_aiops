@@ -29,7 +29,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -59,25 +59,39 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const aggs = ref([])
 const dialogVisible = ref(false)
 const dialogTitle = ref('')
 const isEdit = ref(false)
 const currentId = ref('')
-const form = ref({ name: '', group_by: '', interval: 60, enabled: true, description: '' })
+const defaultForm = () => ({ name: '', group_by: '', interval: 60, enabled: true, description: '' })
+const form = ref(defaultForm())
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  dialogTitle.value = '新增聚合'
+  form.value = defaultForm()
+}
+
 const fetchAggs = async () => {
-  const res = await axios.get('/api/v1/alert/aggregations', { headers: authHeaders() })
-  aggs.value = res.data.data || []
+  try {
+    const res = await axios.get('/api/v1/alert/aggregations', { headers: authHeaders() })
+    aggs.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载聚合配置失败'))
+  }
 }
 
 const openCreate = () => {
   isEdit.value = false
+  currentId.value = ''
   dialogTitle.value = '新增聚合'
-  form.value = { name: '', group_by: '', interval: 60, enabled: true, description: '' }
+  form.value = defaultForm()
   dialogVisible.value = true
 }
 
@@ -90,26 +104,41 @@ const openEdit = (row) => {
 }
 
 const submitForm = async () => {
-  if (isEdit.value) {
-    await axios.put(`/api/v1/alert/aggregations/${currentId.value}`, form.value, { headers: authHeaders() })
-    ElMessage.success('更新成功')
-  } else {
-    await axios.post('/api/v1/alert/aggregations', form.value, { headers: authHeaders() })
-    ElMessage.success('创建成功')
+  try {
+    if (isEdit.value) {
+      await axios.put(`/api/v1/alert/aggregations/${currentId.value}`, form.value, { headers: authHeaders() })
+      ElMessage.success('更新成功')
+    } else {
+      await axios.post('/api/v1/alert/aggregations', form.value, { headers: authHeaders() })
+      ElMessage.success('创建成功')
+    }
+    dialogVisible.value = false
+    await fetchAggs()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '保存聚合配置失败'))
   }
-  dialogVisible.value = false
-  fetchAggs()
 }
 
 const toggleAgg = async (row) => {
-  await axios.put(`/api/v1/alert/aggregations/${row.id}`, row, { headers: authHeaders() })
+  try {
+    await axios.put(`/api/v1/alert/aggregations/${row.id}`, row, { headers: authHeaders() })
+  } catch (err) {
+    row.enabled = !row.enabled
+    ElMessage.error(getErrorMessage(err, '切换聚合状态失败'))
+  }
 }
 
 const removeAgg = async (row) => {
-  await ElMessageBox.confirm(`确认删除聚合 ${row.name} 吗？`, '提示', { type: 'warning' })
-  await axios.delete(`/api/v1/alert/aggregations/${row.id}`, { headers: authHeaders() })
-  ElMessage.success('删除成功')
-  fetchAggs()
+  try {
+    await ElMessageBox.confirm(`确认删除聚合 ${row.name} 吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/alert/aggregations/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    await fetchAggs()
+  } catch (err) {
+    if (!isCancelError(err)) {
+      ElMessage.error(getErrorMessage(err, '删除聚合失败'))
+    }
+  }
 }
 
 onMounted(fetchAggs)

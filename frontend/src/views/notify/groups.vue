@@ -27,7 +27,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="720px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -60,7 +60,8 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('')
 const isEdit = ref(false)
 const currentId = ref('')
-const form = ref({ name: '', description: '', channels: [] })
+const defaultForm = () => ({ name: '', description: '', channels: [] })
+const form = ref(defaultForm())
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
@@ -72,6 +73,13 @@ const parseList = (txt) => {
   } catch {
     return []
   }
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  dialogTitle.value = '新增通知组'
+  form.value = defaultForm()
 }
 
 const fetchGroups = async () => {
@@ -94,8 +102,9 @@ const fetchChannels = async () => {
 
 const openCreate = () => {
   isEdit.value = false
+  currentId.value = ''
   dialogTitle.value = '新增通知组'
-  form.value = { name: '', description: '', channels: [] }
+  form.value = defaultForm()
   dialogVisible.value = true
 }
 
@@ -103,7 +112,7 @@ const openEdit = (row) => {
   isEdit.value = true
   dialogTitle.value = '编辑通知组'
   currentId.value = row.id
-  form.value = { name: row.name, description: row.description, channels: parseList(row.channels) }
+  form.value = { ...defaultForm(), name: row.name, description: row.description, channels: parseList(row.channels) }
   dialogVisible.value = true
 }
 

@@ -29,7 +29,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="760px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="760px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="100px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -96,6 +96,13 @@ const form = ref(defaultForm())
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
 
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  dialogTitle.value = '新增模板'
+  form.value = defaultForm()
+}
+
 const fetchTemplates = async () => {
   loading.value = true
   try {
@@ -110,6 +117,7 @@ const fetchTemplates = async () => {
 
 const openCreate = () => {
   isEdit.value = false
+  currentId.value = ''
   dialogTitle.value = '新增模板'
   form.value = defaultForm()
   dialogVisible.value = true
