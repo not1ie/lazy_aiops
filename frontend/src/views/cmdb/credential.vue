@@ -166,6 +166,14 @@ const form = reactive({
   notes: ''
 })
 
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const typeLabel = (type) => {
   if (type === 'password') return '密码'
   if (type === 'key') return 'SSH密钥'
@@ -185,13 +193,13 @@ const fetchData = async () => {
   loading.value = true
   try {
     const res = await axios.get('/api/v1/cmdb/credentials', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       credentials.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(error, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -244,46 +252,56 @@ const saveCredential = async () => {
       url,
       method,
       data: form,
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
-      fetchData()
+      await fetchData()
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除凭据“${row.name}”吗？`, '提示', {
-    type: 'warning'
-  }).then(async () => {
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除凭据“${row.name}”吗？`, '提示', {
+      type: 'warning'
+    })
     await axios.delete(`/api/v1/cmdb/credentials/${row.id}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
     ElMessage.success('删除成功')
-    fetchData()
-  })
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
 }
 
-const handleBatchDelete = () => {
+const handleBatchDelete = async () => {
   if (selectedRows.value.length === 0) return
-  ElMessageBox.confirm(`确定删除选中的 ${selectedRows.value.length} 个凭据吗？`, '提示', {
-    type: 'warning'
-  }).then(async () => {
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selectedRows.value.length} 个凭据吗？`, '提示', {
+      type: 'warning'
+    })
     for (const row of selectedRows.value) {
       await axios.delete(`/api/v1/cmdb/credentials/${row.id}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        headers: authHeaders()
       })
     }
     ElMessage.success('批量删除成功')
     selectedRows.value = []
-    fetchData()
-  })
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '批量删除失败'))
+    }
+  }
 }
 
 const openImport = () => {
@@ -318,14 +336,14 @@ const submitImport = async () => {
     for (const row of rows) {
       if (!row.name) continue
       await axios.post('/api/v1/cmdb/credentials', row, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        headers: authHeaders()
       })
     }
     ElMessage.success('导入完成')
     importVisible.value = false
-    fetchData()
+    await fetchData()
   } catch (e) {
-    ElMessage.error('导入失败')
+    ElMessage.error(getErrorMessage(e, '导入失败'))
   } finally {
     importLoading.value = false
   }
@@ -361,7 +379,7 @@ const submitTest = async () => {
   try {
     const payload = testRow.value.type === 'api' ? {} : { host: testHost.value, port: testPort.value }
     const res = await axios.post(`/api/v1/cmdb/credentials/${testRow.value.id}/test`, payload, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       testSuccess.value = res.data.message || '测试成功'
@@ -369,7 +387,7 @@ const submitTest = async () => {
       testError.value = res.data.message || '测试失败'
     }
   } catch (e) {
-    testError.value = '测试失败'
+    testError.value = getErrorMessage(e, '测试失败')
   } finally {
     testLoading.value = false
   }

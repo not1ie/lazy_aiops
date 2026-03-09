@@ -238,6 +238,12 @@ const resourceForm = reactive({
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (error, fallback) => {
+  if (error?.response?.data?.message) return error.response.data.message
+  if (error?.message) return error.message
+  return fallback
+}
+
 const fetchAccounts = async () => {
   loadingAccounts.value = true
   try {
@@ -246,7 +252,7 @@ const fetchAccounts = async () => {
       accounts.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载云账号失败')
+    ElMessage.error(getErrorMessage(error, '加载云账号失败'))
   } finally {
     loadingAccounts.value = false
   }
@@ -263,7 +269,7 @@ const fetchResources = async () => {
       resources.value = res.data.data
     }
   } catch (error) {
-    ElMessage.error('加载云资源失败')
+    ElMessage.error(getErrorMessage(error, '加载云资源失败'))
   } finally {
     loadingResources.value = false
   }
@@ -330,7 +336,7 @@ const saveDialog = async () => {
       if (res.data.code === 0) {
         ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
         dialogVisible.value = false
-        fetchAccounts()
+        await fetchAccounts()
       }
     } else {
       const url = isEdit.value ? `/api/v1/cmdb/cloud/resources/${currentId.value}` : '/api/v1/cmdb/cloud/resources'
@@ -339,33 +345,39 @@ const saveDialog = async () => {
       if (res.data.code === 0) {
         ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
         dialogVisible.value = false
-        fetchResources()
+        await fetchResources()
       }
     }
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
-const handleDelete = (tab, row) => {
+const handleDelete = async (tab, row) => {
   const title = tab === 'accounts' ? `确定删除云账号“${row.name}”吗？` : `确定删除云资源“${row.name}”吗？`
-  ElMessageBox.confirm(title, '提示', { type: 'warning' }).then(async () => {
+  try {
+    await ElMessageBox.confirm(title, '提示', { type: 'warning' })
     const url = tab === 'accounts' ? `/api/v1/cmdb/cloud/accounts/${row.id}` : `/api/v1/cmdb/cloud/resources/${row.id}`
     await axios.delete(url, { headers: headers() })
     ElMessage.success('删除成功')
-    refreshActive()
-  })
+    await refreshActive()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
 }
 
-const handleBatchDelete = () => {
+const handleBatchDelete = async () => {
   const rows = activeTab.value === 'accounts' ? selectedAccounts.value : selectedResources.value
   if (rows.length === 0) return
   const title = activeTab.value === 'accounts'
     ? `确定删除选中的 ${rows.length} 个云账号吗？`
     : `确定删除选中的 ${rows.length} 个云资源吗？`
-  ElMessageBox.confirm(title, '提示', { type: 'warning' }).then(async () => {
+  try {
+    await ElMessageBox.confirm(title, '提示', { type: 'warning' })
     for (const row of rows) {
       const url = activeTab.value === 'accounts'
         ? `/api/v1/cmdb/cloud/accounts/${row.id}`
@@ -375,8 +387,12 @@ const handleBatchDelete = () => {
     ElMessage.success('批量删除成功')
     if (activeTab.value === 'accounts') selectedAccounts.value = []
     else selectedResources.value = []
-    refreshActive()
-  })
+    await refreshActive()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '批量删除失败'))
+    }
+  }
 }
 
 const openImport = () => {
@@ -416,9 +432,9 @@ const submitImport = async () => {
     }
     ElMessage.success('导入完成')
     importVisible.value = false
-    refreshActive()
+    await refreshActive()
   } catch (e) {
-    ElMessage.error('导入失败')
+    ElMessage.error(getErrorMessage(e, '导入失败'))
   } finally {
     importLoading.value = false
   }
@@ -458,7 +474,7 @@ const submitTest = async () => {
       testError.value = res.data.message || '测试失败'
     }
   } catch (e) {
-    testError.value = '测试失败'
+    testError.value = getErrorMessage(e, '测试失败')
   } finally {
     testLoading.value = false
   }
