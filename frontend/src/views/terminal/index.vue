@@ -15,6 +15,17 @@
       <template #header>
         <div class="card-title">在线会话</div>
       </template>
+      <div class="section-filters">
+        <el-input v-model="sessionFilters.keyword" clearable placeholder="搜索主机/操作人/登录用户" style="width: 260px" @keyup.enter="fetchSessions" />
+        <el-select v-model="sessionFilters.status" clearable placeholder="状态" style="width: 130px">
+          <el-option label="待连" :value="0" />
+          <el-option label="在线" :value="1" />
+          <el-option label="已关闭" :value="2" />
+          <el-option label="失败" :value="3" />
+        </el-select>
+        <el-button @click="fetchSessions">筛选</el-button>
+        <el-button @click="resetSessionFilters">重置</el-button>
+      </div>
       <el-table :fit="true" :data="sessions" v-loading="sessionLoading" stripe>
         <el-table-column prop="operator" label="操作人" width="120" />
         <el-table-column prop="host" label="主机" min-width="180" />
@@ -53,6 +64,11 @@
           </div>
         </div>
       </template>
+      <div class="section-filters">
+        <el-input v-model="recordFilters.keyword" clearable placeholder="搜索主机/操作人/会话ID" style="width: 260px" @keyup.enter="fetchRecords" />
+        <el-button @click="fetchRecords">筛选</el-button>
+        <el-button @click="resetRecordFilters">重置</el-button>
+      </div>
       <el-table :fit="true" :data="records" v-loading="recordLoading" stripe>
         <el-table-column prop="operator" label="操作人" width="120" />
         <el-table-column prop="host" label="主机" min-width="180" />
@@ -60,9 +76,10 @@
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="viewRecord(row)">回放</el-button>
+            <el-button size="small" @click="downloadRecord(row)">下载</el-button>
             <el-button size="small" type="danger" plain @click="deleteRecord(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -148,6 +165,13 @@ const sessions = ref([])
 const records = ref([])
 const sessionLoading = ref(false)
 const recordLoading = ref(false)
+const sessionFilters = ref({
+  keyword: '',
+  status: ''
+})
+const recordFilters = ref({
+  keyword: ''
+})
 
 const createVisible = ref(false)
 const editingSessionId = ref('')
@@ -205,7 +229,12 @@ const statusType = (status) => {
 const fetchSessions = async () => {
   sessionLoading.value = true
   try {
-    const res = await axios.get('/api/v1/terminal/sessions', { headers: authHeaders() })
+    const params = {}
+    if (sessionFilters.value.keyword.trim()) params.keyword = sessionFilters.value.keyword.trim()
+    if (sessionFilters.value.status !== '' && sessionFilters.value.status !== null && sessionFilters.value.status !== undefined) {
+      params.status = sessionFilters.value.status
+    }
+    const res = await axios.get('/api/v1/terminal/sessions', { headers: authHeaders(), params })
     sessions.value = res.data?.data || []
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '获取会话失败')
@@ -217,7 +246,9 @@ const fetchSessions = async () => {
 const fetchRecords = async () => {
   recordLoading.value = true
   try {
-    const res = await axios.get('/api/v1/terminal/records', { headers: authHeaders() })
+    const params = {}
+    if (recordFilters.value.keyword.trim()) params.keyword = recordFilters.value.keyword.trim()
+    const res = await axios.get('/api/v1/terminal/records', { headers: authHeaders(), params })
     records.value = res.data?.data || []
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '获取录像失败')
@@ -228,6 +259,16 @@ const fetchRecords = async () => {
 
 const reloadAll = async () => {
   await Promise.all([fetchSessions(), fetchRecords()])
+}
+
+const resetSessionFilters = async () => {
+  sessionFilters.value = { keyword: '', status: '' }
+  await fetchSessions()
+}
+
+const resetRecordFilters = async () => {
+  recordFilters.value = { keyword: '' }
+  await fetchRecords()
 }
 
 const openCreateDialog = () => {
@@ -643,6 +684,27 @@ const deleteRecord = async (row) => {
   }
 }
 
+const downloadRecord = async (row) => {
+  try {
+    const res = await axios.get(`/api/v1/terminal/records/${row.id}/download`, {
+      headers: authHeaders(),
+      responseType: 'blob'
+    })
+    const blob = new Blob([res.data], { type: 'application/json;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `terminal-record-${row.host || 'unknown'}-${row.id}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('录像下载已开始')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '下载录像失败')
+  }
+}
+
 const cleanupRecords = async (keepDays) => {
   try {
     await ElMessageBox.confirm(`确认清理 ${keepDays} 天前的历史录像吗？`, '提示', { type: 'warning' })
@@ -688,6 +750,7 @@ onBeforeUnmount(() => {
 .section-card { margin-bottom: 12px; }
 .card-title { font-weight: 600; }
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .record-actions { display: flex; gap: 8px; }
 .terminal-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
 .terminal-output { height: 480px; overflow: auto; background: #0f172a; color: #dbeafe; padding: 10px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; line-height: 1.4; }

@@ -198,6 +198,19 @@ func (h *TerminalHandler) ListSessions(c *gin.Context) {
 	if status := c.Query("status"); status != "" {
 		query = query.Where("status = ?", status)
 	}
+	if host := strings.TrimSpace(c.Query("host")); host != "" {
+		query = query.Where("host LIKE ?", "%"+host+"%")
+	}
+	if operator := strings.TrimSpace(c.Query("operator")); operator != "" {
+		query = query.Where("operator LIKE ?", "%"+operator+"%")
+	}
+	if username := strings.TrimSpace(c.Query("username")); username != "" {
+		query = query.Where("username LIKE ?", "%"+username+"%")
+	}
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("host LIKE ? OR operator LIKE ? OR username LIKE ?", like, like, like)
+	}
 	if err := query.Limit(200).Find(&sessions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
@@ -1226,8 +1239,18 @@ func compareJumpSeverity(a, b string) int {
 func (h *TerminalHandler) ListRecords(c *gin.Context) {
 	var records []TerminalRecord
 	query := h.db.Order("created_at DESC")
-	if host := c.Query("host"); host != "" {
+	if host := strings.TrimSpace(c.Query("host")); host != "" {
 		query = query.Where("host LIKE ?", "%"+host+"%")
+	}
+	if operator := strings.TrimSpace(c.Query("operator")); operator != "" {
+		query = query.Where("operator LIKE ?", "%"+operator+"%")
+	}
+	if sessionID := strings.TrimSpace(c.Query("session_id")); sessionID != "" {
+		query = query.Where("session_id = ?", sessionID)
+	}
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("host LIKE ? OR operator LIKE ? OR session_id LIKE ?", like, like, like)
 	}
 	if err := query.Limit(100).Find(&records).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -1251,6 +1274,32 @@ func (h *TerminalHandler) GetRecord(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": record})
+}
+
+// DownloadRecord 下载录像
+func (h *TerminalHandler) DownloadRecord(c *gin.Context) {
+	id := c.Param("id")
+	var record TerminalRecord
+	if err := h.db.First(&record, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "录像不存在"})
+		return
+	}
+
+	payload := gin.H{
+		"id":         record.ID,
+		"session_id": record.SessionID,
+		"host":       record.Host,
+		"operator":   record.Operator,
+		"duration":   record.Duration,
+		"created_at": record.CreatedAt,
+		"updated_at": record.UpdatedAt,
+		"events":     json.RawMessage(record.Data),
+	}
+
+	filename := fmt.Sprintf("terminal-record-%s-%s.json", sanitizeRecordFilePart(record.Host), record.ID)
+	c.Header("Content-Type", "application/json; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.JSON(http.StatusOK, payload)
 }
 
 // DeleteRecord 删除单条录像
@@ -1299,4 +1348,18 @@ func (h *TerminalHandler) CleanupRecords(c *gin.Context) {
 			"before_at": cutoff,
 		},
 	})
+}
+
+func sanitizeRecordFilePart(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "unknown"
+	}
+	replacer := strings.NewReplacer(":", "-", "/", "-", "\\", "-", " ", "-")
+	v = replacer.Replace(v)
+	v = regexp.MustCompile(`[^a-zA-Z0-9._-]+`).ReplaceAllString(v, "")
+	if v == "" {
+		return "unknown"
+	}
+	return v
 }
