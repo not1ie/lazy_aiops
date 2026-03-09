@@ -192,6 +192,7 @@
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const accounts = ref([])
 const budgets = ref([])
@@ -248,7 +249,7 @@ const fetchAccounts = async () => {
     const res = await axios.get('/api/v1/cost/accounts', { headers: authHeaders() })
     accounts.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取账号失败')
+    ElMessage.error(getErrorMessage(err, '获取账号失败'))
   }
 }
 
@@ -262,7 +263,7 @@ const fetchBudgets = async () => {
     budgets.value = listRes.data?.data || []
     budgetStatus.value = statusRes.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取预算失败')
+    ElMessage.error(getErrorMessage(err, '获取预算失败'))
   } finally {
     budgetLoading.value = false
   }
@@ -274,7 +275,7 @@ const fetchAlerts = async () => {
     const res = await axios.get('/api/v1/cost/alerts', { headers: authHeaders() })
     alerts.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取告警失败')
+    ElMessage.error(getErrorMessage(err, '获取告警失败'))
   } finally {
     alertLoading.value = false
   }
@@ -286,7 +287,7 @@ const fetchOptimizations = async () => {
     const res = await axios.get('/api/v1/cost/optimizations', { headers: authHeaders() })
     optimizations.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取优化建议失败')
+    ElMessage.error(getErrorMessage(err, '获取优化建议失败'))
   } finally {
     optimizationLoading.value = false
   }
@@ -363,7 +364,7 @@ const submitBudget = async () => {
     budgetDialogVisible.value = false
     await fetchBudgets()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   }
 }
 
@@ -374,7 +375,7 @@ const removeBudget = async (row) => {
     ElMessage.success('删除成功')
     await fetchBudgets()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -384,7 +385,7 @@ const ackAlert = async (row) => {
     ElMessage.success('已确认')
     await fetchAlerts()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '确认失败')
+    ElMessage.error(getErrorMessage(err, '确认失败'))
   }
 }
 
@@ -395,7 +396,7 @@ const updateOptimization = async (row, status) => {
     ElMessage.success('更新成功')
     await fetchOptimizations()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '更新失败')
+    ElMessage.error(getErrorMessage(err, '更新失败'))
   }
 }
 
@@ -405,7 +406,7 @@ const runOptimizationAnalyze = async () => {
     ElMessage.success('分析任务已提交')
     await fetchOptimizations()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '分析失败')
+    ElMessage.error(getErrorMessage(err, '分析失败'))
   }
 }
 

@@ -185,6 +185,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const accounts = ref([])
 const dateRange = ref([])
@@ -305,7 +306,7 @@ const fetchAccounts = async () => {
     const res = await axios.get('/api/v1/cost/accounts', { headers: authHeaders() })
     accounts.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取账号失败')
+    ElMessage.error(getErrorMessage(err, '获取账号失败'))
   } finally {
     accountLoading.value = false
   }
@@ -318,7 +319,7 @@ const fetchSummary = async () => {
     summary.value = res.data?.data || { total: 0, by_product: [], daily_trend: [] }
     nextTick(renderCharts)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取汇总失败')
+    ElMessage.error(getErrorMessage(err, '获取汇总失败'))
   } finally {
     summaryLoading.value = false
   }
@@ -330,7 +331,7 @@ const fetchTopResources = async () => {
     const res = await axios.get('/api/v1/cost/top-resources', { headers: authHeaders(), params: buildQuery() })
     topResources.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取Top资源失败')
+    ElMessage.error(getErrorMessage(err, '获取Top资源失败'))
   } finally {
     resourceLoading.value = false
   }
@@ -342,7 +343,7 @@ const fetchRecords = async () => {
     const res = await axios.get('/api/v1/cost/records', { headers: authHeaders(), params: buildQuery() })
     records.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取费用记录失败')
+    ElMessage.error(getErrorMessage(err, '获取费用记录失败'))
   } finally {
     recordLoading.value = false
   }
@@ -402,7 +403,7 @@ const submitAccount = async () => {
     accountDialogVisible.value = false
     await fetchAccounts()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   }
 }
 
@@ -415,7 +416,7 @@ const removeAccount = async (row) => {
     await fetchAccounts()
     await reloadAll()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -429,7 +430,7 @@ const syncAccount = async (row) => {
     await axios.post(`/api/v1/cost/accounts/${row.id}/sync`, payload, { headers: authHeaders() })
     ElMessage.success('同步任务已提交')
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '同步失败')
+    ElMessage.error(getErrorMessage(err, '同步失败'))
   }
 }
 

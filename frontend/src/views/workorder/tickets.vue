@@ -170,6 +170,7 @@
 import { onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const orders = ref([])
@@ -238,7 +239,7 @@ const fetchTypes = async () => {
     const res = await axios.get('/api/v1/workorder/types', { headers: authHeaders() })
     types.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取类型失败')
+    ElMessage.error(getErrorMessage(err, '获取类型失败'))
   }
 }
 
@@ -247,7 +248,7 @@ const fetchStats = async () => {
     const res = await axios.get('/api/v1/workorder/stats', { headers: authHeaders() })
     stats.value = res.data?.data || {}
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取统计失败')
+    ElMessage.error(getErrorMessage(err, '获取统计失败'))
   }
 }
 
@@ -261,7 +262,7 @@ const fetchOrders = async () => {
     const res = await axios.get('/api/v1/workorder/orders', { headers: authHeaders(), params })
     orders.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取工单失败')
+    ElMessage.error(getErrorMessage(err, '获取工单失败'))
   } finally {
     loading.value = false
   }
@@ -287,7 +288,7 @@ const submitCreate = async () => {
     createVisible.value = false
     await reloadAll()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建失败')
+    ElMessage.error(getErrorMessage(err, '创建失败'))
   }
 }
 
@@ -305,7 +306,7 @@ const submitApprove = async () => {
     await reloadAll()
     if (detailOrderId.value === approveOrderId.value) await fetchDetail(detailOrderId.value)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '审批失败')
+    ElMessage.error(getErrorMessage(err, '审批失败'))
   }
 }
 
@@ -316,7 +317,7 @@ const executeOrder = async (row) => {
     await reloadAll()
     if (detailOrderId.value === row.id) await fetchDetail(row.id)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '执行失败')
+    ElMessage.error(getErrorMessage(err, '执行失败'))
   }
 }
 
@@ -328,7 +329,7 @@ const completeOrder = async (row) => {
     await reloadAll()
     if (detailOrderId.value === row.id) await fetchDetail(row.id)
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '操作失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '操作失败'))
   }
 }
 
@@ -340,7 +341,7 @@ const cancelOrder = async (row) => {
     await reloadAll()
     if (detailOrderId.value === row.id) await fetchDetail(row.id)
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '操作失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '操作失败'))
   }
 }
 
@@ -356,7 +357,7 @@ const openDetail = async (row) => {
     await fetchDetail(row.id)
     detailVisible.value = true
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '读取详情失败')
+    ElMessage.error(getErrorMessage(err, '读取详情失败'))
   }
 }
 
@@ -371,7 +372,7 @@ const submitComment = async () => {
     await fetchDetail(detailOrderId.value)
     ElMessage.success('评论成功')
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '评论失败')
+    ElMessage.error(getErrorMessage(err, '评论失败'))
   }
 }
 

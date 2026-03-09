@@ -110,6 +110,7 @@
 import { onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const repos = ref([])
 const configs = ref([])
@@ -151,7 +152,7 @@ const fetchRepos = async () => {
     const res = await axios.get('/api/v1/gitops/repos', { headers: authHeaders() })
     repos.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取仓库失败')
+    ElMessage.error(getErrorMessage(err, '获取仓库失败'))
   }
 }
 
@@ -163,7 +164,7 @@ const fetchConfigs = async () => {
     const res = await axios.get('/api/v1/gitops/configs', { headers: authHeaders(), params })
     configs.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取配置失败')
+    ElMessage.error(getErrorMessage(err, '获取配置失败'))
   } finally {
     configLoading.value = false
   }
@@ -175,7 +176,7 @@ const fetchChanges = async () => {
     const res = await axios.get('/api/v1/gitops/changes', { headers: authHeaders() })
     changes.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取变更历史失败')
+    ElMessage.error(getErrorMessage(err, '获取变更历史失败'))
   } finally {
     changeLoading.value = false
   }
@@ -208,7 +209,7 @@ const submitCreateConfig = async () => {
     createVisible.value = false
     await fetchConfigs()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建失败')
+    ElMessage.error(getErrorMessage(err, '创建失败'))
   }
 }
 
@@ -224,7 +225,7 @@ const openEditConfig = async (row) => {
     }
     editVisible.value = true
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '读取配置失败')
+    ElMessage.error(getErrorMessage(err, '读取配置失败'))
   }
 }
 
@@ -243,7 +244,7 @@ const submitConfigUpdate = async () => {
     editVisible.value = false
     await Promise.all([fetchConfigs(), fetchChanges()])
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '更新失败')
+    ElMessage.error(getErrorMessage(err, '更新失败'))
   }
 }
 

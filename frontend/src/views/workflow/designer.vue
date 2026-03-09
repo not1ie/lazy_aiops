@@ -164,6 +164,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const executionsLoading = ref(false)
@@ -257,7 +258,7 @@ const fetchWorkflows = async () => {
     const res = await axios.get('/api/v1/workflow/workflows', { headers: authHeaders() })
     if (res.data?.code === 0) workflows.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载流程失败')
+    ElMessage.error(getErrorMessage(err, '加载流程失败'))
   } finally {
     loading.value = false
   }
@@ -268,7 +269,7 @@ const fetchTemplates = async () => {
     const res = await axios.get('/api/v1/workflow/templates', { headers: authHeaders() })
     if (res.data?.code === 0) templates.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载模板失败')
+    ElMessage.error(getErrorMessage(err, '加载模板失败'))
   }
 }
 
@@ -284,7 +285,7 @@ const fetchExecutions = async () => {
     })
     if (res.data?.code === 0) executions.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载执行记录失败')
+    ElMessage.error(getErrorMessage(err, '加载执行记录失败'))
   } finally {
     executionsLoading.value = false
   }
@@ -324,7 +325,7 @@ const validateWorkflow = async () => {
     }, { headers: authHeaders() })
     ElMessage.success(`验证通过，节点数 ${res.data?.data?.node_count || 0}`)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '验证失败')
+    ElMessage.error(getErrorMessage(err, '验证失败'))
   }
 }
 
@@ -367,7 +368,7 @@ const saveWorkflow = async () => {
     workflowDialogVisible.value = false
     await fetchWorkflows()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   } finally {
     workflowSaving.value = false
   }
@@ -380,7 +381,7 @@ const removeWorkflow = async (row) => {
     ElMessage.success('删除成功')
     await fetchWorkflows()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -409,7 +410,7 @@ const executeWorkflowNow = async () => {
     activeTab.value = 'executions'
     await Promise.all([fetchExecutions(), fetchStats()])
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '执行失败')
+    ElMessage.error(getErrorMessage(err, '执行失败'))
   } finally {
     executing.value = false
   }
@@ -429,7 +430,7 @@ const showExecutionDetail = async (row) => {
       executionDetailVisible.value = true
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载详情失败')
+    ElMessage.error(getErrorMessage(err, '加载详情失败'))
   }
 }
 
@@ -439,7 +440,7 @@ const cancelExecution = async (row) => {
     ElMessage.success('已取消')
     await Promise.all([fetchExecutions(), fetchStats()])
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '取消失败')
+    ElMessage.error(getErrorMessage(err, '取消失败'))
   }
 }
 
@@ -454,7 +455,7 @@ const createFromTemplate = async (tpl) => {
     ElMessage.success('创建成功')
     await fetchWorkflows()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '创建失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '创建失败'))
   }
 }
 
