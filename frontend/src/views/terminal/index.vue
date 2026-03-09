@@ -106,13 +106,28 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="recordVisible" title="录像回放" width="980px" top="5vh">
+    <el-dialog append-to-body v-model="recordVisible" title="录像回放" width="980px" top="5vh" @closed="onRecordDialogClosed">
       <div class="record-meta">
         <span>主机: {{ currentRecord?.host || '-' }}</span>
         <span>操作人: {{ currentRecord?.operator || '-' }}</span>
         <span>时长: {{ currentRecord?.duration || 0 }}s</span>
       </div>
-      <div class="record-output">{{ recordOutput }}</div>
+      <div class="record-toolbar">
+        <el-button size="small" @click="toggleRecordPlayback">
+          {{ recordPlaying ? '暂停' : '播放' }}
+        </el-button>
+        <el-button size="small" @click="restartRecordPlayback">重播</el-button>
+        <el-select v-model="recordPlaybackSpeed" size="small" style="width: 120px">
+          <el-option label="0.5x" :value="0.5" />
+          <el-option label="1x" :value="1" />
+          <el-option label="2x" :value="2" />
+          <el-option label="4x" :value="4" />
+        </el-select>
+        <span class="record-progress">
+          {{ recordPlaybackIndex }}/{{ recordEvents.length }}
+        </span>
+      </div>
+      <div ref="recordTerminalRef" class="record-output"></div>
       <template #footer>
         <el-button @click="recordVisible = false">关闭</el-button>
       </template>
@@ -156,7 +171,14 @@ let terminalDataListener = null
 
 const recordVisible = ref(false)
 const currentRecord = ref(null)
-const recordOutput = ref('')
+const recordTerminalRef = ref(null)
+const recordEvents = ref([])
+const recordPlaybackIndex = ref(0)
+const recordPlaybackSpeed = ref(1)
+const recordPlaying = ref(false)
+let recordTerm = null
+let recordFitAddon = null
+let recordPlaybackTimer = null
 const route = useRoute()
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
@@ -364,6 +386,40 @@ const destroyTerminal = () => {
   fitAddon = null
 }
 
+const initRecordTerminal = async () => {
+  await nextTick()
+  if (!recordTerminalRef.value) return
+  if (recordTerm) {
+    recordTerm.dispose()
+    recordTerm = null
+  }
+  recordTerm = new Terminal({
+    cursorBlink: false,
+    disableStdin: true,
+    fontSize: 13,
+    fontFamily: 'SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+    theme: {
+      background: '#0b1220',
+      foreground: '#e5e7eb',
+      selectionBackground: 'rgba(148, 163, 184, 0.25)'
+    },
+    scrollback: 5000
+  })
+  recordFitAddon = new FitAddon()
+  recordTerm.loadAddon(recordFitAddon)
+  recordTerm.open(recordTerminalRef.value)
+  recordFitAddon.fit()
+}
+
+const destroyRecordTerminal = () => {
+  stopRecordPlayback()
+  if (recordTerm) {
+    recordTerm.dispose()
+    recordTerm = null
+  }
+  recordFitAddon = null
+}
+
 const closeWebSocket = () => {
   if (ws) {
     try {
@@ -479,8 +535,8 @@ const clearTerminal = () => {
 }
 
 const handleWindowResize = () => {
-  if (!terminalVisible.value) return
-  sendResize()
+  if (terminalVisible.value) sendResize()
+  if (recordVisible.value && recordFitAddon) recordFitAddon.fit()
 }
 
 const viewRecord = async (row) => {
@@ -488,18 +544,92 @@ const viewRecord = async (row) => {
     const res = await axios.get(`/api/v1/terminal/records/${row.id}`, { headers: authHeaders() })
     const detail = res.data?.data
     currentRecord.value = detail
-    recordOutput.value = ''
     let list = []
     try {
       list = JSON.parse(detail?.data || '[]')
     } catch {
       list = []
     }
-    recordOutput.value = list.map(item => `${item.type === 'input' ? '> ' : ''}${item.content || ''}`).join('')
+    recordEvents.value = Array.isArray(list) ? list : []
+    recordPlaybackIndex.value = 0
     recordVisible.value = true
+    await initRecordTerminal()
+    restartRecordPlayback()
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '读取录像失败')
   }
+}
+
+const renderReplayContent = (item) => {
+  if (!recordTerm || !item) return
+  const content = String(item.content || '')
+  if (item.type === 'input') {
+    const escaped = content
+      .replace(/\u0003/g, '^C')
+      .replace(/\r/g, '')
+      .replace(/\n/g, '\r\n')
+    recordTerm.write(`\x1b[38;5;81m${escaped}\x1b[0m`)
+    return
+  }
+  recordTerm.write(content)
+}
+
+const stopRecordPlayback = () => {
+  if (recordPlaybackTimer) {
+    window.clearTimeout(recordPlaybackTimer)
+    recordPlaybackTimer = null
+  }
+  recordPlaying.value = false
+}
+
+const scheduleNextRecordEvent = () => {
+  if (!recordPlaying.value || !recordEvents.value.length) return
+  if (recordPlaybackIndex.value >= recordEvents.value.length) {
+    stopRecordPlayback()
+    return
+  }
+
+  const current = recordEvents.value[recordPlaybackIndex.value]
+  renderReplayContent(current)
+  recordPlaybackIndex.value += 1
+
+  if (recordPlaybackIndex.value >= recordEvents.value.length) {
+    stopRecordPlayback()
+    return
+  }
+
+  const next = recordEvents.value[recordPlaybackIndex.value]
+  const currentTime = Number(current?.time || 0)
+  const nextTime = Number(next?.time || 0)
+  const delta = Math.max(10, nextTime - currentTime)
+  recordPlaybackTimer = window.setTimeout(scheduleNextRecordEvent, Math.max(10, delta / recordPlaybackSpeed.value))
+}
+
+const toggleRecordPlayback = () => {
+  if (!recordEvents.value.length) return
+  if (recordPlaying.value) {
+    stopRecordPlayback()
+    return
+  }
+  recordPlaying.value = true
+  scheduleNextRecordEvent()
+}
+
+const restartRecordPlayback = () => {
+  stopRecordPlayback()
+  recordPlaybackIndex.value = 0
+  if (recordTerm) {
+    recordTerm.reset()
+  }
+  if (!recordEvents.value.length) return
+  recordPlaying.value = true
+  scheduleNextRecordEvent()
+}
+
+const onRecordDialogClosed = () => {
+  currentRecord.value = null
+  recordEvents.value = []
+  destroyRecordTerminal()
 }
 
 const deleteRecord = async (row) => {
@@ -546,6 +676,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleWindowResize)
   closeWebSocket()
   destroyTerminal()
+  destroyRecordTerminal()
 })
 </script>
 
@@ -561,5 +692,7 @@ onBeforeUnmount(() => {
 .terminal-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
 .terminal-output { height: 480px; overflow: auto; background: #0f172a; color: #dbeafe; padding: 10px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; line-height: 1.4; }
 .record-meta { display: flex; gap: 16px; margin-bottom: 10px; color: #606266; }
-.record-output { height: 460px; overflow: auto; background: #111827; color: #e5e7eb; padding: 10px; border-radius: 6px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.record-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.record-progress { margin-left: auto; color: #606266; font-size: 13px; }
+.record-output { height: 460px; overflow: auto; background: #111827; border-radius: 6px; padding: 10px; }
 </style>
