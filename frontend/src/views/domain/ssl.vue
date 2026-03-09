@@ -161,6 +161,12 @@ const domainCheckResult = ref(null)
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const getErrorMessage = (err, fallback) => {
+  if (err?.response?.data?.message) return err.response.data.message
+  if (err?.message) return err.message
+  return fallback
+}
+
 const formatTime = (value) => {
   if (!value) return '-'
   const date = new Date(value)
@@ -276,7 +282,7 @@ const refreshAll = async () => {
   try {
     await Promise.all([fetchAccounts(), fetchCerts(), fetchDomains()])
   } catch (err) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(err, '加载失败'))
   }
 }
 
@@ -297,7 +303,7 @@ const createCert = async () => {
     createCertVisible.value = false
     await fetchCerts()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '新增失败')
+    ElMessage.error(getErrorMessage(err, '新增失败'))
   }
 }
 
@@ -312,7 +318,7 @@ const checkCert = async (row) => {
     ElMessage.success('检查完成')
     await fetchCerts()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '检查失败')
+    ElMessage.error(getErrorMessage(err, '检查失败'))
   }
 }
 
@@ -327,7 +333,7 @@ const checkAllCerts = async () => {
     }
     await fetchCerts()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '批量检查失败')
+    ElMessage.error(getErrorMessage(err, '批量检查失败'))
   }
 }
 
@@ -338,7 +344,9 @@ const deleteCert = async (row) => {
     ElMessage.success('删除成功')
     await fetchCerts()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error('删除失败')
+    if (err !== 'cancel' && err !== 'close') {
+      ElMessage.error(getErrorMessage(err, '删除失败'))
+    }
   }
 }
 
@@ -350,7 +358,7 @@ const checkDomain = async (row) => {
       domainCheckVisible.value = true
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '检测失败')
+    ElMessage.error(getErrorMessage(err, '检测失败'))
   }
 }
 

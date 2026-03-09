@@ -176,18 +176,26 @@ const form = reactive({
   group_name: ''
 })
 
+const authHeaders = () => ({ Authorization: 'Bearer ' + localStorage.getItem('token') })
+
+const getErrorMessage = (e, fallback) => {
+  if (e?.response?.data?.message) return e.response.data.message
+  if (e?.message) return e.message
+  return fallback
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
     const res = await axios.get('/api/v1/cmdb/hosts', {
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+      headers: authHeaders(),
       params: { keyword: searchKeyword.value, group_id: filterGroupId.value }
     })
     if (res.data.code === 0) {
       tableData.value = res.data.data
     }
   } catch (e) {
-    ElMessage.error('加载失败')
+    ElMessage.error(getErrorMessage(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -196,12 +204,14 @@ const fetchData = async () => {
 const fetchGroups = async () => {
   try {
     const res = await axios.get('/api/v1/cmdb/groups', {
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       groups.value = res.data.data
     }
-  } catch (e) {}
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '分组加载失败'))
+  }
 }
 
 const handleAdd = () => {
@@ -222,7 +232,7 @@ const handleEdit = async (row) => {
   // Load detail
   try {
     const res = await axios.get(`/api/v1/cmdb/hosts/${row.id}`, {
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       const data = res.data.data
@@ -236,7 +246,7 @@ const handleEdit = async (row) => {
       dialogVisible.value = true
     }
   } catch (e) {
-    ElMessage.error('获取详情失败')
+    ElMessage.error(getErrorMessage(e, '获取详情失败'))
   }
 }
 
@@ -250,7 +260,7 @@ const submitForm = async () => {
       method,
       url,
       data: form,
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      headers: authHeaders()
     })
     
     if (res.data.code === 0) {
@@ -260,41 +270,53 @@ const submitForm = async () => {
     } else {
       ElMessage.error(res.data.message)
     }
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, isEdit.value ? '更新失败' : '添加失败'))
   } finally {
     submitting.value = false
   }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm('确定删除该主机吗?', '警告', {
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(async () => {
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定删除该主机吗?', '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
     await axios.delete(`/api/v1/cmdb/hosts/${row.id}`, {
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      headers: authHeaders()
     })
     ElMessage.success('删除成功')
-    fetchData()
-  })
+    await fetchData()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error(getErrorMessage(e, '删除失败'))
+    }
+  }
 }
 
-const handleBatchDelete = () => {
+const handleBatchDelete = async () => {
   if (selectedRows.value.length === 0) return
-  ElMessageBox.confirm(`确定删除选中的 ${selectedRows.value.length} 台主机吗?`, '警告', {
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(async () => {
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selectedRows.value.length} 台主机吗?`, '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
     for (const row of selectedRows.value) {
       await axios.delete(`/api/v1/cmdb/hosts/${row.id}`, {
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+        headers: authHeaders()
       })
     }
     ElMessage.success('批量删除成功')
     selectedRows.value = []
-    fetchData()
-  })
+    await fetchData()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error(getErrorMessage(e, '批量删除失败'))
+    }
+  }
 }
 
 const openImport = () => {
@@ -338,14 +360,14 @@ const submitImport = async () => {
         status: row.status ? Number(row.status) : 1,
         os: row.os || ''
       }, {
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+        headers: authHeaders()
       })
     }
     ElMessage.success('导入完成')
     importVisible.value = false
-    fetchData()
+    await fetchData()
   } catch (e) {
-    ElMessage.error('导入失败')
+    ElMessage.error(getErrorMessage(e, '导入失败'))
   } finally {
     importLoading.value = false
   }
@@ -381,14 +403,14 @@ const submitBatchStatus = async () => {
         ...row,
         status: batchStatus.value
       }, {
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+        headers: authHeaders()
       })
     }
     ElMessage.success('状态更新成功')
     batchStatusVisible.value = false
-    fetchData()
+    await fetchData()
   } catch (e) {
-    ElMessage.error('状态更新失败')
+    ElMessage.error(getErrorMessage(e, '状态更新失败'))
   } finally {
     batchStatusLoading.value = false
   }
@@ -401,7 +423,7 @@ const handleTest = async (row) => {
   testError.value = ''
   try {
     const res = await axios.post(`/api/v1/cmdb/hosts/${row.id}/test`, {}, {
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      headers: authHeaders()
     })
     if (res.data.code === 0) {
       testResult.value = res.data.data
@@ -409,7 +431,7 @@ const handleTest = async (row) => {
       testError.value = res.data.message || '测试失败'
     }
   } catch (e) {
-    testError.value = '测试失败'
+    testError.value = getErrorMessage(e, '测试失败')
   } finally {
     testLoading.value = false
   }

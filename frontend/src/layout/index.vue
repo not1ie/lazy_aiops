@@ -28,11 +28,11 @@
             <el-icon><Monitor /></el-icon>
             <span>资产管理</span>
           </template>
-          <el-menu-item index="/host">主机管理</el-menu-item>
-          <el-menu-item index="/cmdb/group">主机分组</el-menu-item>
-          <el-menu-item index="/cmdb/credential">凭据管理</el-menu-item>
-          <el-menu-item index="/cmdb/database">数据库资产</el-menu-item>
-          <el-menu-item index="/cmdb/cloud">云资源</el-menu-item>
+          <el-menu-item v-if="can('cmdb')" index="/host">主机管理</el-menu-item>
+          <el-menu-item v-if="can('cmdb')" index="/cmdb/group">主机分组</el-menu-item>
+          <el-menu-item v-if="can('cmdb')" index="/cmdb/credential">凭据管理</el-menu-item>
+          <el-menu-item v-if="can('cmdb')" index="/cmdb/database">数据库资产</el-menu-item>
+          <el-menu-item v-if="can('cmdb')" index="/cmdb/cloud">云资源</el-menu-item>
           <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
           <el-menu-item v-if="can('jump:asset')" index="/jump/assets">堡垒机资产</el-menu-item>
           <el-menu-item v-if="can('jump:policy')" index="/jump/policies">授权策略</el-menu-item>

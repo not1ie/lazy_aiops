@@ -21,13 +21,13 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('@/views/dashboard/index.vue'),
-        meta: { title: '仪表盘', icon: 'Odometer' }
+        meta: { title: '仪表盘', icon: 'Odometer', perm: 'dashboard' }
       },
       {
         path: 'ai',
         name: 'AI',
         component: () => import('@/views/ai/index.vue'),
-        meta: { title: 'AI运维助手', icon: 'MagicStick' }
+        meta: { title: 'AI运维助手', icon: 'MagicStick', perm: 'ai' }
       },
 
       // CMDB / Asset
@@ -35,31 +35,31 @@ const routes = [
         path: 'host',
         name: 'Host',
         component: () => import('@/views/cmdb/host.vue'),
-        meta: { title: '主机管理', icon: 'Monitor' }
+        meta: { title: '主机管理', icon: 'Monitor', perm: 'cmdb' }
       },
       {
         path: 'cmdb/group',
         name: 'CMDBGroup',
         component: () => import('@/views/cmdb/group.vue'),
-        meta: { title: '主机分组', icon: 'FolderOpened' }
+        meta: { title: '主机分组', icon: 'FolderOpened', perm: 'cmdb' }
       },
       {
         path: 'cmdb/credential',
         name: 'CMDBCredential',
         component: () => import('@/views/cmdb/credential.vue'),
-        meta: { title: '凭据管理', icon: 'Key' }
+        meta: { title: '凭据管理', icon: 'Key', perm: 'cmdb' }
       },
       {
         path: 'cmdb/database',
         name: 'CMDBDatabase',
         component: () => import('@/views/cmdb/database.vue'),
-        meta: { title: '数据库资产', icon: 'Coin' }
+        meta: { title: '数据库资产', icon: 'Coin', perm: 'cmdb' }
       },
       {
         path: 'cmdb/cloud',
         name: 'CMDBCloud',
         component: () => import('@/views/cmdb/cloud.vue'),
-        meta: { title: '云资源', icon: 'Cloudy' }
+        meta: { title: '云资源', icon: 'Cloudy', perm: 'cmdb' }
       },
       {
         path: 'firewall',
@@ -73,85 +73,85 @@ const routes = [
         path: 'docker',
         name: 'Docker',
         component: () => import('@/views/docker/index.vue'),
-        meta: { title: 'Docker管理', icon: 'Platform' }
+        meta: { title: 'Docker管理', icon: 'Platform', perm: 'docker' }
       },
       {
         path: 'k8s/clusters',
         name: 'K8sClusters',
         component: () => import('@/views/k8s/clusters.vue'),
-        meta: { title: 'K8s集群', icon: 'Connection' }
+        meta: { title: 'K8s集群', icon: 'Connection', perm: 'k8s' }
       },
       {
         path: 'k8s/namespaces',
         name: 'K8sNamespaces',
         component: () => import('@/views/k8s/namespaces.vue'),
-        meta: { title: '命名空间', icon: 'Collection' }
+        meta: { title: '命名空间', icon: 'Collection', perm: 'k8s' }
       },
       {
         path: 'k8s/workloads',
         name: 'K8sWorkloads',
         component: () => import('@/views/k8s/workloads.vue'),
-        meta: { title: '工作负载', icon: 'Cpu' }
+        meta: { title: '工作负载', icon: 'Cpu', perm: 'k8s' }
       },
       {
         path: 'k8s/deployments',
         name: 'K8sDeployments',
         component: () => import('@/views/k8s/deployments.vue'),
-        meta: { title: 'Deployments', icon: 'Cpu' }
+        meta: { title: 'Deployments', icon: 'Cpu', perm: 'k8s' }
       },
       {
         path: 'k8s/workloads/detail',
         name: 'K8sWorkloadDetail',
         component: () => import('@/views/k8s/workload-detail.vue'),
-        meta: { title: '工作负载详情', icon: 'Cpu' }
+        meta: { title: '工作负载详情', icon: 'Cpu', perm: 'k8s' }
       },
       {
         path: 'k8s/pods',
         name: 'K8sPods',
         component: () => import('@/views/k8s/pods.vue'),
-        meta: { title: 'Pods', icon: 'Box' }
+        meta: { title: 'Pods', icon: 'Box', perm: 'k8s' }
       },
       {
         path: 'k8s/pods/detail',
         name: 'K8sPodDetail',
         component: () => import('@/views/k8s/pod-detail.vue'),
-        meta: { title: 'Pod详情', icon: 'Box' }
+        meta: { title: 'Pod详情', icon: 'Box', perm: 'k8s' }
       },
       {
         path: 'k8s/services',
         name: 'K8sServices',
         component: () => import('@/views/k8s/services.vue'),
-        meta: { title: '服务与Ingress', icon: 'Share' }
+        meta: { title: '服务与Ingress', icon: 'Share', perm: 'k8s' }
       },
       {
         path: 'k8s/configs',
         name: 'K8sConfigs',
         component: () => import('@/views/k8s/configs.vue'),
-        meta: { title: 'Config/Secret', icon: 'Tickets' }
+        meta: { title: 'Config/Secret', icon: 'Tickets', perm: 'k8s' }
       },
       {
         path: 'k8s/storage',
         name: 'K8sStorage',
         component: () => import('@/views/k8s/storage.vue'),
-        meta: { title: '存储管理', icon: 'Coin' }
+        meta: { title: '存储管理', icon: 'Coin', perm: 'k8s' }
       },
       {
         path: 'k8s/nodes',
         name: 'K8sNodes',
         component: () => import('@/views/k8s/nodes.vue'),
-        meta: { title: '节点管理', icon: 'Grid' }
+        meta: { title: '节点管理', icon: 'Grid', perm: 'k8s' }
       },
       {
         path: 'k8s/events',
         name: 'K8sEvents',
         component: () => import('@/views/k8s/events.vue'),
-        meta: { title: '事件与诊断', icon: 'Warning' }
+        meta: { title: '事件与诊断', icon: 'Warning', perm: 'k8s' }
       },
       {
         path: 'k8s/terminal',
         name: 'K8sTerminal',
         component: () => import('@/views/k8s/terminal.vue'),
-        meta: { title: 'K8s WebShell', icon: 'Monitor' }
+        meta: { title: 'K8s WebShell', icon: 'Monitor', perm: 'k8s' }
       },
 
       // Monitoring / Alert
@@ -159,109 +159,109 @@ const routes = [
         path: 'monitor/hosts',
         name: 'MonitorHosts',
         component: () => import('@/views/monitor/hosts.vue'),
-        meta: { title: '主机监控', icon: 'Monitor' }
+        meta: { title: '主机监控', icon: 'Monitor', perm: 'monitor' }
       },
       {
         path: 'monitor/overview',
         name: 'MonitorOverview',
         component: () => import('@/views/monitor/overview.vue'),
-        meta: { title: '监控概览', icon: 'Histogram' }
+        meta: { title: '监控概览', icon: 'Histogram', perm: 'monitor' }
       },
       {
         path: 'monitor/metrics',
         name: 'MonitorMetrics',
         component: () => import('@/views/monitor/metrics.vue'),
-        meta: { title: '指标采集', icon: 'DataBoard' }
+        meta: { title: '指标采集', icon: 'DataBoard', perm: 'monitor' }
       },
       {
         path: 'monitor/containers',
         name: 'MonitorContainers',
         component: () => import('@/views/monitor/containers.vue'),
-        meta: { title: '容器监控', icon: 'Box' }
+        meta: { title: '容器监控', icon: 'Box', perm: 'monitor' }
       },
       {
         path: 'monitor/pods',
         name: 'MonitorPods',
         component: () => import('@/views/monitor/pods.vue'),
-        meta: { title: 'Pod监控', icon: 'Histogram' }
+        meta: { title: 'Pod监控', icon: 'Histogram', perm: 'monitor' }
       },
       {
         path: 'monitor/agents',
         name: 'MonitorAgents',
         component: () => import('@/views/monitor/agents.vue'),
-        meta: { title: 'Agent心跳', icon: 'AlarmClock' }
+        meta: { title: 'Agent心跳', icon: 'AlarmClock', perm: 'monitor' }
       },
       {
         path: 'monitor/agents/detail',
         name: 'MonitorAgentDetail',
         component: () => import('@/views/monitor/agent-detail.vue'),
-        meta: { title: 'Agent详情', icon: 'AlarmClock' }
+        meta: { title: 'Agent详情', icon: 'AlarmClock', perm: 'monitor' }
       },
       {
         path: 'alert/rules',
         name: 'AlertRules',
         component: () => import('@/views/alert/rules.vue'),
-        meta: { title: '告警规则', icon: 'Bell' }
+        meta: { title: '告警规则', icon: 'Bell', perm: 'alert' }
       },
       {
         path: 'alert/events',
         name: 'AlertEvents',
         component: () => import('@/views/alert/events.vue'),
-        meta: { title: '告警事件', icon: 'Notification' }
+        meta: { title: '告警事件', icon: 'Notification', perm: 'alert' }
       },
       {
         path: 'alert/silences',
         name: 'AlertSilences',
         component: () => import('@/views/alert/silences.vue'),
-        meta: { title: '告警静默', icon: 'Notification' }
+        meta: { title: '告警静默', icon: 'Notification', perm: 'alert' }
       },
       {
         path: 'alert/aggregation',
         name: 'AlertAggregation',
         component: () => import('@/views/alert/aggregation.vue'),
-        meta: { title: '告警聚合', icon: 'Notification' }
+        meta: { title: '告警聚合', icon: 'Notification', perm: 'alert' }
       },
       {
         path: 'alert/history',
         name: 'AlertHistory',
         component: () => import('@/views/alert/history.vue'),
-        meta: { title: '告警复盘', icon: 'Notification' }
+        meta: { title: '告警复盘', icon: 'Notification', perm: 'alert' }
       },
       {
         path: 'alert/history/detail',
         name: 'AlertHistoryDetail',
         component: () => import('@/views/alert/history-detail.vue'),
-        meta: { title: '复盘详情', icon: 'Notification' }
+        meta: { title: '复盘详情', icon: 'Notification', perm: 'alert' }
       },
       {
         path: 'alert/events/detail',
         name: 'AlertDetail',
         component: () => import('@/views/alert/detail.vue'),
-        meta: { title: '告警详情', icon: 'Notification' }
+        meta: { title: '告警详情', icon: 'Notification', perm: 'alert' }
       },
       {
         path: 'notify/channels',
         name: 'NotifyChannels',
         component: () => import('@/views/notify/channels.vue'),
-        meta: { title: '通知渠道', icon: 'Message' }
+        meta: { title: '通知渠道', icon: 'Message', perm: 'notify' }
       },
       {
         path: 'notify/groups',
         name: 'NotifyGroups',
         component: () => import('@/views/notify/groups.vue'),
-        meta: { title: '通知组', icon: 'Message' }
+        meta: { title: '通知组', icon: 'Message', perm: 'notify' }
       },
       {
         path: 'notify/templates',
         name: 'NotifyTemplates',
         component: () => import('@/views/notify/templates.vue'),
-        meta: { title: '通知模板', icon: 'Document' }
+        meta: { title: '通知模板', icon: 'Document', perm: 'notify' }
       },
       {
         path: 'domain/ssl',
         name: 'DomainSSL',
         component: () => import('@/views/domain/ssl.vue'),
-        meta: { title: '域名与证书', icon: 'Link' }
+        meta: { title: '域名与证书', icon: 'Link', perm: 'domain' }
       },
 
       // Automation
@@ -269,31 +269,31 @@ const routes = [
         path: 'workflow/designer',
         name: 'WorkflowDesigner',
         component: () => import('@/views/workflow/designer.vue'),
-        meta: { title: '工作流编排', icon: 'Operation' }
+        meta: { title: '工作流编排', icon: 'Operation', perm: 'workflow' }
       },
       {
         path: 'executor',
         name: 'Executor',
         component: () => import('@/views/executor/index.vue'),
-        meta: { title: '批量执行', icon: 'Tools' }
+        meta: { title: '批量执行', icon: 'Tools', perm: 'executor' }
       },
       {
         path: 'task/schedules',
         name: 'TaskSchedules',
         component: () => import('@/views/task/schedules.vue'),
-        meta: { title: '任务调度', icon: 'Clock' }
+        meta: { title: '任务调度', icon: 'Clock', perm: 'task' }
       },
       {
         path: 'ansible/playbooks',
         name: 'AnsiblePlaybooks',
         component: () => import('@/views/ansible/playbooks.vue'),
-        meta: { title: 'Playbook管理', icon: 'Document' }
+        meta: { title: 'Playbook管理', icon: 'Document', perm: 'ansible' }
       },
       {
         path: 'ansible/inventories',
         name: 'AnsibleInventories',
         component: () => import('@/views/ansible/inventories.vue'),
-        meta: { title: 'Inventory管理', icon: 'List' }
+        meta: { title: 'Inventory管理', icon: 'List', perm: 'ansible' }
       },
 
       // CI/CD
@@ -301,25 +301,25 @@ const routes = [
         path: 'cicd/pipelines',
         name: 'CICDPipelines',
         component: () => import('@/views/cicd/pipelines.vue'),
-        meta: { title: '流水线管理', icon: 'Connection' }
+        meta: { title: '流水线管理', icon: 'Connection', perm: 'cicd' }
       },
       {
         path: 'cicd/executions',
         name: 'CICDExecutions',
         component: () => import('@/views/cicd/executions.vue'),
-        meta: { title: '执行记录', icon: 'List' }
+        meta: { title: '执行记录', icon: 'List', perm: 'cicd' }
       },
       {
         path: 'cicd/schedules',
         name: 'CICDSchedules',
         component: () => import('@/views/cicd/schedules.vue'),
-        meta: { title: '定时发布', icon: 'AlarmClock' }
+        meta: { title: '定时发布', icon: 'AlarmClock', perm: 'cicd' }
       },
       {
         path: 'cicd/releases',
         name: 'CICDReleases',
         component: () => import('@/views/cicd/releases.vue'),
-        meta: { title: '发布管理', icon: 'Tickets' }
+        meta: { title: '发布管理', icon: 'Tickets', perm: 'cicd' }
       },
 
       // Config Center
@@ -327,13 +327,13 @@ const routes = [
         path: 'nacos/servers',
         name: 'NacosServers',
         component: () => import('@/views/nacos/servers.vue'),
-        meta: { title: 'Nacos服务器', icon: 'Connection' }
+        meta: { title: 'Nacos服务器', icon: 'Connection', perm: 'nacos' }
       },
       {
         path: 'nacos/configs',
         name: 'NacosConfigs',
         component: () => import('@/views/nacos/configs.vue'),
-        meta: { title: '配置管理', icon: 'Edit' }
+        meta: { title: '配置管理', icon: 'Edit', perm: 'nacos' }
       },
 
       // Change Management
@@ -341,37 +341,37 @@ const routes = [
         path: 'workorder/tickets',
         name: 'WorkorderTickets',
         component: () => import('@/views/workorder/tickets.vue'),
-        meta: { title: '工单管理', icon: 'Tickets' }
+        meta: { title: '工单管理', icon: 'Tickets', perm: 'workorder' }
       },
       {
         path: 'workorder/types',
         name: 'WorkorderTypes',
         component: () => import('@/views/workorder/types.vue'),
-        meta: { title: '工单类型', icon: 'CollectionTag' }
+        meta: { title: '工单类型', icon: 'CollectionTag', perm: 'workorder' }
       },
       {
         path: 'sqlaudit/requests',
         name: 'SQLAuditRequests',
         component: () => import('@/views/sqlaudit/requests.vue'),
-        meta: { title: 'SQL工单', icon: 'Document' }
+        meta: { title: 'SQL工单', icon: 'Document', perm: 'sqlaudit' }
       },
       {
         path: 'sqlaudit/rules',
         name: 'SQLAuditRules',
         component: () => import('@/views/sqlaudit/rules.vue'),
-        meta: { title: 'SQL审核规则', icon: 'Warning' }
+        meta: { title: 'SQL审核规则', icon: 'Warning', perm: 'sqlaudit' }
       },
       {
         path: 'gitops/repos',
         name: 'GitOpsRepos',
         component: () => import('@/views/gitops/repos.vue'),
-        meta: { title: 'GitOps仓库', icon: 'Share' }
+        meta: { title: 'GitOps仓库', icon: 'Share', perm: 'gitops' }
       },
       {
         path: 'gitops/sync',
         name: 'GitOpsSync',
         component: () => import('@/views/gitops/sync.vue'),
-        meta: { title: '同步记录', icon: 'List' }
+        meta: { title: '同步记录', icon: 'List', perm: 'gitops' }
       },
 
       // Collaboration
@@ -379,13 +379,13 @@ const routes = [
         path: 'oncall/schedule',
         name: 'OncallSchedule',
         component: () => import('@/views/oncall/schedule.vue'),
-        meta: { title: '值班排班', icon: 'Calendar' }
+        meta: { title: '值班排班', icon: 'Calendar', perm: 'oncall' }
       },
       {
         path: 'oncall/escalation',
         name: 'OncallEscalation',
         component: () => import('@/views/oncall/escalation.vue'),
-        meta: { title: '升级策略', icon: 'Bell' }
+        meta: { title: '升级策略', icon: 'Bell', perm: 'oncall' }
       },
       {
         path: 'jump/assets',
@@ -415,7 +415,7 @@ const routes = [
         path: 'terminal',
         name: 'Terminal',
         component: () => import('@/views/terminal/index.vue'),
-        meta: { title: 'WebTerminal', icon: 'Monitor' }
+        meta: { title: 'WebTerminal', icon: 'Monitor', perm: 'terminal' }
       },
 
       // Visualization / Cost
@@ -423,19 +423,19 @@ const routes = [
         path: 'topology',
         name: 'Topology',
         component: () => import('@/views/topology/graph.vue'),
-        meta: { title: '服务拓扑', icon: 'Share' }
+        meta: { title: '服务拓扑', icon: 'Share', perm: 'topology' }
       },
       {
         path: 'cost/overview',
         name: 'CostOverview',
         component: () => import('@/views/cost/overview.vue'),
-        meta: { title: '成本概览', icon: 'Coin' }
+        meta: { title: '成本概览', icon: 'Coin', perm: 'cost' }
       },
       {
         path: 'cost/budget',
         name: 'CostBudget',
         component: () => import('@/views/cost/budget.vue'),
-        meta: { title: '预算与告警', icon: 'Warning' }
+        meta: { title: '预算与告警', icon: 'Warning', perm: 'cost' }
       },
 
       // App Center
@@ -443,7 +443,7 @@ const routes = [
         path: 'application',
         name: 'Application',
         component: () => import('@/views/application/index.vue'),
-        meta: { title: '应用中心', icon: 'Box' }
+        meta: { title: '应用中心', icon: 'Box', perm: 'application' }
       },
 
       // System
