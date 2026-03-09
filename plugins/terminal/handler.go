@@ -49,6 +49,9 @@ type SSHSession struct {
 	PendingCommandInput string
 	JumpBlocked         bool
 	JumpBlockReason     string
+	ClosedByUser        bool
+	OutputTail          string
+	OutputTailMu        sync.Mutex
 }
 
 type terminalConnectPayload struct {
@@ -366,6 +369,7 @@ func (h *TerminalHandler) CloseSession(c *gin.Context) {
 
 	if sess, ok := h.sessions.Load(id); ok {
 		sshSess := sess.(*SSHSession)
+		sshSess.ClosedByUser = true
 		h.closeSSHSession(sshSess)
 		h.sessions.Delete(id)
 	}
@@ -389,6 +393,7 @@ func (h *TerminalHandler) DeleteSession(c *gin.Context) {
 
 	if sess, ok := h.sessions.Load(id); ok {
 		sshSess := sess.(*SSHSession)
+		sshSess.ClosedByUser = true
 		h.closeSSHSession(sshSess)
 		h.sessions.Delete(id)
 	}
@@ -593,11 +598,14 @@ func (h *TerminalHandler) handleWSMessages(sshSess *SSHSession, session *Termina
 			}
 		default:
 		}
+		if closeReason == "" && !sshSess.ClosedByUser {
+			closeReason = h.diagnoseSessionClose(sshSess)
+		}
 		updates := map[string]interface{}{
 			"status":   2,
 			"ended_at": endedAt,
 		}
-		if closeReason != "" {
+		if closeReason != "" && !sshSess.ClosedByUser {
 			updates["status"] = 3
 			updates["last_error"] = closeReason
 		} else {
@@ -697,6 +705,7 @@ func (h *TerminalHandler) streamSSHOutput(sshSess *SSHSession, stream io.Reader,
 		n, err := stream.Read(buf)
 		if n > 0 {
 			data := append([]byte(nil), buf[:n]...)
+			sshSess.appendOutputTail(string(data))
 			_ = h.writeWSMessage(sshSess, websocket.BinaryMessage, data)
 			sshSess.Recording = append(sshSess.Recording, RecordItem{
 				Time:    time.Since(sshSess.StartTime).Milliseconds(),
@@ -763,6 +772,8 @@ func normalizeSSHFailureReason(err error) string {
 	switch {
 	case strings.Contains(lower, "unable to authenticate"), strings.Contains(lower, "permission denied"):
 		return "认证失败：用户名或密码/密钥错误"
+	case strings.Contains(lower, "this account is currently not available"):
+		return "远端账号不可登录：登录 shell 无效"
 	case strings.Contains(lower, "handshake failed"):
 		return "SSH握手失败：请检查账号、密码/密钥与服务端认证策略"
 	case strings.Contains(lower, "connection refused"):
@@ -777,6 +788,49 @@ func normalizeSSHFailureReason(err error) string {
 		return "远端会话已结束"
 	default:
 		return msg
+	}
+}
+
+func (sshSess *SSHSession) appendOutputTail(text string) {
+	trimmed := strings.TrimSpace(stripANSI(text))
+	if trimmed == "" {
+		return
+	}
+	sshSess.OutputTailMu.Lock()
+	defer sshSess.OutputTailMu.Unlock()
+	sshSess.OutputTail += " " + trimmed
+	if len(sshSess.OutputTail) > 240 {
+		sshSess.OutputTail = sshSess.OutputTail[len(sshSess.OutputTail)-240:]
+	}
+}
+
+func (sshSess *SSHSession) readOutputTail() string {
+	sshSess.OutputTailMu.Lock()
+	defer sshSess.OutputTailMu.Unlock()
+	return strings.TrimSpace(sshSess.OutputTail)
+}
+
+func (h *TerminalHandler) diagnoseSessionClose(sshSess *SSHSession) string {
+	if sshSess == nil || sshSess.ClosedByUser {
+		return ""
+	}
+	lifetime := time.Since(sshSess.StartTime)
+	outputTail := sshSess.readOutputTail()
+	lowerTail := strings.ToLower(outputTail)
+
+	switch {
+	case strings.Contains(lowerTail, "this account is currently not available"):
+		return "远端账号不可登录：登录 shell 无效"
+	case strings.Contains(lowerTail, "permission denied"):
+		return "认证成功后会话被远端拒绝：请检查账号权限或登录策略"
+	case strings.Contains(lowerTail, "last login"):
+		return ""
+	case lifetime < 3*time.Second && outputTail != "":
+		return "远端会话启动后立即退出：" + outputTail
+	case lifetime < 3*time.Second:
+		return "远端会话启动后立即退出：请检查登录 shell、强制命令或 PAM/安全策略"
+	default:
+		return ""
 	}
 }
 
