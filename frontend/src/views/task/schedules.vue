@@ -64,7 +64,7 @@
     </el-card>
   </div>
 
-  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑任务' : '新增任务'" width="640px">
+  <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑任务' : '新增任务'" width="640px" @closed="handleDialogClosed">
     <el-form :model="form" label-width="110px">
       <el-form-item label="任务名称" required>
         <el-input v-model="form.name" />
@@ -127,6 +127,18 @@ const form = reactive({
   enabled: true
 })
 
+const resetForm = () => {
+  Object.assign(form, {
+    name: '',
+    type: 'shell',
+    content: '',
+    targets: [],
+    cron: '',
+    timeout: 300,
+    enabled: true
+  })
+}
+
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const getErrorMessage = (error, fallback) => {
@@ -152,6 +164,9 @@ const fetchTasks = async () => {
     const res = await axios.get('/api/v1/task/tasks', { headers: headers() })
     if (res.data.code === 0) {
       tasks.value = res.data.data
+      if (currentTask.value?.id) {
+        currentTask.value = tasks.value.find(item => item.id === currentTask.value.id) || null
+      }
     }
   } catch (error) {
     ElMessage.error(getErrorMessage(error, '加载任务失败'))
@@ -185,15 +200,7 @@ const selectTask = (row) => {
 const openCreate = () => {
   isEdit.value = false
   currentId.value = ''
-  Object.assign(form, {
-    name: '',
-    type: 'shell',
-    content: '',
-    targets: [],
-    cron: '',
-    timeout: 300,
-    enabled: true
-  })
+  resetForm()
   dialogVisible.value = true
 }
 
@@ -238,6 +245,12 @@ const saveTask = async () => {
   }
 }
 
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  resetForm()
+}
+
 const runTask = async (row) => {
   try {
     await axios.post(`/api/v1/task/tasks/${row.id}/run`, {}, { headers: headers() })
@@ -264,7 +277,12 @@ const deleteTask = async (row) => {
     await ElMessageBox.confirm(`确定删除任务“${row.name}”吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/task/tasks/${row.id}`, { headers: headers() })
     ElMessage.success('删除成功')
+    const deletingCurrentTask = currentTask.value?.id === row.id
     await fetchTasks()
+    if (deletingCurrentTask) {
+      currentTask.value = null
+      await fetchExecutions()
+    }
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(getErrorMessage(error, '删除失败'))

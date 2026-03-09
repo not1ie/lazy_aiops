@@ -140,7 +140,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog append-to-body v-model="createVisible" :title="editingSessionId ? '编辑终端会话' : '新建终端会话'" width="680px">
+    <el-dialog append-to-body v-model="createVisible" :title="editingSessionId ? '编辑终端会话' : '新建终端会话'" width="680px" @closed="onCreateDialogClosed">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="主机地址">
           <el-input v-model="createForm.host" placeholder="例如 10.0.0.10" />
@@ -205,7 +205,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="auditDetailVisible" title="命令审计详情" size="720px">
+    <el-drawer v-model="auditDetailVisible" title="命令审计详情" size="720px" @closed="onAuditDetailClosed">
       <div v-if="currentAudit" class="audit-detail">
         <div class="audit-grid">
           <div><span class="audit-label">时间</span><span>{{ formatTime(currentAudit.executed_at) }}</span></div>
@@ -336,6 +336,12 @@ const fetchSessions = async () => {
     }
     const res = await axios.get('/api/v1/terminal/sessions', { headers: authHeaders(), params })
     sessions.value = res.data?.data || []
+    if (currentSession.value?.id) {
+      currentSession.value = sessions.value.find(item => item.id === currentSession.value.id) || null
+      if (!currentSession.value && terminalVisible.value) {
+        terminalVisible.value = false
+      }
+    }
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '获取会话失败')
   } finally {
@@ -350,6 +356,13 @@ const fetchRecords = async () => {
     if (recordFilters.value.keyword.trim()) params.keyword = recordFilters.value.keyword.trim()
     const res = await axios.get('/api/v1/terminal/records', { headers: authHeaders(), params })
     records.value = res.data?.data || []
+    selectedRecordIds.value = selectedRecordIds.value.filter(id => records.value.some(item => item.id === id))
+    if (currentRecord.value?.id) {
+      currentRecord.value = records.value.find(item => item.id === currentRecord.value.id) || null
+      if (!currentRecord.value && recordVisible.value) {
+        recordVisible.value = false
+      }
+    }
   } catch (err) {
     ElMessage.error(err.response?.data?.message || '获取录像失败')
   } finally {
@@ -396,9 +409,17 @@ const onRecordSelectionChange = (rows) => {
   selectedRecordIds.value = Array.isArray(rows) ? rows.map(item => item.id) : []
 }
 
-const openCreateDialog = () => {
+const resetCreateForm = () => {
   editingSessionId.value = ''
   createForm.value = { host_id: '', host: '', port: 22, username: '', password: '', key_auth: '' }
+}
+
+const onCreateDialogClosed = () => {
+  resetCreateForm()
+}
+
+const openCreateDialog = () => {
+  resetCreateForm()
   createVisible.value = true
 }
 
@@ -488,6 +509,9 @@ const deleteSession = async (row) => {
     await ElMessageBox.confirm(`确认删除会话 ${row.host} 吗？删除后不可恢复。`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/terminal/sessions/${row.id}/purge`, { headers: authHeaders() })
     ElMessage.success('会话已删除')
+    if (currentSession.value?.id === row.id) {
+      terminalVisible.value = false
+    }
     await fetchSessions()
   } catch (err) {
     if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
@@ -727,6 +751,7 @@ const onTerminalDialogClosed = () => {
   terminalStatus.value = '未连接'
   closeWebSocket()
   destroyTerminal()
+  currentSession.value = null
 }
 
 const sendMessage = (payload) => {
@@ -869,11 +894,18 @@ const onRecordDialogClosed = () => {
   destroyRecordTerminal()
 }
 
+const onAuditDetailClosed = () => {
+  currentAudit.value = null
+}
+
 const deleteRecord = async (row) => {
   try {
     await ElMessageBox.confirm(`确认删除 ${row.host} 的这条录像吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/terminal/records/${row.id}`, { headers: authHeaders() })
     ElMessage.success('录像已删除')
+    if (currentRecord.value?.id === row.id) {
+      recordVisible.value = false
+    }
     await fetchRecords()
   } catch (err) {
     if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除录像失败')

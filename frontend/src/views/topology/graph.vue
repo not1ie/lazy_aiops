@@ -1131,6 +1131,7 @@ const removeEdge = async (row) => {
     await axios.delete(`/api/v1/topology/edges/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
     await fetchTopology()
+    await fetchDependencyInsights()
   } catch (err) {
     if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
   }

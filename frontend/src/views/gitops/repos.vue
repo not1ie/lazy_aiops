@@ -58,7 +58,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="detailVisible" title="仓库详情" width="760px">
+    <el-dialog append-to-body v-model="detailVisible" title="仓库详情" width="760px" @closed="handleDetailClosed">
       <el-descriptions :column="1" border>
         <el-descriptions-item label="名称">{{ detailRow?.name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="URL">{{ detailRow?.url || '-' }}</el-descriptions-item>
@@ -162,6 +162,10 @@ const openDetail = async (row) => {
   }
 }
 
+const handleDetailClosed = () => {
+  detailRow.value = null
+}
+
 const syncRepo = async (row) => {
   try {
     await axios.post(`/api/v1/gitops/repos/${row.id}/sync`, {}, { headers: authHeaders() })
@@ -177,6 +181,9 @@ const removeRepo = async (row) => {
     await ElMessageBox.confirm(`确认删除仓库 ${row.name} 吗？会同时删除本地目录。`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/gitops/repos/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
+    if (detailRow.value?.id === row.id) {
+      detailVisible.value = false
+    }
     await fetchRepos()
   } catch (err) {
     if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
