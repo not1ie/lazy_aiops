@@ -72,7 +72,7 @@
       </el-col>
     </el-row>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="760px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="760px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="100px">
         <el-form-item label="名称">
           <el-input v-model="form.name" />
@@ -179,6 +179,21 @@ const openCreate = () => {
     description: ''
   }
   dialogVisible.value = true
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  form.value = {
+    name: '',
+    type: 'security',
+    level: 1,
+    pattern: '',
+    message: '',
+    suggestion: '',
+    enabled: true,
+    description: ''
+  }
 }
 
 const openEdit = (row) => {

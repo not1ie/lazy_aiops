@@ -40,7 +40,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="editing ? '编辑升级策略' : '新增升级策略'" width="700px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="editing ? '编辑升级策略' : '新增升级策略'" width="700px" @closed="handleDialogClosed">
       <el-form :model="form" label-width="100px">
         <el-form-item label="策略名称" required>
           <el-input v-model="form.name" />
@@ -113,6 +113,11 @@ const resetForm = () => {
   form.rules = '[{"level":"critical","delay_min":5,"notify":["sms"]}]'
   form.enabled = true
   form.description = ''
+}
+
+const handleDialogClosed = () => {
+  editing.value = false
+  resetForm()
 }
 
 const scheduleName = (id) => schedules.value.find(item => item.id === id)?.name || '-'

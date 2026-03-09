@@ -340,7 +340,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog append-to-body v-model="configDialogVisible" :title="configEditing ? '编辑模型配置' : '新增模型配置'" width="700px">
+    <el-dialog append-to-body v-model="configDialogVisible" :title="configEditing ? '编辑模型配置' : '新增模型配置'" width="700px" @closed="handleConfigDialogClosed">
       <el-form :model="configForm" label-width="110px">
         <el-form-item label="配置名称" required>
           <el-input v-model="configForm.name" placeholder="如：OpenAI-Prod" />
@@ -502,8 +502,15 @@ const fetchSessions = async () => {
     const res = await axios.get('/api/v1/ai/sessions', { headers: authHeaders() })
     if (res.data?.code === 0) {
       sessions.value = res.data.data || []
+      const activeExists = sessions.value.some(item => item.id === activeSessionId.value)
+      if (activeSessionId.value && !activeExists) {
+        activeSessionId.value = ''
+        messages.value = []
+      }
       if (!activeSessionId.value && sessions.value.length) {
         await selectSession(sessions.value[0])
+      } else if (!sessions.value.length) {
+        messages.value = []
       }
     }
   } catch (err) {
@@ -1004,6 +1011,11 @@ const resetConfigForm = () => {
   configForm.timeout_second = 60
   configForm.extra_headers = '{}'
   configForm.description = ''
+}
+
+const handleConfigDialogClosed = () => {
+  configEditing.value = false
+  resetConfigForm()
 }
 
 const openConfigDialog = (row) => {

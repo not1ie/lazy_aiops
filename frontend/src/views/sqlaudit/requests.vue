@@ -122,7 +122,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog append-to-body v-model="instanceVisible" :title="instanceDialogTitle" width="760px">
+    <el-dialog append-to-body v-model="instanceVisible" :title="instanceDialogTitle" width="760px" @closed="handleInstanceDialogClosed">
       <el-form :model="instanceForm" label-width="100px">
         <el-form-item label="名称"><el-input v-model="instanceForm.name" /></el-form-item>
         <el-form-item label="类型">
@@ -145,7 +145,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="orderVisible" title="新建 SQL 工单" width="860px">
+    <el-dialog append-to-body v-model="orderVisible" title="新建 SQL 工单" width="860px" @closed="handleOrderDialogClosed">
       <el-form :model="orderForm" label-width="100px">
         <el-form-item label="标题"><el-input v-model="orderForm.title" /></el-form-item>
         <el-form-item label="数据库实例">
@@ -162,7 +162,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="reviewVisible" :title="reviewForm.approved ? '审核通过' : '审核拒绝'" width="560px">
+    <el-dialog append-to-body v-model="reviewVisible" :title="reviewForm.approved ? '审核通过' : '审核拒绝'" width="560px" @closed="handleReviewDialogClosed">
       <el-form :model="reviewForm" label-width="80px">
         <el-form-item label="备注"><el-input v-model="reviewForm.remark" type="textarea" :rows="4" /></el-form-item>
       </el-form>
@@ -172,7 +172,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="SQL工单详情" size="62%" append-to-body>
+    <el-drawer v-model="detailVisible" title="SQL工单详情" size="62%" append-to-body @closed="handleDetailClosed">
       <el-descriptions :column="2" border class="mb-3">
         <el-descriptions-item label="标题">{{ detailOrder?.title || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ orderStatusText(detailOrder?.status) }}</el-descriptions-item>
@@ -338,12 +338,50 @@ const reloadAll = async () => {
   await Promise.all([fetchStats(), fetchInstances(), fetchOrders(), fetchLogs()])
 }
 
-const openCreateInstance = () => {
+const resetInstanceForm = () => {
   instanceDialogTitle.value = '新增实例'
   instanceEditId.value = ''
   instanceForm.value = {
-    name: '', type: 'mysql', host: '', port: 3306, username: '', password: '', database: '', charset: 'utf8mb4', environment: 'prod', description: ''
+    name: '',
+    type: 'mysql',
+    host: '',
+    port: 3306,
+    username: '',
+    password: '',
+    database: '',
+    charset: 'utf8mb4',
+    environment: 'prod',
+    description: ''
   }
+}
+
+const resetOrderForm = () => {
+  orderForm.value = { title: '', instance_id: '', database: '', sql_content: '' }
+}
+
+const resetReviewForm = () => {
+  reviewOrderId.value = ''
+  reviewForm.value = { approved: true, remark: '' }
+}
+
+const handleInstanceDialogClosed = () => {
+  resetInstanceForm()
+}
+
+const handleOrderDialogClosed = () => {
+  resetOrderForm()
+}
+
+const handleReviewDialogClosed = () => {
+  resetReviewForm()
+}
+
+const handleDetailClosed = () => {
+  detailOrder.value = null
+}
+
+const openCreateInstance = () => {
+  resetInstanceForm()
   instanceVisible.value = true
 }
 
@@ -406,7 +444,7 @@ const removeInstance = async (row) => {
 }
 
 const openCreateOrder = () => {
-  orderForm.value = { title: '', instance_id: '', database: '', sql_content: '' }
+  resetOrderForm()
   orderVisible.value = true
 }
 

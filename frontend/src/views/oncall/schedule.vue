@@ -104,7 +104,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog append-to-body v-model="scheduleDialogVisible" :title="scheduleEditing ? '编辑排班' : '新增排班'" width="700px">
+    <el-dialog append-to-body v-model="scheduleDialogVisible" :title="scheduleEditing ? '编辑排班' : '新增排班'" width="700px" @closed="handleScheduleDialogClosed">
       <el-form :model="scheduleForm" label-width="96px">
         <el-form-item label="排班名称" required>
           <el-input v-model="scheduleForm.name" />
@@ -150,7 +150,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="teamDialogVisible" title="新增团队" width="520px">
+    <el-dialog append-to-body v-model="teamDialogVisible" title="新增团队" width="520px" @closed="handleTeamDialogClosed">
       <el-form :model="teamForm" label-width="88px">
         <el-form-item label="团队名称" required>
           <el-input v-model="teamForm.name" />
@@ -171,7 +171,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="generateDialogVisible" title="生成班次" width="460px">
+    <el-dialog append-to-body v-model="generateDialogVisible" title="生成班次" width="460px" @closed="handleGenerateDialogClosed">
       <el-form :model="generateForm" label-width="96px">
         <el-form-item label="开始日期" required>
           <el-date-picker v-model="generateForm.start_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
@@ -186,7 +186,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog append-to-body v-model="swapDialogVisible" title="换班" width="460px">
+    <el-dialog append-to-body v-model="swapDialogVisible" title="换班" width="460px" @closed="handleSwapDialogClosed">
       <el-form :model="swapForm" label-width="96px">
         <el-form-item label="接班用户ID" required>
           <el-input v-model="swapForm.override_user_id" />
@@ -281,6 +281,9 @@ const fetchSchedules = async () => {
     const res = await axios.get('/api/v1/oncall/schedules', { headers: authHeaders() })
     if (res.data?.code === 0) {
       schedules.value = res.data.data || []
+      if (selectedSchedule.value?.id) {
+        selectedSchedule.value = schedules.value.find(item => item.id === selectedSchedule.value.id) || null
+      }
       if (!selectedSchedule.value && schedules.value.length) {
         selectedSchedule.value = schedules.value[0]
       }
@@ -348,6 +351,43 @@ const resetScheduleForm = () => {
   scheduleForm.rotation = '[{"user_id":"u1","username":"alice"}]'
   scheduleForm.enabled = true
   scheduleForm.description = ''
+}
+
+const resetTeamForm = () => {
+  teamForm.name = ''
+  teamForm.members = '[]'
+  teamForm.notify_group = ''
+  teamForm.description = ''
+}
+
+const resetGenerateForm = () => {
+  generateTarget.value = null
+  generateForm.start_date = ''
+  generateForm.days = 7
+}
+
+const resetSwapForm = () => {
+  swapTarget.value = null
+  swapForm.override_user_id = ''
+  swapForm.override_user = ''
+  swapForm.reason = ''
+}
+
+const handleScheduleDialogClosed = () => {
+  scheduleEditing.value = false
+  resetScheduleForm()
+}
+
+const handleTeamDialogClosed = () => {
+  resetTeamForm()
+}
+
+const handleGenerateDialogClosed = () => {
+  resetGenerateForm()
+}
+
+const handleSwapDialogClosed = () => {
+  resetSwapForm()
 }
 
 const openScheduleDialog = (row) => {
@@ -427,10 +467,7 @@ const removeSchedule = async (row) => {
 }
 
 const openTeamDialog = () => {
-  teamForm.name = ''
-  teamForm.members = '[]'
-  teamForm.notify_group = ''
-  teamForm.description = ''
+  resetTeamForm()
   teamDialogVisible.value = true
 }
 
@@ -496,9 +533,8 @@ const generateShifts = async () => {
 
 const openSwapDialog = (row) => {
   swapTarget.value = row
-  swapForm.override_user_id = ''
-  swapForm.override_user = ''
-  swapForm.reason = ''
+  resetSwapForm()
+  swapTarget.value = row
   swapDialogVisible.value = true
 }
 
