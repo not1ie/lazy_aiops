@@ -52,10 +52,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const route = useRoute()
 const agent = ref({})
@@ -78,22 +80,30 @@ const parseJSON = (text) => {
 const fetchAgent = async () => {
   const id = route.query.id
   if (!id) return
-  const res = await axios.get(`/api/v1/monitor/agents/${id}`, { headers: authHeaders() })
-  agent.value = res.data.data || {}
-  labels.value = parseJSON(agent.value.labels)
-  const meta = parseJSON(agent.value.meta)
-  metaText.value = JSON.stringify(meta, null, 2)
+  try {
+    const res = await axios.get(`/api/v1/monitor/agents/${id}`, { headers: authHeaders() })
+    agent.value = res.data.data || {}
+    labels.value = parseJSON(agent.value.labels)
+    const meta = parseJSON(agent.value.meta)
+    metaText.value = JSON.stringify(meta, null, 2)
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Agent 详情失败'))
+  }
 }
 
 const fetchHistory = async () => {
   const id = route.query.id
   if (!id) return
-  const res = await axios.get(`/api/v1/monitor/agents/${id}/history`, {
-    headers: authHeaders(),
-    params: { hours: hours.value }
-  })
-  const records = res.data.data || []
-  renderHistory(records)
+  try {
+    const res = await axios.get(`/api/v1/monitor/agents/${id}/history`, {
+      headers: authHeaders(),
+      params: { hours: hours.value }
+    })
+    const records = res.data.data || []
+    renderHistory(records)
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Agent 历史失败'))
+  }
 }
 
 const renderHistory = (records) => {
@@ -154,6 +164,13 @@ const renderHistory = (records) => {
 onMounted(async () => {
   await fetchAgent()
   await fetchHistory()
+})
+
+onBeforeUnmount(() => {
+  if (historyChart) {
+    historyChart.dispose()
+    historyChart = null
+  }
 })
 </script>
 

@@ -50,6 +50,7 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const rows = ref([])
 const loading = ref(false)
@@ -130,7 +131,7 @@ const fetchMetrics = async () => {
       ElMessage.warning('未获取到 Pod 指标，请确认 Prometheus 已采集 kubelet/cAdvisor 指标')
     }
   } catch (err) {
-    ElMessage.error('拉取 Pod 指标失败')
+    ElMessage.error(getErrorMessage(err, '拉取 Pod 指标失败'))
   } finally {
     loading.value = false
   }

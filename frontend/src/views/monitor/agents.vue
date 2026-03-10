@@ -62,14 +62,20 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const agents = ref([])
 const router = useRouter()
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const fetchAgents = async () => {
-  const res = await axios.get('/api/v1/monitor/agents', { headers: authHeaders() })
-  agents.value = res.data.data || []
+  try {
+    const res = await axios.get('/api/v1/monitor/agents', { headers: authHeaders() })
+    agents.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Agent 列表失败'))
+  }
 }
 
 onMounted(fetchAgents)

@@ -142,6 +142,7 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
+import { getErrorMessage } from '@/utils/error'
 
 const realtime = ref({ cpu: 0, memory: 0, disk: 0, network: 0 })
 const lastUpdated = ref('')
@@ -252,11 +253,15 @@ const fetchRealtime = async () => {
 }
 
 const fetchSettings = async () => {
-  const res = await axios.get('/api/v1/monitor/settings', { headers: authHeaders() })
-  if (res.data.code === 0) {
-    settings.value = res.data.data || []
-    const active = settings.value.find(s => s.active)
-    currentProm.value = active ? (active.name || active.prometheus_url) : ''
+  try {
+    const res = await axios.get('/api/v1/monitor/settings', { headers: authHeaders() })
+    if (res.data.code === 0) {
+      settings.value = res.data.data || []
+      const active = settings.value.find(s => s.active)
+      currentProm.value = active ? (active.name || active.prometheus_url) : ''
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Prometheus 配置失败'))
   }
 }
 
@@ -289,28 +294,40 @@ const saveSetting = async () => {
     ElMessage.warning('请填写地址')
     return
   }
-  if (form.value.id) {
-    await axios.put(`/api/v1/monitor/settings/${form.value.id}`, form.value, { headers: authHeaders() })
-    ElMessage.success('更新成功')
-  } else {
-    await axios.post('/api/v1/monitor/settings', form.value, { headers: authHeaders() })
-    ElMessage.success('新增成功')
+  try {
+    if (form.value.id) {
+      await axios.put(`/api/v1/monitor/settings/${form.value.id}`, form.value, { headers: authHeaders() })
+      ElMessage.success('更新成功')
+    } else {
+      await axios.post('/api/v1/monitor/settings', form.value, { headers: authHeaders() })
+      ElMessage.success('新增成功')
+    }
+    await fetchSettings()
+    resetForm()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '保存 Prometheus 配置失败'))
   }
-  await fetchSettings()
-  resetForm()
 }
 
 const deleteSetting = async (row) => {
-  await axios.delete(`/api/v1/monitor/settings/${row.id}`, { headers: authHeaders() })
-  ElMessage.success('删除成功')
-  fetchSettings()
+  try {
+    await axios.delete(`/api/v1/monitor/settings/${row.id}`, { headers: authHeaders() })
+    ElMessage.success('删除成功')
+    await fetchSettings()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '删除 Prometheus 配置失败'))
+  }
 }
 
 const activateSetting = async (row) => {
-  await axios.post(`/api/v1/monitor/settings/${row.id}/activate`, {}, { headers: authHeaders() })
-  ElMessage.success('已设为当前')
-  fetchSettings()
-  fetchPromInfo()
+  try {
+    await axios.post(`/api/v1/monitor/settings/${row.id}/activate`, {}, { headers: authHeaders() })
+    ElMessage.success('已设为当前')
+    await fetchSettings()
+    await fetchPromInfo()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '切换当前 Prometheus 失败'))
+  }
 }
 
 const testSetting = async (row) => {
@@ -322,7 +339,7 @@ const testSetting = async (row) => {
       ElMessage.warning('Prometheus 返回异常')
     }
   } catch (err) {
-    ElMessage.error('连接失败')
+    ElMessage.error(getErrorMessage(err, '连接失败'))
   }
 }
 
@@ -346,7 +363,9 @@ const fetchPromInfo = async () => {
       uptime = `${h}h ${m}m`
     }
     promInfo.value = { version, uptime }
-  } catch (e) {}
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '加载 Prometheus 信息失败'))
+  }
 }
 
 const runQuery = async () => {
@@ -383,6 +402,7 @@ const runQuery = async () => {
     }
   } catch (err) {
     result.value = err?.response?.data ? JSON.stringify(err.response.data, null, 2) : String(err)
+    ElMessage.error(getErrorMessage(err, 'Prometheus 查询失败'))
   }
 }
 
@@ -435,45 +455,63 @@ const applyTemplate = (tpl) => {
 }
 
 const fetchHistory = async () => {
-  const res = await axios.get('/api/v1/monitor/prometheus/history', {
-    headers: authHeaders(),
-    params: onlyFavorite.value ? { favorite: true } : {}
-  })
-  const items = res.data.data || []
-  history.value = items.map((it) => ({
-    id: it.id,
-    time: new Date(it.created_at).toLocaleString(),
-    mode: it.mode === 'range' ? '范围' : '即时',
-    query: it.query,
-    range: it.mode === 'range' ? `${it.start} ~ ${it.end} / ${it.step}s` : '-'
-    ,
-    name: it.name || '',
-    favorite: !!it.favorite
-  }))
+  try {
+    const res = await axios.get('/api/v1/monitor/prometheus/history', {
+      headers: authHeaders(),
+      params: onlyFavorite.value ? { favorite: true } : {}
+    })
+    const items = res.data.data || []
+    history.value = items.map((it) => ({
+      id: it.id,
+      time: new Date(it.created_at).toLocaleString(),
+      mode: it.mode === 'range' ? '范围' : '即时',
+      query: it.query,
+      range: it.mode === 'range' ? `${it.start} ~ ${it.end} / ${it.step}s` : '-'
+      ,
+      name: it.name || '',
+      favorite: !!it.favorite
+    }))
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载查询历史失败'))
+  }
 }
 
 const saveHistory = async (m) => {
-  await axios.post('/api/v1/monitor/prometheus/history', {
-    mode: m,
-    query: query.value,
-    start: m === 'range' ? rangeStart.value : '',
-    end: m === 'range' ? rangeEnd.value : '',
-    step: m === 'range' ? rangeStep.value : ''
-  }, { headers: authHeaders() })
-  await fetchHistory()
+  try {
+    await axios.post('/api/v1/monitor/prometheus/history', {
+      mode: m,
+      query: query.value,
+      start: m === 'range' ? rangeStart.value : '',
+      end: m === 'range' ? rangeEnd.value : '',
+      step: m === 'range' ? rangeStep.value : ''
+    }, { headers: authHeaders() })
+    await fetchHistory()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '保存查询历史失败'))
+  }
 }
 
 const toggleFavorite = async (row) => {
-  await axios.put(`/api/v1/monitor/prometheus/history/${row.id}`, {
-    favorite: row.favorite
-  }, { headers: authHeaders() })
-  if (onlyFavorite.value) fetchHistory()
+  const previous = !row.favorite
+  try {
+    await axios.put(`/api/v1/monitor/prometheus/history/${row.id}`, {
+      favorite: row.favorite
+    }, { headers: authHeaders() })
+    if (onlyFavorite.value) await fetchHistory()
+  } catch (err) {
+    row.favorite = previous
+    ElMessage.error(getErrorMessage(err, '更新收藏状态失败'))
+  }
 }
 
 const saveName = async (row) => {
-  await axios.put(`/api/v1/monitor/prometheus/history/${row.id}`, {
-    name: row.name
-  }, { headers: authHeaders() })
+  try {
+    await axios.put(`/api/v1/monitor/prometheus/history/${row.id}`, {
+      name: row.name
+    }, { headers: authHeaders() })
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '更新历史名称失败'))
+  }
 }
 
 const reRun = (row) => {

@@ -69,6 +69,8 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const realtime = ref({ cpu: 0, memory: 0, disk: 0, network: 0 })
 const alertStats = ref({ open: 0, closed: 0, ignored: 0 })
@@ -82,33 +84,49 @@ let trendChart = null
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
 const fetchRealtime = async () => {
-  const res = await axios.get('/api/v1/monitor/metrics', { headers: authHeaders() })
-  realtime.value = res.data.data || realtime.value
+  try {
+    const res = await axios.get('/api/v1/monitor/metrics', { headers: authHeaders() })
+    realtime.value = res.data.data || realtime.value
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载实时指标失败'))
+  }
 }
 
 const fetchAlerts = async () => {
-  const res = await axios.get('/api/v1/monitor/alerts', { headers: authHeaders() })
-  const data = res.data.data || []
-  alertStats.value.open = data.filter(a => a.status === 0).length
-  alertStats.value.closed = data.filter(a => a.status === 1).length
-  alertStats.value.ignored = data.filter(a => a.status === 2).length
-  recentAlerts.value = data.slice(0, 5)
+  try {
+    const res = await axios.get('/api/v1/monitor/alerts', { headers: authHeaders() })
+    const data = res.data.data || []
+    alertStats.value.open = data.filter(a => a.status === 0).length
+    alertStats.value.closed = data.filter(a => a.status === 1).length
+    alertStats.value.ignored = data.filter(a => a.status === 2).length
+    recentAlerts.value = data.slice(0, 5)
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载告警汇总失败'))
+  }
 }
 
 const fetchAgents = async () => {
-  const res = await axios.get('/api/v1/monitor/agents', { headers: authHeaders() })
-  const data = res.data.data || []
-  agentStats.value.online = data.filter(a => a.status === 'online').length
-  agentStats.value.offline = data.filter(a => a.status !== 'online').length
+  try {
+    const res = await axios.get('/api/v1/monitor/agents', { headers: authHeaders() })
+    const data = res.data.data || []
+    agentStats.value.online = data.filter(a => a.status === 'online').length
+    agentStats.value.offline = data.filter(a => a.status !== 'online').length
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Agent 状态失败'))
+  }
 }
 
 const fetchHistory = async () => {
-  const res = await axios.get('/api/v1/monitor/metrics/history', {
-    headers: authHeaders(),
-    params: { hours: 1 }
-  })
-  const data = res.data.data || []
-  renderTrend(data)
+  try {
+    const res = await axios.get('/api/v1/monitor/metrics/history', {
+      headers: authHeaders(),
+      params: { hours: 1 }
+    })
+    const data = res.data.data || []
+    renderTrend(data)
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载趋势数据失败'))
+  }
 }
 
 const fetchProm = async (query) => {
@@ -138,6 +156,7 @@ const fetchTopNodes = async () => {
     topNodes.value = Object.values(map)
   } catch (e) {
     topNodes.value = []
+    ElMessage.error(getErrorMessage(e, '加载 Top 节点失败'))
   }
 }
 
