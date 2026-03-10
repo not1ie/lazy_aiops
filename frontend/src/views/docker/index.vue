@@ -2618,6 +2618,9 @@ const loadImages = async () => {
       selectedImages.value = []
       imageTableRef.value?.clearSelection?.()
     }
+  } catch (e) {
+    images.value = []
+    ElMessage.error(extractErrorMessage(e, '获取镜像列表失败'))
   } finally {
     imagesLoading.value = false
   }
@@ -2633,6 +2636,9 @@ const loadNetworks = async () => {
       selectedNetworks.value = []
       networkTableRef.value?.clearSelection?.()
     }
+  } catch (e) {
+    networks.value = []
+    ElMessage.error(extractErrorMessage(e, '获取网络列表失败'))
   } finally {
     networksLoading.value = false
   }
@@ -2666,6 +2672,8 @@ const loadNetworkUsage = async () => {
       networkUsage.value = res.data.data || []
       networkUsageVisible.value = true
     }
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e, '获取网络占用失败'))
   } finally {
     networkUsageLoading.value = false
   }
@@ -2711,6 +2719,9 @@ const loadEvents = async () => {
       const limit = eventFilters.limit || 200
       events.value = normalized.slice(0, limit)
     }
+  } catch (e) {
+    events.value = []
+    ElMessage.error(extractErrorMessage(e, '获取 Docker 事件失败'))
   } finally {
     eventsLoading.value = false
   }
@@ -2726,6 +2737,9 @@ const loadVolumes = async () => {
       selectedVolumes.value = []
       volumeTableRef.value?.clearSelection?.()
     }
+  } catch (e) {
+    volumes.value = []
+    ElMessage.error(extractErrorMessage(e, '获取卷列表失败'))
   } finally {
     volumesLoading.value = false
   }
@@ -2740,6 +2754,8 @@ const loadVolumeUsage = async () => {
       volumeUsage.value = res.data.data || []
       volumeUsageVisible.value = true
     }
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e, '获取卷占用失败'))
   } finally {
     volumeUsageLoading.value = false
   }
@@ -2755,6 +2771,9 @@ const loadSecrets = async () => {
       selectedSecrets.value = []
       secretTableRef.value?.clearSelection?.()
     }
+  } catch (e) {
+    secrets.value = []
+    ElMessage.error(extractErrorMessage(e, '获取 Secret 列表失败'))
   } finally {
     secretsLoading.value = false
   }
@@ -2770,6 +2789,9 @@ const loadConfigs = async () => {
       selectedConfigs.value = []
       configTableRef.value?.clearSelection?.()
     }
+  } catch (e) {
+    configs.value = []
+    ElMessage.error(extractErrorMessage(e, '获取 Config 列表失败'))
   } finally {
     configsLoading.value = false
   }
@@ -2783,6 +2805,9 @@ const loadNodes = async () => {
     if (res.data.code === 0) {
       nodes.value = res.data.data || []
     }
+  } catch (e) {
+    nodes.value = []
+    ElMessage.error(extractErrorMessage(e, '获取 Swarm 节点失败'))
   } finally {
     nodesLoading.value = false
   }
@@ -2798,6 +2823,9 @@ const loadRegistries = async () => {
     if (res.data.code === 0) {
       registries.value = res.data.data || []
     }
+  } catch (e) {
+    registries.value = []
+    ElMessage.error(extractErrorMessage(e, '获取镜像仓库配置失败'))
   } finally {
     registriesLoading.value = false
   }
@@ -2829,6 +2857,9 @@ const loadServices = async () => {
         }
       })
     }
+  } catch (e) {
+    services.value = []
+    ElMessage.error(extractErrorMessage(e, '获取服务列表失败'))
   } finally {
     servicesLoading.value = false
   }
@@ -2844,6 +2875,9 @@ const loadStacks = async () => {
       selectedStacks.value = []
       stackTableRef.value?.clearSelection?.()
     }
+  } catch (e) {
+    stacks.value = []
+    ElMessage.error(extractErrorMessage(e, '获取 Stack 列表失败'))
   } finally {
     stacksLoading.value = false
   }
@@ -3672,7 +3706,7 @@ const applyServiceScale = async (row) => {
       replicas
     }, { headers: authHeaders() })
     ElMessage.success('已提交扩缩容')
-    loadServices()
+    await loadServices()
   } catch (e) {
     ElMessage.error(extractErrorMessage(e))
   }
@@ -3731,7 +3765,7 @@ const scaleSelectedServices = async () => {
   } else {
     ElMessage.warning(`已调整 ${ok} 个，失败 ${fail} 个`)
   }
-  loadServices()
+  await loadServices()
 }
 
 const startSelectedContainers = async () => {
@@ -3770,7 +3804,7 @@ const startSelectedContainers = async () => {
   } else {
     ElMessage.warning(`已启动 ${ok} 个，失败 ${fail} 个`)
   }
-  loadContainers()
+  await loadContainers()
 }
 
 const stopSelectedContainers = async () => {
@@ -3809,7 +3843,7 @@ const stopSelectedContainers = async () => {
   } else {
     ElMessage.warning(`已停止 ${ok} 个，失败 ${fail} 个`)
   }
-  loadContainers()
+  await loadContainers()
 }
 
 const restartSelectedContainers = async () => {
@@ -3848,7 +3882,7 @@ const restartSelectedContainers = async () => {
   } else {
     ElMessage.warning(`已重启 ${ok} 个，失败 ${fail} 个`)
   }
-  loadContainers()
+  await loadContainers()
 }
 
 const removeSelectedContainers = async () => {
@@ -3887,8 +3921,8 @@ const removeSelectedContainers = async () => {
   } else {
     ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
   }
-  loadContainers()
-  refreshManage()
+  await loadContainers()
+  await refreshManage()
 }
 
 const removeSelectedNetworks = async () => {
@@ -3923,7 +3957,7 @@ const removeSelectedNetworks = async () => {
   } else {
     ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
   }
-  loadNetworks()
+  await loadNetworks()
 }
 
 const restartSelectedServices = async () => {
@@ -3964,7 +3998,7 @@ const restartSelectedServices = async () => {
   } else {
     ElMessage.warning(`已重启 ${ok} 个，失败 ${fail} 个`)
   }
-  loadServices()
+  await loadServices()
 }
 
 const removeSelectedStacks = async () => {
@@ -4004,8 +4038,8 @@ const removeSelectedStacks = async () => {
   } else {
     ElMessage.warning(`已删除 ${ok} 个，失败 ${fail} 个`)
   }
-  loadStacks()
-  loadServices()
+  await loadStacks()
+  await loadServices()
 }
 
 const removeStack = async (row) => {
@@ -4024,8 +4058,8 @@ const removeStack = async (row) => {
   try {
     await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/stacks/${encodeURIComponent(stackName)}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    loadStacks()
-    loadServices()
+    await loadStacks()
+    await loadServices()
   } catch (e) {
     ElMessage.error(extractErrorMessage(e))
   }
