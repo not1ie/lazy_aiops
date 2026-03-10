@@ -21,23 +21,66 @@
       />
     </div>
 
+    <div class="login-topbar">
+      <button class="theme-switch" type="button" @click="toggleTheme">
+        <el-icon><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon>
+        <span>{{ isDark ? '浅色模式' : '深色模式' }}</span>
+      </button>
+    </div>
+
     <div class="login-shell">
       <el-card class="login-card">
         <div class="login-header">
-          <div class="brand-mark">L</div>
+          <div class="brand-eyebrow">运维统一入口</div>
           <div class="brand-name">Lazy Auto Ops</div>
-          <p>统一接入资产、堡垒机与自动化能力</p>
+          <p>统一接入资产、堡垒机、自动化与智能诊断能力</p>
         </div>
-        <el-form :model="form" :rules="rules" ref="formRef" class="login-form">
+
+        <el-form ref="formRef" :model="form" :rules="rules" class="login-form" @keyup.enter="handleLogin">
           <el-form-item prop="username">
-            <el-input v-model="form.username" class="auth-input" placeholder="用户名" @input="loginError = ''" />
+            <el-input
+              ref="usernameRef"
+              v-model="form.username"
+              class="auth-input"
+              placeholder="用户名"
+              @input="loginError = ''"
+            />
           </el-form-item>
-          <el-form-item prop="password">
-            <el-input v-model="form.password" class="auth-input" type="password" placeholder="密码" @input="loginError = ''" @keyup.enter="handleLogin" />
+
+          <el-form-item prop="password" class="password-item">
+            <el-input
+              v-model="form.password"
+              class="auth-input"
+              :type="showPassword ? 'text' : 'password'"
+              placeholder="密码"
+              @input="loginError = ''"
+              @keydown="handlePasswordKeyState"
+              @keyup="handlePasswordKeyState"
+            >
+              <template #suffix>
+                <button class="password-visibility" type="button" @click="showPassword = !showPassword">
+                  {{ showPassword ? '隐藏' : '查看' }}
+                </button>
+              </template>
+            </el-input>
+            <div v-if="capsLockOn" class="caps-indicator">
+              <el-icon><WarningFilled /></el-icon>
+              <span>Caps Lock 已开启</span>
+            </div>
           </el-form-item>
-          <el-alert v-if="loginError" :title="loginError" type="error" show-icon :closable="false" class="login-error" />
+
+          <el-alert v-if="loginError" :title="loginError" type="error" :closable="false" class="login-error" />
+
           <el-form-item>
-            <el-button type="primary" :loading="loading" class="login-submit" @click="handleLogin">登录</el-button>
+            <el-button
+              type="primary"
+              :loading="loading"
+              :disabled="loading"
+              class="login-submit"
+              @click="handleLogin"
+            >
+              {{ loading ? '登录中...' : '登录' }}
+            </el-button>
           </el-form-item>
         </el-form>
       </el-card>
@@ -73,10 +116,15 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTheme } from '@/utils/theme'
 
 const router = useRouter()
+const { isDark, toggleTheme } = useTheme()
 const formRef = ref(null)
+const usernameRef = ref(null)
 const loading = ref(false)
+const showPassword = ref(false)
+const capsLockOn = ref(false)
 const changePwdVisible = ref(false)
 const changePwdRef = ref(null)
 const changePwdLoading = ref(false)
@@ -122,13 +170,13 @@ const changePwdRules = {
   ]
 }
 
-const createParticles = () => Array.from({ length: 42 }).map((_, index) => ({
+const createParticles = () => Array.from({ length: 34 }).map((_, index) => ({
   id: index + 1,
   left: Math.random() * 100,
   top: Math.random() * 100,
-  size: 2 + Math.random() * 3,
+  size: 1.5 + Math.random() * 3,
   delay: Math.random() * 6,
-  duration: 12 + Math.random() * 16
+  duration: 12 + Math.random() * 18
 }))
 
 const setLoginSession = (payload) => {
@@ -189,49 +237,6 @@ const submitChangePassword = async () => {
   })
 }
 
-const handleLogin = async () => {
-  if (!formRef.value) return
-  loginError.value = ''
-  await formRef.value.validate(async (valid) => {
-    if (valid) {
-      loading.value = true
-      try {
-        const res = await axios.post('/api/v1/login', form)
-        if (res.data.code === 0) {
-          loginError.value = ''
-          const payload = res.data.data || {}
-          setLoginSession(payload)
-          ElMessage.success('登录成功')
-          if (payload.must_change_password) {
-            pendingToken.value = payload.token || ''
-            pendingUserID.value = payload.user_info?.id || ''
-            loginPassword.value = form.password
-            changePwdVisible.value = true
-            return
-          }
-          if (payload.recommend_change_password) {
-            ElMessageBox.alert('当前使用的是默认管理员密码，建议立即修改密码以提升安全性。', '安全提示', {
-              confirmButtonText: '我知道了',
-              type: 'warning'
-            })
-          }
-          router.push('/')
-        } else {
-          loginError.value = parseLoginError(res.data.message, 401)
-          ElMessage.error(loginError.value)
-        }
-      } catch (e) {
-        const statusCode = Number(e?.response?.status || 0)
-        const msg = e?.response?.data?.message || e?.message || ''
-        loginError.value = parseLoginError(msg, statusCode, e?.code)
-        ElMessage.error(loginError.value)
-      } finally {
-        loading.value = false
-      }
-    }
-  })
-}
-
 const parseLoginError = (rawMessage, statusCode = 0, errorCode = '') => {
   const message = String(rawMessage || '').trim()
   const lower = message.toLowerCase()
@@ -239,18 +244,64 @@ const parseLoginError = (rawMessage, statusCode = 0, errorCode = '') => {
   if (errorCode === 'ECONNABORTED') return '请求超时，请稍后重试'
   if (!statusCode) return '网络错误：无法连接到服务端'
   if (statusCode >= 500) return '服务端异常，请稍后重试'
-
   if (lower.includes('用户不存在')) return '账号不存在，请检查用户名'
   if (lower.includes('密码错误')) return '密码错误，请重新输入'
   if (lower.includes('用户已被禁用')) return '账号已被禁用，请联系管理员'
   if (lower.includes('token')) return '登录态无效，请重新登录'
   if (lower.includes('参数错误')) return '登录参数错误，请检查输入'
-
   return message || '登录失败，请稍后重试'
 }
 
+const handlePasswordKeyState = (event) => {
+  capsLockOn.value = Boolean(event?.getModifierState?.('CapsLock'))
+}
+
+const handleLogin = async () => {
+  if (!formRef.value || loading.value) return
+  loginError.value = ''
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    loading.value = true
+    try {
+      const res = await axios.post('/api/v1/login', form)
+      if (res.data.code === 0) {
+        loginError.value = ''
+        const payload = res.data.data || {}
+        setLoginSession(payload)
+        ElMessage.success('登录成功')
+        if (payload.must_change_password) {
+          pendingToken.value = payload.token || ''
+          pendingUserID.value = payload.user_info?.id || ''
+          loginPassword.value = form.password
+          changePwdVisible.value = true
+          return
+        }
+        if (payload.recommend_change_password) {
+          await ElMessageBox.alert('当前使用的是默认管理员密码，建议立即修改密码以提升安全性。', '安全提示', {
+            confirmButtonText: '我知道了',
+            type: 'warning'
+          })
+        }
+        router.push('/')
+        return
+      }
+      loginError.value = parseLoginError(res.data.message, 401)
+      ElMessage.error(loginError.value)
+    } catch (e) {
+      const statusCode = Number(e?.response?.status || 0)
+      const msg = e?.response?.data?.message || e?.message || ''
+      loginError.value = parseLoginError(msg, statusCode, e?.code)
+      ElMessage.error(loginError.value)
+    } finally {
+      loading.value = false
+    }
+  })
+}
+
+
 onMounted(() => {
   particles.value = createParticles()
+  usernameRef.value?.focus?.()
 })
 </script>
 
@@ -262,51 +313,33 @@ onMounted(() => {
   justify-content: center;
   align-items: center;
   overflow: hidden;
+  padding: 32px 20px;
   background:
-    radial-gradient(circle at 12% 18%, rgba(132, 192, 255, 0.42), transparent 36%),
-    radial-gradient(circle at 84% 16%, rgba(255, 192, 140, 0.26), transparent 34%),
-    radial-gradient(circle at 72% 78%, rgba(190, 179, 255, 0.22), transparent 28%),
-    linear-gradient(180deg, #edf3fb 0%, #dfe8f4 48%, #d7e2ef 100%);
+    radial-gradient(circle at 12% 18%, rgba(118, 178, 255, 0.34), transparent 34%),
+    radial-gradient(circle at 88% 14%, rgba(255, 196, 144, 0.22), transparent 28%),
+    radial-gradient(circle at 72% 82%, rgba(162, 137, 255, 0.18), transparent 24%),
+    linear-gradient(180deg, rgba(244, 247, 252, 0.98) 0%, rgba(232, 238, 247, 0.98) 100%);
+}
+
+:global(html[data-theme='dark'] .login-container) {
+  background:
+    radial-gradient(circle at 16% 18%, rgba(61, 130, 255, 0.28), transparent 30%),
+    radial-gradient(circle at 86% 18%, rgba(111, 76, 255, 0.18), transparent 26%),
+    radial-gradient(circle at 72% 82%, rgba(32, 196, 255, 0.12), transparent 24%),
+    linear-gradient(180deg, rgba(7, 14, 28, 0.98) 0%, rgba(9, 18, 34, 0.98) 100%);
 }
 
 .backdrop-glow {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(70px);
+  border-radius: 999px;
+  filter: blur(88px);
   opacity: 0.72;
 }
 
-.glow-a {
-  width: 420px;
-  height: 420px;
-  left: -80px;
-  top: -40px;
-  background: radial-gradient(circle, rgba(112, 185, 255, 0.42), transparent 70%);
-}
-
-.glow-b {
-  width: 360px;
-  height: 360px;
-  right: 6%;
-  top: 4%;
-  background: radial-gradient(circle, rgba(255, 208, 161, 0.38), transparent 72%);
-}
-
-.glow-c {
-  width: 340px;
-  height: 340px;
-  left: 14%;
-  bottom: -80px;
-  background: radial-gradient(circle, rgba(154, 204, 255, 0.28), transparent 70%);
-}
-
-.glow-d {
-  width: 380px;
-  height: 380px;
-  right: 18%;
-  bottom: -120px;
-  background: radial-gradient(circle, rgba(182, 164, 255, 0.24), transparent 72%);
-}
+.glow-a { width: 440px; height: 440px; left: -80px; top: -40px; background: rgba(102, 172, 255, 0.34); }
+.glow-b { width: 320px; height: 320px; right: 10%; top: 8%; background: rgba(255, 206, 168, 0.24); }
+.glow-c { width: 280px; height: 280px; left: 16%; bottom: -70px; background: rgba(160, 209, 255, 0.24); }
+.glow-d { width: 360px; height: 360px; right: 14%; bottom: -110px; background: rgba(170, 150, 255, 0.2); }
 
 .particle-layer {
   position: absolute;
@@ -318,13 +351,38 @@ onMounted(() => {
   position: absolute;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.42);
-  filter: blur(0.4px);
-  animation-name: drift;
-  animation-iteration-count: infinite;
-  animation-timing-function: linear;
+  animation: drift linear infinite;
+}
+
+.login-topbar {
+  position: absolute;
+  inset: 24px 24px auto auto;
+  z-index: 4;
+}
+
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.42);
+  color: #0f172a;
+  font: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 48px rgba(104, 126, 156, 0.12);
+}
+
+:global(html[data-theme='dark'] .theme-switch) {
+  background: rgba(13, 24, 42, 0.62);
+  border-color: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
 }
 
 .login-shell {
+  position: relative;
   z-index: 3;
   width: min(460px, calc(100vw - 40px));
 }
@@ -332,14 +390,17 @@ onMounted(() => {
 .login-card {
   width: 100%;
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.36);
-  background: rgba(255, 255, 255, 0.5);
-  box-shadow:
-    0 40px 100px rgba(120, 142, 170, 0.18),
-    0 18px 48px rgba(110, 128, 152, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: 0 40px 120px rgba(112, 130, 157, 0.18);
   backdrop-filter: blur(26px) saturate(160%);
   -webkit-backdrop-filter: blur(26px) saturate(160%);
-  overflow: hidden;
+}
+
+:global(html[data-theme='dark'] .login-card) {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(11, 18, 32, 0.68);
+  box-shadow: 0 48px 120px rgba(2, 6, 23, 0.52);
 }
 
 .login-header {
@@ -350,41 +411,40 @@ onMounted(() => {
   padding: 8px 0 24px;
 }
 
-.brand-mark {
-  width: 54px;
-  height: 54px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.48);
-  border: 1px solid rgba(255, 255, 255, 0.52);
-  color: #0f172a;
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  box-shadow: 0 10px 30px rgba(120, 134, 151, 0.12);
+.brand-eyebrow {
+  margin-bottom: 16px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.54);
+  color: rgba(15, 23, 42, 0.72);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+:global(html[data-theme='dark'] .brand-eyebrow) {
+  background: rgba(30, 41, 59, 0.64);
+  color: rgba(226, 232, 240, 0.82);
 }
 
 .brand-name {
-  margin-top: 18px;
-  color: #101828;
-  font-size: 32px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  color: #111827;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
 }
 
-.login-header h2 {
-  margin: 0;
-  color: #12466f;
-  font-size: 28px;
-  letter-spacing: 0.4px;
+:global(html[data-theme='dark'] .brand-name) {
+  color: #f8fafc;
 }
+
 .login-header p {
   margin: 10px 0 0;
   font-size: 14px;
-  color: rgba(15, 23, 42, 0.62);
-  letter-spacing: -0.01em;
+  color: rgba(15, 23, 42, 0.58);
+}
+
+:global(html[data-theme='dark'] .login-header p) {
+  color: rgba(226, 232, 240, 0.7);
 }
 
 .login-form {
@@ -392,22 +452,22 @@ onMounted(() => {
 }
 
 .login-error {
-  margin: 2px 0 18px;
+  margin: 4px 0 18px;
 }
 
 .login-submit {
   width: 100%;
-  height: 52px;
+  height: 54px;
   border: none;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #0a84ff 0%, #0071e3 100%);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #2492ff 0%, #0a84ff 50%, #0071e3 100%);
   font-weight: 700;
   letter-spacing: 0.02em;
-  box-shadow: 0 10px 24px rgba(0, 113, 227, 0.22);
+  box-shadow: 0 16px 40px rgba(0, 113, 227, 0.26);
 }
 
 :deep(.login-card .el-card__body) {
-  padding: 34px 32px 30px;
+  padding: 36px 34px 32px;
 }
 
 :deep(.login-form .el-form-item) {
@@ -415,17 +475,20 @@ onMounted(() => {
 }
 
 :deep(.login-form .el-input__wrapper) {
-  min-height: 52px;
+  min-height: 54px;
   border-radius: 16px;
-  background: rgba(241, 245, 249, 0.84);
+  background: rgba(248, 250, 252, 0.86);
   box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12);
   padding: 0 16px;
 }
 
+:global(html[data-theme='dark'] .login-form .el-input__wrapper) {
+  background: rgba(15, 23, 42, 0.58);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+}
+
 :deep(.login-form .el-input__wrapper.is-focus) {
-  box-shadow:
-    inset 0 0 0 1px rgba(10, 132, 255, 0.32),
-    0 0 0 4px rgba(10, 132, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.36), 0 0 0 4px rgba(10, 132, 255, 0.08);
 }
 
 :deep(.login-form .el-input__inner) {
@@ -433,27 +496,57 @@ onMounted(() => {
   font-size: 15px;
 }
 
-:deep(.login-form .el-input__inner::placeholder) {
-  color: rgba(15, 23, 42, 0.42);
+:global(html[data-theme='dark'] .login-form .el-input__inner) {
+  color: #f8fafc;
 }
 
-:deep(.login-form .el-input__prefix),
-:deep(.login-form .el-input__suffix) {
+:deep(.login-form .el-input__inner::placeholder) {
+  color: rgba(15, 23, 42, 0.38);
+}
+
+:global(html[data-theme='dark'] .login-form .el-input__inner::placeholder) {
+  color: rgba(226, 232, 240, 0.44);
+}
+
+:deep(.login-form .el-input__prefix) {
   display: none;
 }
 
-@keyframes drift {
-  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.2; }
-  50% { transform: translate3d(0, -20px, 0); opacity: 0.55; }
+.password-item :deep(.el-form-item__content) {
+  display: block;
 }
 
-@media (max-width: 980px) {
-  .login-shell { width: min(460px, calc(100vw - 32px)); }
+.password-visibility {
+  border: none;
+  background: transparent;
+  color: #0a84ff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.caps-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: #d97706;
+  font-size: 12px;
+}
+
+:global(html[data-theme='dark'] .caps-indicator) {
+  color: #fbbf24;
+}
+
+@keyframes drift {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.18; }
+  50% { transform: translate3d(0, -22px, 0); opacity: 0.52; }
 }
 
 @media (max-width: 640px) {
+  .login-topbar { inset: 18px 18px auto auto; }
   .login-shell { width: calc(100vw - 24px); }
-  :deep(.login-card .el-card__body) { padding: 26px 22px 22px; }
-  .brand-name { font-size: 28px; }
+  :deep(.login-card .el-card__body) { padding: 28px 22px 24px; }
+  .brand-name { font-size: 32px; }
 }
 </style>

@@ -12,16 +12,19 @@
 
     <el-tabs v-model="activeTab">
       <el-tab-pane label="智能问答" name="chat">
-        <el-row :gutter="12">
-          <el-col :md="7" :sm="24">
-            <el-card class="h-full">
+        <div class="chat-workspace">
+          <div class="chat-sidebar">
+            <el-card class="chat-panel chat-session-panel h-full">
               <template #header>
                 <div class="section-header">
-                  <span>会话列表</span>
+                  <div>
+                    <div class="section-title">会话列表</div>
+                    <div class="section-meta">保留最近的智能问答上下文</div>
+                  </div>
                   <el-button size="small" icon="Plus" @click="startNewSession">新建</el-button>
                 </div>
               </template>
-              <el-scrollbar max-height="520px">
+              <el-scrollbar max-height="620px">
                 <div
                   v-for="item in sessions"
                   :key="item.id"
@@ -29,32 +32,67 @@
                   :class="{ active: item.id === activeSessionId }"
                   @click="selectSession(item)"
                 >
-                  <div class="session-title">{{ item.title || '未命名会话' }}</div>
+                  <div class="session-header-row">
+                    <div class="session-title">{{ item.title || '未命名会话' }}</div>
+                    <el-button link type="danger" size="small" @click.stop="removeSession(item)">删除</el-button>
+                  </div>
                   <div class="session-time">{{ formatTime(item.updated_at) }}</div>
-                  <el-button link type="danger" @click.stop="removeSession(item)">删除</el-button>
                 </div>
               </el-scrollbar>
             </el-card>
-          </el-col>
-          <el-col :md="17" :sm="24">
-            <el-card class="h-full">
+          </div>
+
+          <div class="chat-main">
+            <el-card class="chat-panel h-full">
               <template #header>
                 <div class="section-header">
-                  <span>对话窗口</span>
-                  <span class="muted">{{ activeSessionTitle }}</span>
+                  <div>
+                    <div class="section-title">对话窗口</div>
+                    <div class="section-meta">{{ activeSessionTitle }}</div>
+                  </div>
+                  <el-button size="small" icon="Plus" plain @click="startNewSession">新会话</el-button>
                 </div>
               </template>
 
-              <el-scrollbar max-height="430px" class="chat-area">
-                <el-empty v-if="!messages.length" description="输入问题开始对话" :image-size="80" />
-                <div v-for="msg in messages" :key="msg.id" class="msg" :class="msg.role === 'user' ? 'msg-user' : 'msg-ai'">
-                  <div class="msg-role">{{ msg.role === 'user' ? '我' : 'AI' }}</div>
-                  <div class="msg-content">{{ msg.content }}</div>
-                  <div class="msg-time">{{ formatTime(msg.created_at) }}</div>
+              <el-scrollbar ref="chatScrollRef" max-height="500px" class="chat-area">
+                <el-empty v-if="!messages.length && !chatting" description="输入问题开始对话" :image-size="80" />
+                <div class="chat-stream">
+                  <div v-for="msg in messages" :key="msg.id" class="msg-shell" :class="msg.role === 'user' ? 'role-user' : 'role-ai'">
+                    <div class="msg-bubble">
+                      <div class="msg-meta">
+                        <span class="msg-role">{{ msg.role === 'user' ? '我' : 'AI 助手' }}</span>
+                        <span class="msg-time">{{ formatTime(msg.created_at) }}</span>
+                      </div>
+                      <div class="msg-content">{{ msg.content }}</div>
+                      <div class="msg-actions">
+                        <el-button link size="small" icon="DocumentCopy" @click="copyMessage(msg.content)">复制</el-button>
+                        <el-button
+                          v-if="msg.role === 'user'"
+                          link
+                          size="small"
+                          icon="EditPen"
+                          @click="reuseMessage(msg.content)"
+                        >
+                          再次编辑
+                        </el-button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="chatting" class="msg-shell role-ai">
+                    <div class="msg-bubble pending-bubble">
+                      <div class="msg-meta">
+                        <span class="msg-role">AI 助手</span>
+                        <span class="msg-time">正在响应</span>
+                      </div>
+                      <div class="msg-content pending-content">正在整理回复，请稍候…</div>
+                      <div class="msg-progress">{{ chatProgressText }}</div>
+                    </div>
+                  </div>
                 </div>
               </el-scrollbar>
 
-              <div class="chat-input">
+              <div class="chat-input-shell">
                 <div class="quick-prompts">
                   <span class="muted">快捷提问：</span>
                   <el-tag
@@ -75,19 +113,25 @@
                   <el-button size="small" plain @click="applyRunbookTemplate">生成排障 Runbook 提示词</el-button>
                 </div>
                 <el-input
+                  ref="chatInputRef"
                   v-model="chatInput"
                   type="textarea"
-                  :rows="3"
-                  placeholder="请输入你的问题，例如：如何排查某服务CPU持续过高？"
+                  :rows="4"
+                  resize="none"
+                  placeholder="请输入你的问题，例如：如何排查某服务 CPU 持续过高？"
+                  @keydown.enter.exact.prevent="sendChat"
                 />
                 <el-input v-model="chatContext" placeholder="上下文（可选）" class="mt-8" />
-                <div class="actions-right mt-8">
-                  <el-button type="primary" :loading="chatting" @click="sendChat">发送</el-button>
+                <div class="composer-footer mt-8">
+                  <div class="muted">Enter 发送，Shift + Enter 换行</div>
+                  <div class="actions-right">
+                    <el-button type="primary" :loading="chatting" :disabled="chatting" @click="sendChat">{{ chatting ? '处理中...' : '发送' }}</el-button>
+                  </div>
                 </div>
               </div>
             </el-card>
-          </el-col>
-        </el-row>
+          </div>
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="日志分析" name="analyze">
@@ -405,7 +449,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
@@ -420,6 +464,8 @@ const pullingLogs = ref(false)
 const sessions = ref([])
 const activeSessionId = ref('')
 const messages = ref([])
+const chatInputRef = ref(null)
+const chatScrollRef = ref(null)
 const chatInput = ref('')
 const chatContext = ref('')
 const dockerHosts = ref([])
@@ -436,6 +482,7 @@ const chatQuickPrompts = [
   '给出可直接执行的检查命令清单'
 ]
 const chatRunbookTemplate = ref('k8s_crashloop')
+const chatProgressText = ref('等待发送请求')
 const runbookTemplates = [
   { value: 'k8s_crashloop', label: 'K8s CrashLoopBackOff' },
   { value: 'k8s_notready', label: 'K8s Pod NotReady' },
@@ -497,6 +544,57 @@ const formatTime = (value) => {
   return date.toLocaleString()
 }
 
+const progressPhases = [
+  '已提交请求，正在构建上下文',
+  '上下文已准备，正在调用大模型',
+  '模型已返回，正在整理最终回复'
+]
+let progressTimer = null
+
+const startChatProgress = () => {
+  let phaseIndex = 0
+  const startedAt = Date.now()
+  chatProgressText.value = progressPhases[phaseIndex]
+  clearInterval(progressTimer)
+  progressTimer = window.setInterval(() => {
+    phaseIndex = Math.min(phaseIndex + 1, progressPhases.length - 1)
+    const elapsed = Math.max(1, Math.floor((Date.now() - startedAt) / 1000))
+    chatProgressText.value = `${progressPhases[phaseIndex]} · 已等待 ${elapsed}s`
+  }, 1400)
+}
+
+const stopChatProgress = () => {
+  clearInterval(progressTimer)
+  progressTimer = null
+  chatProgressText.value = '等待发送请求'
+}
+
+const scrollChatToBottom = async () => {
+  await nextTick()
+  const scrollbar = chatScrollRef.value
+  scrollbar?.setScrollTop?.(10 ** 8)
+}
+
+const focusChatInput = async () => {
+  await nextTick()
+  chatInputRef.value?.focus?.()
+}
+
+const copyMessage = async (content) => {
+  try {
+    await navigator.clipboard.writeText(String(content || ''))
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请检查浏览器权限')
+  }
+}
+
+const reuseMessage = async (content) => {
+  chatInput.value = String(content || '')
+  await focusChatInput()
+  ElMessage.success('已将内容放回输入框')
+}
+
 const fetchSessions = async () => {
   try {
     const res = await axios.get('/api/v1/ai/sessions', { headers: authHeaders() })
@@ -534,6 +632,7 @@ const fetchMessages = async () => {
 const selectSession = async (item) => {
   activeSessionId.value = item.id
   await fetchMessages()
+  await scrollChatToBottom()
 }
 
 const startNewSession = async () => {
@@ -545,6 +644,8 @@ const startNewSession = async () => {
       chatContext.value = ''
       await fetchSessions()
       await fetchMessages()
+      await scrollChatToBottom()
+      await focusChatInput()
       return
     }
   } catch (err) {
@@ -579,6 +680,8 @@ const sendChat = async () => {
   }
 
   chatting.value = true
+  startChatProgress()
+  await scrollChatToBottom()
   try {
     const res = await axios.post('/api/v1/ai/chat', {
       session_id: activeSessionId.value || '',
@@ -591,11 +694,14 @@ const sendChat = async () => {
       chatInput.value = ''
       await fetchSessions()
       await fetchMessages()
+      await scrollChatToBottom()
+      await focusChatInput()
     }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '发送失败'))
   } finally {
     chatting.value = false
+    stopChatProgress()
   }
 }
 
@@ -1123,6 +1229,7 @@ const refreshAll = async () => {
   await Promise.all([fetchSessions(), fetchHistory(), fetchConfigs(), fetchDockerHosts(), fetchK8sClusters()])
   await loadAnalyzeTargets()
   await fetchMessages()
+  await scrollChatToBottom()
 }
 
 watch(() => analyzeForm.sourceType, async () => {
@@ -1133,36 +1240,115 @@ watch(() => analyzeForm.sourceType, async () => {
 })
 
 onMounted(refreshAll)
+
+onBeforeUnmount(() => {
+  stopChatProgress()
+})
 </script>
 
 <style scoped>
 .page-card { max-width: 100%; margin: 0; }
 .page-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
-.page-desc { color: #909399; margin: 4px 0 0; }
+.page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; align-items: center; gap: 8px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.section-title { font-size: 15px; font-weight: 700; }
+.section-meta { color: var(--muted-text); font-size: 12px; margin-top: 4px; }
 .h-full { height: 100%; }
-.session-item { border: 1px solid #ebeef5; border-radius: 6px; padding: 8px; margin-bottom: 8px; cursor: pointer; }
-.session-item.active { border-color: #409eff; background: #ecf5ff; }
-.session-title { font-weight: 600; font-size: 13px; }
-.session-time { color: #909399; font-size: 12px; margin-top: 4px; margin-bottom: 4px; }
-.chat-area { border: 1px solid #ebeef5; border-radius: 6px; padding: 8px; }
-.msg { margin-bottom: 10px; padding: 8px 10px; border-radius: 6px; }
-.msg-user { background: #ecf5ff; }
-.msg-ai { background: #f5f7fa; }
-.msg-role { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
-.msg-content { white-space: pre-wrap; line-height: 1.5; }
-.msg-time { color: #909399; font-size: 12px; margin-top: 4px; }
-.chat-input { margin-top: 12px; }
-.quick-prompts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.chat-workspace { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; }
+.chat-panel { background: var(--card-bg); }
+.chat-session-panel :deep(.el-card__body) { padding-top: 14px; }
+.session-item {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 16px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.4);
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+.session-item:hover { transform: translateY(-1px); }
+.session-item.active {
+  border-color: rgba(10, 132, 255, 0.4);
+  background: rgba(10, 132, 255, 0.08);
+  box-shadow: 0 12px 28px rgba(10, 132, 255, 0.08);
+}
+.session-header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.session-title { font-weight: 700; font-size: 14px; }
+.session-time { color: var(--muted-text); font-size: 12px; margin-top: 8px; }
+.chat-area {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 20px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.32);
+}
+.chat-stream { display: flex; flex-direction: column; gap: 14px; }
+.msg-shell { display: flex; }
+.role-user { justify-content: flex-end; }
+.role-ai { justify-content: flex-start; }
+.msg-bubble {
+  max-width: min(78%, 860px);
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--el-border-color-light);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+}
+.role-user .msg-bubble {
+  background: linear-gradient(180deg, rgba(36, 146, 255, 0.18) 0%, rgba(36, 146, 255, 0.1) 100%);
+  border-top-right-radius: 8px;
+}
+.role-ai .msg-bubble {
+  border-top-left-radius: 8px;
+}
+.pending-bubble {
+  border-style: dashed;
+}
+.msg-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.msg-role { font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
+.msg-content { white-space: pre-wrap; line-height: 1.75; font-size: 14px; }
+.msg-time { color: var(--muted-text); font-size: 12px; }
+.msg-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.msg-progress { color: var(--muted-text); font-size: 12px; margin-top: 8px; }
+.pending-content { color: var(--el-text-color-secondary); }
+.chat-input-shell {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid var(--el-border-color-light);
+  background: rgba(255, 255, 255, 0.44);
+}
+.quick-prompts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .prompt-tag { cursor: pointer; border-radius: 999px; }
-.runbook-assist { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.runbook-assist { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .runbook-select { min-width: 240px; }
+.composer-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .actions-right { display: flex; justify-content: flex-end; }
 .log-source-row { display: flex; width: 100%; gap: 8px; align-items: center; }
 .prom-switch { display: flex; align-items: center; gap: 8px; }
-.muted { color: #909399; font-size: 12px; }
+.muted { color: var(--muted-text); font-size: 12px; }
 .mt-8 { margin-top: 8px; }
 .mt-12 { margin-top: 12px; }
 .mb-12 { margin-bottom: 12px; }
+
+:global(html[data-theme='dark'] .session-item),
+:global(html[data-theme='dark'] .chat-area),
+:global(html[data-theme='dark'] .chat-input-shell),
+:global(html[data-theme='dark'] .msg-bubble) {
+  background: rgba(15, 23, 42, 0.58);
+}
+
+:global(html[data-theme='dark'] .role-user .msg-bubble) {
+  background: linear-gradient(180deg, rgba(36, 146, 255, 0.2) 0%, rgba(36, 146, 255, 0.12) 100%);
+}
+
+@media (max-width: 1200px) {
+  .chat-workspace { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+  .msg-bubble { max-width: 100%; }
+  .composer-footer { flex-direction: column; align-items: stretch; }
+  .runbook-select { min-width: 100%; }
+}
 </style>
