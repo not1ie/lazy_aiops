@@ -143,6 +143,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -178,10 +179,14 @@ const fetchClusters = async () => {
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
-  if (!namespace.value && namespaces.value.length > 0) {
-    namespace.value = namespaces.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+    if (!namespace.value && namespaces.value.length > 0) {
+      namespace.value = namespaces.value[0].name
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
   }
 }
 
@@ -193,6 +198,8 @@ const fetchPods = async () => {
       headers: authHeaders()
     })
     pods.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取 Pods 失败'))
   } finally {
     loading.value = false
   }
@@ -305,55 +312,75 @@ const openOwnerWorkload = (row) => {
 
 const fetchLogs = async () => {
   if (!logPod.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${logPod.value.namespace}/pods/${logPod.value.name}/logs`, {
-    headers: authHeaders(),
-    params: { container: logContainer.value, tail: logTail.value }
-  })
-  logText.value = res.data.data || ''
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${logPod.value.namespace}/pods/${logPod.value.name}/logs`, {
+      headers: authHeaders(),
+      params: { container: logContainer.value, tail: logTail.value }
+    })
+    logText.value = res.data.data || ''
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取日志失败'))
+  }
 }
 
 const deletePod = async (row) => {
-  await ElMessageBox.confirm(`确认删除 Pod ${row.name} 吗？`, '提示', { type: 'warning' })
-  await axios.delete(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}`, {
-    headers: authHeaders()
-  })
-  ElMessage.success('删除成功')
-  fetchPods()
+  try {
+    await ElMessageBox.confirm(`确认删除 Pod ${row.name} 吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}`, {
+      headers: authHeaders()
+    })
+    ElMessage.success('删除成功')
+    await fetchPods()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除 Pod 失败'))
+  }
 }
 
 const restartPod = async (row) => {
-  await ElMessageBox.confirm(`确认重启 Pod ${row.name} 吗？`, '提示', { type: 'warning' })
-  await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}/restart`, {}, {
-    headers: authHeaders()
-  })
-  ElMessage.success('已触发重启')
-  fetchPods()
+  try {
+    await ElMessageBox.confirm(`确认重启 Pod ${row.name} 吗？`, '提示', { type: 'warning' })
+    await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}/restart`, {}, {
+      headers: authHeaders()
+    })
+    ElMessage.success('已触发重启')
+    await fetchPods()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '重启 Pod 失败'))
+  }
 }
 
 const batchDelete = async () => {
   if (selectedRows.value.length === 0) return
-  await ElMessageBox.confirm(`确认删除选中的 ${selectedRows.value.length} 个 Pod 吗？`, '提示', { type: 'warning' })
-  for (const row of selectedRows.value) {
-    await axios.delete(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}`, {
-      headers: authHeaders()
-    })
+  try {
+    await ElMessageBox.confirm(`确认删除选中的 ${selectedRows.value.length} 个 Pod 吗？`, '提示', { type: 'warning' })
+    for (const row of selectedRows.value) {
+      await axios.delete(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}`, {
+        headers: authHeaders()
+      })
+    }
+    ElMessage.success('批量删除成功')
+    selectedRows.value = []
+    await fetchPods()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '批量删除 Pod 失败'))
   }
-  ElMessage.success('批量删除成功')
-  selectedRows.value = []
-  fetchPods()
 }
 
 const batchRestart = async () => {
   if (selectedRows.value.length === 0) return
-  await ElMessageBox.confirm(`确认重启选中的 ${selectedRows.value.length} 个 Pod 吗？`, '提示', { type: 'warning' })
-  for (const row of selectedRows.value) {
-    await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}/restart`, {}, {
-      headers: authHeaders()
-    })
+  try {
+    await ElMessageBox.confirm(`确认重启选中的 ${selectedRows.value.length} 个 Pod 吗？`, '提示', { type: 'warning' })
+    for (const row of selectedRows.value) {
+      await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods/${row.name}/restart`, {}, {
+        headers: authHeaders()
+      })
+    }
+    ElMessage.success('批量重启已触发')
+    selectedRows.value = []
+    await fetchPods()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '批量重启 Pod 失败'))
   }
-  ElMessage.success('批量重启已触发')
-  selectedRows.value = []
-  fetchPods()
 }
 
 const exportCSV = () => {

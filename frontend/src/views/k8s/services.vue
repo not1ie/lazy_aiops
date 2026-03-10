@@ -93,6 +93,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -116,19 +118,27 @@ const fetchClusters = async () => {
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
+  }
 }
 
 const fetchData = async () => {
   if (!clusterId.value) return
   const params = { namespace: namespace.value || '' }
-  const [svcRes, ingRes] = await Promise.all([
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/services`, { headers: authHeaders(), params }),
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/ingresses`, { headers: authHeaders(), params })
-  ])
-  services.value = svcRes.data.data || []
-  ingresses.value = ingRes.data.data || []
+  try {
+    const [svcRes, ingRes] = await Promise.all([
+      axios.get(`/api/v1/k8s/clusters/${clusterId.value}/services`, { headers: authHeaders(), params }),
+      axios.get(`/api/v1/k8s/clusters/${clusterId.value}/ingresses`, { headers: authHeaders(), params })
+    ])
+    services.value = svcRes.data.data || []
+    ingresses.value = ingRes.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取服务与 Ingress 失败'))
+  }
 }
 
 const handleClusterChange = async () => {

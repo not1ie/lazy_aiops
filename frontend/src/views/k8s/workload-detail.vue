@@ -197,6 +197,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -312,36 +313,48 @@ const fetchClusters = async () => {
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
-  if (!namespace.value && namespaces.value.length > 0) {
-    namespace.value = namespaces.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+    if (!namespace.value && namespaces.value.length > 0) {
+      namespace.value = namespaces.value[0].name
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
   }
 }
 
 const fetchWorkloadList = async () => {
   if (!clusterId.value || !namespace.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/workloads`, {
-    headers: authHeaders(),
-    params: { namespace: namespace.value }
-  })
-  workloadList.value = (res.data.data || []).filter(w => w.kind === kind.value)
-  if (!name.value && workloadList.value.length > 0) {
-    name.value = workloadList.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/workloads`, {
+      headers: authHeaders(),
+      params: { namespace: namespace.value }
+    })
+    workloadList.value = (res.data.data || []).filter(w => w.kind === kind.value)
+    if (!name.value && workloadList.value.length > 0) {
+      name.value = workloadList.value[0].name
+    }
+    await fetchWorkloadDetail()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取工作负载列表失败'))
   }
-  await fetchWorkloadDetail()
 }
 
 const fetchWorkloadDetail = async () => {
   if (!clusterId.value || !namespace.value || !name.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}`, {
-    headers: authHeaders()
-  })
-  workload.value = res.data.data || {}
-  if (typeof workload.value.replicas === 'number') {
-    targetReplicas.value = workload.value.replicas
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}`, {
+      headers: authHeaders()
+    })
+    workload.value = res.data.data || {}
+    if (typeof workload.value.replicas === 'number') {
+      targetReplicas.value = workload.value.replicas
+    }
+    await fetchPodsBySelector()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取工作负载详情失败'))
   }
-  await fetchPodsBySelector()
 }
 
 const fetchPodsBySelector = async () => {
@@ -353,14 +366,18 @@ const fetchPodsBySelector = async () => {
     events.value = []
     return
   }
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods`, {
-    headers: authHeaders(),
-    params: { selector: selectorStr }
-  })
-  pods.value = res.data.data || []
-  if (!logPod.value && pods.value.length > 0) {
-    logPod.value = pods.value[0].name
-    handleLogPodChange()
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods`, {
+      headers: authHeaders(),
+      params: { selector: selectorStr }
+    })
+    pods.value = res.data.data || []
+    if (!logPod.value && pods.value.length > 0) {
+      logPod.value = pods.value[0].name
+      handleLogPodChange()
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取关联 Pods 失败'))
   }
 }
 
@@ -392,25 +409,29 @@ const statusType = (status) => {
 
 const fetchEvents = async () => {
   if (!clusterId.value || !namespace.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/events`, {
-    headers: authHeaders(),
-    params: { namespace: namespace.value }
-  })
-  const raw = res.data.data || []
-  const podNames = new Set(pods.value.map(p => p.name))
-  events.value = raw.filter((e) => {
-    const involved = e.involved_object || ''
-    const hasPod = Array.from(podNames).some((p) => involved.includes(p))
-    if (!hasPod) return false
-    if (eventType.value && e.type !== eventType.value) return false
-    if (eventKeyword.value) {
-      const keyword = eventKeyword.value.toLowerCase()
-      const reason = (e.reason || '').toLowerCase()
-      const message = (e.message || '').toLowerCase()
-      if (!reason.includes(keyword) && !message.includes(keyword)) return false
-    }
-    return true
-  })
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/events`, {
+      headers: authHeaders(),
+      params: { namespace: namespace.value }
+    })
+    const raw = res.data.data || []
+    const podNames = new Set(pods.value.map(p => p.name))
+    events.value = raw.filter((e) => {
+      const involved = e.involved_object || ''
+      const hasPod = Array.from(podNames).some((p) => involved.includes(p))
+      if (!hasPod) return false
+      if (eventType.value && e.type !== eventType.value) return false
+      if (eventKeyword.value) {
+        const keyword = eventKeyword.value.toLowerCase()
+        const reason = (e.reason || '').toLowerCase()
+        const message = (e.message || '').toLowerCase()
+        if (!reason.includes(keyword) && !message.includes(keyword)) return false
+      }
+      return true
+    })
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取事件失败'))
+  }
 }
 
 const handleLogPodChange = () => {
@@ -423,22 +444,30 @@ const handleLogPodChange = () => {
 
 const fetchLogs = async () => {
   if (!clusterId.value || !namespace.value || !logPod.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${logPod.value}/logs`, {
-    headers: authHeaders(),
-    params: { container: logContainer.value, tail: logTail.value }
-  })
-  logText.value = res.data.data || ''
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${logPod.value}/logs`, {
+      headers: authHeaders(),
+      params: { container: logContainer.value, tail: logTail.value }
+    })
+    logText.value = res.data.data || ''
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取日志失败'))
+  }
 }
 
 const fetchManifest = async () => {
   if (!clusterId.value || !namespace.value || !name.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/manifest`, {
-    headers: authHeaders(),
-    params: { format: manifestFormat.value }
-  })
-  manifestText.value = res.data?.data?.content || ''
-  manifestOriginal.value = manifestText.value
-  manifestEditable.value = false
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/manifest`, {
+      headers: authHeaders(),
+      params: { format: manifestFormat.value }
+    })
+    manifestText.value = res.data?.data?.content || ''
+    manifestOriginal.value = manifestText.value
+    manifestEditable.value = false
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取清单失败'))
+  }
 }
 
 const copyManifest = async () => {
@@ -470,15 +499,19 @@ const openApplyDialog = () => {
 }
 
 const applyManifest = async () => {
-  await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/manifest/apply`, {
-    format: manifestFormat.value,
-    content: manifestText.value
-  }, { headers: authHeaders() })
-  ElMessage.success('已应用变更')
-  applyVisible.value = false
-  manifestEditable.value = false
-  await fetchManifest()
-  await fetchWorkloadDetail()
+  try {
+    await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/manifest/apply`, {
+      format: manifestFormat.value,
+      content: manifestText.value
+    }, { headers: authHeaders() })
+    ElMessage.success('已应用变更')
+    applyVisible.value = false
+    manifestEditable.value = false
+    await fetchManifest()
+    await fetchWorkloadDetail()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '应用变更失败'))
+  }
 }
 
 const downloadDiff = () => {
@@ -567,20 +600,28 @@ const backtrackDiff = (trace, a, b, max) => {
 
 const scaleWorkload = async () => {
   if (!clusterId.value || !namespace.value || !name.value) return
-  await axios.put(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/scale`, {
-    replicas: targetReplicas.value
-  }, { headers: authHeaders() })
-  ElMessage.success('扩缩容成功')
-  await fetchWorkloadDetail()
+  try {
+    await axios.put(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/scale`, {
+      replicas: targetReplicas.value
+    }, { headers: authHeaders() })
+    ElMessage.success('扩缩容成功')
+    await fetchWorkloadDetail()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '扩缩容失败'))
+  }
 }
 
 const restartWorkload = async () => {
   if (!clusterId.value || !namespace.value || !name.value) return
-  await ElMessageBox.confirm('确认执行滚动重启吗？', '提示', { type: 'warning' })
-  await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/restart`, {}, {
-    headers: authHeaders()
-  })
-  ElMessage.success('已触发滚动重启')
+  try {
+    await ElMessageBox.confirm('确认执行滚动重启吗？', '提示', { type: 'warning' })
+    await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/workloads/${kind.value}/${name.value}/restart`, {}, {
+      headers: authHeaders()
+    })
+    ElMessage.success('已触发滚动重启')
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '滚动重启失败'))
+  }
 }
 
 const handleClusterChange = async () => {
