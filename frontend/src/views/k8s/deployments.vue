@@ -146,6 +146,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -199,10 +200,14 @@ const fetchClusters = async () => {
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
-  if (!namespace.value && namespaces.value.length) {
-    namespace.value = namespaces.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+    if (!namespace.value && namespaces.value.length) {
+      namespace.value = namespaces.value[0].name
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
   }
 }
 
@@ -216,7 +221,7 @@ const fetchDeployments = async () => {
     })
     deployments.value = (res.data.data || []).filter((item) => item.kind === 'Deployment')
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取 Deployment 失败')
+    ElMessage.error(getErrorMessage(err, '获取 Deployment 失败'))
   } finally {
     loading.value = false
   }
@@ -304,7 +309,7 @@ const scaleDeployment = async (row) => {
     ElMessage.success('扩缩容已提交')
     await fetchDeployments()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '扩缩容失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '扩缩容失败'))
   }
 }
 
@@ -317,7 +322,7 @@ const restartDeployment = async (row) => {
     ElMessage.success('已触发滚动重启')
     await fetchDeployments()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '重启失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '重启失败'))
   }
 }
 
@@ -330,7 +335,7 @@ const deleteDeployment = async (row) => {
     ElMessage.success('删除成功')
     await fetchDeployments()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -380,7 +385,7 @@ const createDeployment = async () => {
     namespace.value = form.namespace
     await fetchDeployments()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建失败')
+    ElMessage.error(getErrorMessage(err, '创建失败'))
   } finally {
     creating.value = false
   }

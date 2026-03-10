@@ -75,6 +75,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -98,8 +99,12 @@ const fetchClusters = async () => {
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
+  }
 }
 
 const fetchWorkloads = async () => {
@@ -111,6 +116,8 @@ const fetchWorkloads = async () => {
       params: { namespace }
     })
     workloads.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取工作负载失败'))
   } finally {
     loading.value = false
   }
@@ -196,18 +203,24 @@ const scaleWorkload = async (row) => {
       replicas: Number(value)
     }, { headers: authHeaders() })
     ElMessage.success('已提交扩缩容')
-    fetchWorkloads()
-  } catch (e) {}
+    await fetchWorkloads()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '扩缩容失败'))
+  }
 }
 
 const restartWorkload = async (row) => {
   if (!row) return
-  await ElMessageBox.confirm('确认执行滚动重启吗？', '提示', { type: 'warning' })
-  await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/workloads/${row.kind}/${row.name}/restart`, {}, {
-    headers: authHeaders()
-  })
-  ElMessage.success('已触发滚动重启')
-  fetchWorkloads()
+  try {
+    await ElMessageBox.confirm('确认执行滚动重启吗？', '提示', { type: 'warning' })
+    await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/workloads/${row.kind}/${row.name}/restart`, {}, {
+      headers: authHeaders()
+    })
+    ElMessage.success('已触发滚动重启')
+    await fetchWorkloads()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '重启失败'))
+  }
 }
 
 const exportCSV = () => {

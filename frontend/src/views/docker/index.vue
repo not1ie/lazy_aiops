@@ -5086,8 +5086,12 @@ const scaleService = async (row) => {
       replicas: Number(value)
     }, { headers: authHeaders() })
     ElMessage.success('已提交扩缩容')
-    loadServices()
-  } catch (e) {}
+    await loadServices()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e !== 'abort') {
+      ElMessage.error(extractErrorMessage(e, '扩缩容失败'))
+    }
+  }
 }
 
 const updateServiceImage = async (row) => {
@@ -5103,8 +5107,12 @@ const updateServiceImage = async (row) => {
       image: value
     }, { headers: authHeaders() })
     ElMessage.success('已提交镜像更新')
-    loadServices()
-  } catch (e) {}
+    await loadServices()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e !== 'abort') {
+      ElMessage.error(extractErrorMessage(e, '更新镜像失败'))
+    }
+  }
 }
 
 const restartService = async (row) => {
@@ -5113,8 +5121,12 @@ const restartService = async (row) => {
     await ElMessageBox.confirm('确认滚动重启该服务吗？', '提示', { type: 'warning' })
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/restart`, {}, { headers: authHeaders() })
     ElMessage.success('已触发重启')
-    loadServices()
-  } catch (e) {}
+    await loadServices()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e !== 'abort') {
+      ElMessage.error(extractErrorMessage(e, '重启服务失败'))
+    }
+  }
 }
 
 const rollbackService = async (row) => {
@@ -5123,8 +5135,12 @@ const rollbackService = async (row) => {
     await ElMessageBox.confirm('确认回滚该服务到上一个版本吗？', '提示', { type: 'warning' })
     await axios.post(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}/rollback`, {}, { headers: authHeaders() })
     ElMessage.success('已触发回滚')
-    loadServices()
-  } catch (e) {}
+    await loadServices()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e !== 'abort') {
+      ElMessage.error(extractErrorMessage(e, '回滚服务失败'))
+    }
+  }
 }
 
 const removeService = async (row) => {
@@ -5133,8 +5149,12 @@ const removeService = async (row) => {
     await ElMessageBox.confirm(`确认删除服务 ${row.Name || row.ID} 吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(row.ID)}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    loadServices()
-  } catch (e) {}
+    await loadServices()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e !== 'abort') {
+      ElMessage.error(extractErrorMessage(e, '删除服务失败'))
+    }
+  }
 }
 
 const removeSelectedServices = async () => {
@@ -5153,11 +5173,18 @@ const removeSelectedServices = async () => {
       try {
         await axios.delete(`/api/v1/docker/hosts/${activeHost.value.id}/services/${encodeURIComponent(id)}`, { headers: authHeaders() })
         ok += 1
-      } catch (e) {}
+      } catch (e) {
+        console.warn('remove service failed', id, e)
+      }
     }
-    ElMessage.success(`已删除 ${ok} 个服务`)
-    loadServices()
-  } catch (e) {}
+    if (ok === rows.length) ElMessage.success(`已删除 ${ok} 个服务`)
+    else ElMessage.warning(`已删除 ${ok}/${rows.length} 个服务`)
+    await loadServices()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e !== 'abort') {
+      ElMessage.error(extractErrorMessage(e, '批量删除服务失败'))
+    }
+  }
 }
 
 const openPullImage = () => {
