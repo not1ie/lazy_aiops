@@ -383,6 +383,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const nodeSaving = ref(false)
@@ -729,7 +730,7 @@ const fetchTopology = async () => {
       }
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载拓扑失败')
+    ElMessage.error(getErrorMessage(err, '加载拓扑失败'))
   } finally {
     loading.value = false
   }
@@ -740,7 +741,7 @@ const fetchViews = async () => {
     const res = await axios.get('/api/v1/topology/views', { headers: authHeaders() })
     if (res.data?.code === 0) views.value = res.data.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '加载视图失败')
+    ElMessage.error(getErrorMessage(err, '加载视图失败'))
   }
 }
 
@@ -834,7 +835,7 @@ const saveCanvasLayout = async () => {
     dragOverrideMap.value = {}
     await fetchTopology()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存坐标失败')
+    ElMessage.error(getErrorMessage(err, '保存坐标失败'))
   } finally {
     savingLayout.value = false
   }
@@ -1067,7 +1068,7 @@ const saveNode = async () => {
     nodeDialogVisible.value = false
     await fetchTopology()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(err, '保存失败'))
   } finally {
     nodeSaving.value = false
   }
@@ -1081,7 +1082,7 @@ const removeNode = async (row) => {
     if (selectedNode.value?.id === row.id) selectedNode.value = null
     await fetchTopology()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -1119,7 +1120,7 @@ const saveEdge = async () => {
     edgeDialogVisible.value = false
     await fetchTopology()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '创建关系失败')
+    ElMessage.error(getErrorMessage(err, '创建关系失败'))
   } finally {
     edgeSaving.value = false
   }
@@ -1133,7 +1134,7 @@ const removeEdge = async (row) => {
     await fetchTopology()
     await fetchDependencyInsights()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -1145,7 +1146,7 @@ const autoLayout = async () => {
     dragOverrideMap.value = {}
     await fetchTopology()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '自动布局失败')
+    ElMessage.error(getErrorMessage(err, '自动布局失败'))
   }
 }
 
@@ -1163,7 +1164,7 @@ const exportTopology = async () => {
     link.click()
     URL.revokeObjectURL(link.href)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '导出失败')
+    ElMessage.error(getErrorMessage(err, '导出失败'))
   }
 }
 
@@ -1197,7 +1198,7 @@ const runDiscover = async () => {
     discoverDialogVisible.value = false
     await refreshAll()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '自动发现失败')
+    ElMessage.error(getErrorMessage(err, '自动发现失败'))
   } finally {
     discovering.value = false
   }
@@ -1223,7 +1224,7 @@ const importTopology = async () => {
     importDialogVisible.value = false
     await fetchTopology()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '导入失败')
+    ElMessage.error(getErrorMessage(err, '导入失败'))
   } finally {
     importing.value = false
   }

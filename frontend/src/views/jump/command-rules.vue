@@ -179,6 +179,7 @@ import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -260,7 +261,7 @@ const loadRules = async () => {
     const res = await axios.get('/api/v1/jump/command-rules', { headers: authHeaders(), params })
     if (res.data.code === 0) rules.value = res.data.data || []
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '加载规则失败')
+    ElMessage.error(getErrorMessage(error, '加载规则失败'))
   } finally {
     loading.value = false
   }
@@ -410,9 +411,9 @@ const saveRule = async () => {
       ElMessage.success('规则已创建')
     }
     dialogVisible.value = false
-    loadAll()
+    await loadAll()
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -424,33 +425,39 @@ const toggleEnabled = async (row) => {
     await axios.put(`/api/v1/jump/command-rules/${row.id}`, { enabled: next }, { headers: authHeaders() })
   } catch (error) {
     row.enabled = !next
-    ElMessage.error(error?.response?.data?.message || '更新状态失败')
+    ElMessage.error(getErrorMessage(error, '更新状态失败'))
   }
 }
 
-const removeRule = (row) => {
-  ElMessageBox.confirm(`确认删除规则 ${row.name} 吗？`, '提示', { type: 'warning' }).then(async () => {
+const removeRule = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除规则 ${row.name} 吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/jump/command-rules/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    loadAll()
-  }).catch(() => {})
+    await loadAll()
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '删除失败'))
+  }
 }
 
-const batchOperate = (action) => {
+const batchOperate = async (action) => {
   const actionText = action === 'enable' ? '批量启用' : (action === 'disable' ? '批量禁用' : '批量删除')
   const run = async () => {
     await axios.post('/api/v1/jump/command-rules/batch', { action, ids: selectedIDs.value }, { headers: authHeaders() })
     ElMessage.success(actionText + '成功')
     selectedIDs.value = []
-    loadAll()
+    await loadAll()
   }
-  if (action === 'delete') {
-    ElMessageBox.confirm(`确认${actionText}已选 ${selectedIDs.value.length} 条规则吗？`, '提示', { type: 'warning' }).then(run).catch(() => {})
-    return
+  try {
+    if (action === 'delete') {
+      await ElMessageBox.confirm(`确认${actionText}已选 ${selectedIDs.value.length} 条规则吗？`, '提示', { type: 'warning' })
+    }
+    await run()
+  } catch (error) {
+    if (!isCancelError(error)) {
+      ElMessage.error(getErrorMessage(error, actionText + '失败'))
+    }
   }
-  run().catch((error) => {
-    ElMessage.error(error?.response?.data?.message || actionText + '失败')
-  })
 }
 
 onMounted(loadAll)

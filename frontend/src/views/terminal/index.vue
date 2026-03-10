@@ -244,6 +244,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const sessions = ref([])
 const records = ref([])
@@ -343,7 +344,7 @@ const fetchSessions = async () => {
       }
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取会话失败')
+    ElMessage.error(getErrorMessage(err, '获取会话失败'))
   } finally {
     sessionLoading.value = false
   }
@@ -364,7 +365,7 @@ const fetchRecords = async () => {
       }
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取录像失败')
+    ElMessage.error(getErrorMessage(err, '获取录像失败'))
   } finally {
     recordLoading.value = false
   }
@@ -380,7 +381,7 @@ const fetchAudits = async () => {
     const res = await axios.get('/api/v1/terminal/audits', { headers: authHeaders(), params })
     audits.value = res.data?.data || []
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '获取命令审计失败')
+    ElMessage.error(getErrorMessage(err, '获取命令审计失败'))
   } finally {
     auditLoading.value = false
   }
@@ -468,7 +469,7 @@ const submitSession = async () => {
     await fetchSessions()
     if (sess?.id) openTerminal(sess)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || (editingSessionId.value ? '编辑会话失败' : '创建会话失败'))
+    ElMessage.error(getErrorMessage(err, editingSessionId.value ? '编辑会话失败' : '创建会话失败'))
   }
 }
 
@@ -487,7 +488,7 @@ const precheckConnection = async () => {
     const res = await axios.post('/api/v1/terminal/sessions/precheck', createForm.value, { headers: authHeaders() })
     ElMessage.success(res.data?.data?.message || res.data?.message || '连接测试通过')
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '连接测试失败')
+    ElMessage.error(getErrorMessage(err, '连接测试失败'))
   } finally {
     precheckLoading.value = false
   }
@@ -500,7 +501,7 @@ const closeSession = async (row) => {
     ElMessage.success('会话已关闭')
     await fetchSessions()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '关闭失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '关闭失败'))
   }
 }
 
@@ -514,7 +515,7 @@ const deleteSession = async (row) => {
     }
     await fetchSessions()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除失败'))
   }
 }
 
@@ -742,7 +743,7 @@ const openTerminalByID = async (id) => {
       openTerminal(res.data.data)
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '读取会话失败')
+    ElMessage.error(getErrorMessage(err, '读取会话失败'))
   }
 }
 
@@ -818,7 +819,7 @@ const viewRecord = async (row) => {
     await initRecordTerminal()
     restartRecordPlayback()
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '读取录像失败')
+    ElMessage.error(getErrorMessage(err, '读取录像失败'))
   }
 }
 
@@ -908,7 +909,7 @@ const deleteRecord = async (row) => {
     }
     await fetchRecords()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '删除录像失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除录像失败'))
   }
 }
 
@@ -929,7 +930,7 @@ const downloadRecord = async (row) => {
     window.URL.revokeObjectURL(url)
     ElMessage.success('录像下载已开始')
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '下载录像失败')
+    ElMessage.error(getErrorMessage(err, '下载录像失败'))
   }
 }
 
@@ -950,7 +951,7 @@ const downloadRecordCast = async (row) => {
     window.URL.revokeObjectURL(url)
     ElMessage.success('Cast 导出已开始')
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '导出 Cast 失败')
+    ElMessage.error(getErrorMessage(err, '导出 Cast 失败'))
   }
 }
 
@@ -978,7 +979,7 @@ const exportSelectedRecords = async (format) => {
     window.URL.revokeObjectURL(url)
     ElMessage.success(`批量导出 ${selectedRecordIds.value.length} 条录像成功`)
   } catch (err) {
-    ElMessage.error(err.response?.data?.message || '批量导出失败')
+    ElMessage.error(getErrorMessage(err, '批量导出失败'))
   }
 }
 
@@ -1001,7 +1002,7 @@ const cleanupRecords = async (keepDays) => {
     ElMessage.success(`清理完成，删除 ${res.data?.data?.deleted || 0} 条录像`)
     await fetchRecords()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.response?.data?.message || '清理录像失败')
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '清理录像失败'))
   }
 }
 

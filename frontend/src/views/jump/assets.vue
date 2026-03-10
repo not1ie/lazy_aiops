@@ -108,6 +108,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -181,7 +182,7 @@ const fetchAssets = async () => {
       assets.value = res.data.data || []
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '加载资产失败')
+    ElMessage.error(getErrorMessage(error, '加载资产失败'))
   } finally {
     loading.value = false
   }
@@ -251,18 +252,21 @@ const saveAsset = async () => {
       fetchAssets()
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '保存失败')
+    ElMessage.error(getErrorMessage(error, '保存失败'))
   } finally {
     saving.value = false
   }
 }
 
-const removeAsset = (row) => {
-  ElMessageBox.confirm(`确认删除资产「${row.name}」吗？`, '提示', { type: 'warning' }).then(async () => {
+const removeAsset = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除资产「${row.name}」吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/jump/assets/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    fetchAssets()
-  }).catch(() => {})
+    await fetchAssets()
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '删除失败'))
+  }
 }
 
 const runSync = async (url, okText = '同步成功') => {
@@ -273,7 +277,7 @@ const runSync = async (url, okText = '同步成功') => {
       fetchAssets()
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '同步失败')
+    ElMessage.error(getErrorMessage(error, '同步失败'))
   }
 }
 

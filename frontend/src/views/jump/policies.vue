@@ -200,6 +200,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const accountLoading = ref(false)
 const policyLoading = ref(false)
@@ -287,7 +288,7 @@ const loadAccounts = async () => {
       accounts.value = res.data.data || []
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '加载账号失败')
+    ElMessage.error(getErrorMessage(error, '加载账号失败'))
   } finally {
     accountLoading.value = false
   }
@@ -301,7 +302,7 @@ const loadPolicies = async () => {
       policies.value = res.data.data || []
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '加载策略失败')
+    ElMessage.error(getErrorMessage(error, '加载策略失败'))
   } finally {
     policyLoading.value = false
   }
@@ -397,19 +398,21 @@ const saveAccount = async () => {
       loadPolicies()
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '保存账号失败')
+    ElMessage.error(getErrorMessage(error, '保存账号失败'))
   } finally {
     accountSaving.value = false
   }
 }
 
-const removeAccount = (row) => {
-  ElMessageBox.confirm(`确认删除账号「${row.name}」吗？`, '提示', { type: 'warning' }).then(async () => {
+const removeAccount = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除账号「${row.name}」吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/jump/accounts/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    loadAccounts()
-    loadPolicies()
-  }).catch(() => {})
+    await Promise.all([loadAccounts(), loadPolicies()])
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '删除失败'))
+  }
 }
 
 const openPolicyCreate = () => {
@@ -484,18 +487,21 @@ const savePolicy = async () => {
       loadPolicies()
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '保存策略失败')
+    ElMessage.error(getErrorMessage(error, '保存策略失败'))
   } finally {
     policySaving.value = false
   }
 }
 
-const removePolicy = (row) => {
-  ElMessageBox.confirm(`确认删除策略「${row.name}」吗？`, '提示', { type: 'warning' }).then(async () => {
+const removePolicy = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除策略「${row.name}」吗？`, '提示', { type: 'warning' })
     await axios.delete(`/api/v1/jump/policies/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    loadPolicies()
-  }).catch(() => {})
+    await loadPolicies()
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '删除失败'))
+  }
 }
 
 onMounted(async () => {

@@ -218,6 +218,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const starting = ref(false)
@@ -326,7 +327,7 @@ const loadSessions = async () => {
     })
     if (res.data.code === 0) sessions.value = res.data.data || []
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '加载会话失败')
+    ElMessage.error(getErrorMessage(error, '加载会话失败'))
   } finally {
     loading.value = false
   }
@@ -358,53 +359,65 @@ const startSession = async () => {
       loadSessions()
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '发起会话失败')
+    ElMessage.error(getErrorMessage(error, '发起会话失败'))
   } finally {
     starting.value = false
   }
 }
 
-const closeSession = (row) => {
-  ElMessageBox.confirm(`确认关闭会话 ${row.session_no} 吗？`, '提示', { type: 'warning' }).then(async () => {
+const closeSession = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认关闭会话 ${row.session_no} 吗？`, '提示', { type: 'warning' })
     await axios.post(`/api/v1/jump/sessions/${row.id}/close`, { close_reason: 'manual' }, { headers: authHeaders() })
     ElMessage.success('会话已关闭')
-    loadSessions()
-  }).catch(() => {})
+    await loadSessions()
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '关闭会话失败'))
+  }
 }
 
-const disconnectSession = (row) => {
-  ElMessageBox.prompt(`请输入断开原因（会话 ${row.session_no}）`, '强制断开', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-    inputPlaceholder: '例如：检测到高风险操作'
-  }).then(async ({ value }) => {
+const disconnectSession = async (row) => {
+  try {
+    const { value } = await ElMessageBox.prompt(`请输入断开原因（会话 ${row.session_no}）`, '强制断开', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      inputPlaceholder: '例如：检测到高风险操作'
+    })
     await axios.post(`/api/v1/jump/sessions/${row.id}/disconnect`, {
       reason: value || '管理员强制断开'
     }, { headers: authHeaders() })
     ElMessage.success('会话已强制断开')
-    loadSessions()
-  }).catch(() => {})
+    await loadSessions()
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '强制断开失败'))
+  }
 }
 
-const approveSession = (row) => {
-  ElMessageBox.confirm(`确认通过会话 ${row.session_no} 吗？`, '审批确认', { type: 'warning' }).then(async () => {
+const approveSession = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认通过会话 ${row.session_no} 吗？`, '审批确认', { type: 'warning' })
     await axios.post(`/api/v1/jump/sessions/${row.id}/approve`, {}, { headers: authHeaders() })
     ElMessage.success('已通过')
-    loadSessions()
-  }).catch(() => {})
+    await loadSessions()
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '审批失败'))
+  }
 }
 
-const rejectSession = (row) => {
-  ElMessageBox.prompt(`请输入拒绝原因（会话 ${row.session_no}）`, '审批拒绝', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-    inputPlaceholder: '例如：不在授权时间窗口内',
-    inputValue: ''
-  }).then(async ({ value }) => {
+const rejectSession = async (row) => {
+  try {
+    const { value } = await ElMessageBox.prompt(`请输入拒绝原因（会话 ${row.session_no}）`, '审批拒绝', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      inputPlaceholder: '例如：不在授权时间窗口内',
+      inputValue: ''
+    })
     await axios.post(`/api/v1/jump/sessions/${row.id}/reject`, { reason: value || '' }, { headers: authHeaders() })
     ElMessage.success('已拒绝')
-    loadSessions()
-  }).catch(() => {})
+    await loadSessions()
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '拒绝失败'))
+  }
 }
 
 const openRecordDialog = (row) => {
@@ -445,7 +458,7 @@ const recordCommand = async () => {
       }
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '记录失败')
+    ElMessage.error(getErrorMessage(error, '记录失败'))
   } finally {
     recording.value = false
   }
@@ -461,7 +474,7 @@ const openCommands = async (row) => {
       commands.value = res.data.data || []
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '加载命令失败')
+    ElMessage.error(getErrorMessage(error, '加载命令失败'))
   } finally {
     commandsLoading.value = false
   }
@@ -480,7 +493,7 @@ const openRiskEvents = async (row) => {
       riskEvents.value = res.data.data || []
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '加载风险事件失败')
+    ElMessage.error(getErrorMessage(error, '加载风险事件失败'))
   } finally {
     riskEventsLoading.value = false
   }
@@ -502,7 +515,7 @@ const connectSession = async (row) => {
     }
     window.open(openUrl, '_blank')
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '连接失败')
+    ElMessage.error(getErrorMessage(error, '连接失败'))
   }
 }
 
