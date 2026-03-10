@@ -61,18 +61,44 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 ```bash
 REGISTRY=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com
 IMAGE=$REGISTRY/lazyops/lazyops
-VERSION=v1.0.2
+VERSION=v1.0.15
 
 # 拉取镜像
 docker pull $IMAGE:$VERSION
+```
 
-# 单机运行
+#### Docker Run 直接部署
+
+```bash
+REGISTRY=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com
+IMAGE=$REGISTRY/lazyops/lazyops
+VERSION=v1.0.15
+
+mkdir -p $(pwd)/lazy-aiops/{data,configs}
+
 docker run -d --name lazy-aiops \
+  --restart unless-stopped \
   -p 8080:8080 \
-  -v $(pwd)/data:/app/data \
+  -e TZ=Asia/Shanghai \
+  -v $(pwd)/lazy-aiops/data:/app/data \
   $IMAGE:$VERSION
+```
 
-# Swarm 发布（按版本固定镜像）
+如需覆盖默认配置，可挂载配置文件：
+
+```bash
+docker run -d --name lazy-aiops \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e TZ=Asia/Shanghai \
+  -v $(pwd)/lazy-aiops/data:/app/data \
+  -v $(pwd)/configs/config.yaml:/app/configs/config.yaml:ro \
+  $IMAGE:$VERSION
+```
+
+#### Docker Swarm 发布
+
+```bash
 LAZY_AIOPS_IMAGE=$IMAGE:$VERSION \
 docker stack deploy -c deploy/swarm/stack.yml lazy-aiops
 ```
@@ -112,7 +138,7 @@ curl -s http://127.0.0.1:8080/health
 git clone https://github.com/not1ie/lazy_aiops.git
 cd lazy_aiops
 
-IMAGE=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.2
+IMAGE=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.15
 docker pull $IMAGE
 
 kubectl apply -k deploy/k8s
@@ -179,18 +205,18 @@ curl -s http://127.0.0.1:8080/health
 
 ```bash
 # Kubernetes
-REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.2 deploy/scripts/deploy.sh k8s
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.15 deploy/scripts/deploy.sh k8s
 
 # Docker Swarm
-REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.2 deploy/scripts/deploy.sh swarm
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.15 deploy/scripts/deploy.sh swarm
 ```
 
 ## 版本信息
 
-- 当前推荐版本：`v1.0.2`
-- 对应代码提交：`dbd7449dcf3a`
+- 当前推荐版本：`v1.0.15`
+- 对应代码提交：`7e5dc0046964`
 - ACR 镜像示例：
-  - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.2`
+  - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.15`
   - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:latest`
 
 ## 开发与验证
@@ -221,4 +247,12 @@ PASSWORD='your-password' BASE_URL='http://127.0.0.1:8080' bash scripts/verify_ju
 
 ## 联系方式
 
-有工作推荐请联系：`slpsz1774190386@gmail.com`
+有工作推荐请联系：
+给孩子推推工作吧，大佬们
+`slpsz1774190386@gmail.com`
+
+联系作者：
+
+![微信二维码](docs/wechat-qrcode.png)
+
+
