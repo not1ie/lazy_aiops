@@ -295,7 +295,7 @@ const fetchFilterOptions = async () => {
       instanceFilter.value = instances.value[0]
     }
   } catch (err) {
-    ElMessage.error('获取过滤项失败')
+    ElMessage.error(getErrorMessage(err, '获取过滤项失败'))
   }
 }
 
@@ -450,11 +450,11 @@ const saveLayout = async () => {
     layouts.value = next
     persistLayouts()
     selectedLayout.value = name
-    ElMessage.success('模板已保存(本地)')
+    ElMessage.warning(`远端保存失败，已回退到本地模板：${getErrorMessage(err, '保存失败')}`)
   }
 }
 
-const applyLayout = () => {
+const applyLayout = async () => {
   const selected = layouts.value.find(item => item.name === selectedLayout.value)
   if (!selected) return
   let rawPayload = selected.payload || selected
@@ -473,8 +473,8 @@ const applyLayout = () => {
   instanceFilter.value = filters.instance || ''
   topN.value = Number(filters.topN) || 50
   rangeHours.value = Number(filters.rangeHours) || 1
-  fetchMetrics()
-  fetchCharts()
+  await fetchMetrics()
+  await fetchCharts()
 }
 
 const deleteLayout = async () => {
@@ -491,7 +491,7 @@ const deleteLayout = async () => {
     layouts.value = layouts.value.filter(item => item.name !== selectedLayout.value)
     persistLayouts()
     selectedLayout.value = ''
-    ElMessage.success('模板已删除(本地)')
+    ElMessage.warning(`远端删除失败，已仅删除本地模板：${getErrorMessage(err, '删除失败')}`)
   }
 }
 

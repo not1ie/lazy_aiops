@@ -196,6 +196,7 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const router = useRouter()
 const loading = ref(false)
@@ -284,6 +285,11 @@ const extractData = (result) => {
   return body.data ?? null
 }
 
+const extractFailure = (result, label) => {
+  if (result.status !== 'rejected') return ''
+  return `${label}(${getErrorMessage(result.reason, '请求失败')})`
+}
+
 const renderTrend = () => {
   const dom = trendRef.value
   if (!(dom instanceof HTMLDivElement)) return
@@ -364,6 +370,7 @@ const refreshTopHosts = async () => {
       .slice(0, 8)
   } catch (e) {
     topHosts.value = []
+    ElMessage.error(getErrorMessage(e, '加载主机排行失败'))
   }
 }
 
@@ -412,7 +419,7 @@ const refreshDashboard = async () => {
     moduleStatus.cmdb = 'ok'
   } else {
     moduleStatus.cmdb = 'error'
-    failures.push('CMDB')
+    failures.push(extractFailure(calls[0], 'CMDB') || 'CMDB')
   }
 
   const dockerPayload = extractData(calls[1])
@@ -423,7 +430,7 @@ const refreshDashboard = async () => {
     moduleStatus.docker = 'ok'
   } else {
     moduleStatus.docker = 'error'
-    failures.push('Docker')
+    failures.push(extractFailure(calls[1], 'Docker') || 'Docker')
   }
 
   const clustersPayload = extractData(calls[2])
@@ -434,7 +441,7 @@ const refreshDashboard = async () => {
     moduleStatus.k8s = 'ok'
   } else {
     moduleStatus.k8s = 'error'
-    failures.push('K8s')
+    failures.push(extractFailure(calls[2], 'K8s') || 'K8s')
   }
 
   const alertsPayload = extractData(calls[3])
@@ -444,7 +451,7 @@ const refreshDashboard = async () => {
     stats.alertOpen = alerts.filter((a) => toNumber(a.status, -1) === 0).length
     recentAlerts.value = alerts.slice(0, 8)
   } else {
-    failures.push('告警')
+    failures.push(extractFailure(calls[3], '告警') || '告警')
   }
 
   const tasksPayload = extractData(calls[4])
@@ -455,7 +462,7 @@ const refreshDashboard = async () => {
     moduleStatus.task = 'ok'
   } else {
     moduleStatus.task = 'error'
-    failures.push('任务')
+    failures.push(extractFailure(calls[4], '任务') || '任务')
   }
 
   const agentsPayload = extractData(calls[5])
@@ -464,7 +471,7 @@ const refreshDashboard = async () => {
     stats.agentTotal = agents.length
     stats.agentOnline = agents.filter((a) => String(a.status).toLowerCase() === 'online').length
   } else {
-    failures.push('Agent')
+    failures.push(extractFailure(calls[5], 'Agent') || 'Agent')
   }
 
   const metricData = extractData(calls[6])
@@ -476,13 +483,13 @@ const refreshDashboard = async () => {
     moduleStatus.monitor = 'ok'
   } else {
     moduleStatus.monitor = 'error'
-    failures.push('监控')
+    failures.push(extractFailure(calls[6], '监控') || '监控')
   }
 
   const historyPayload = extractData(calls[7])
   const history = toArray(historyPayload)
   if (historyPayload === null) {
-    failures.push('趋势')
+    failures.push(extractFailure(calls[7], '趋势') || '趋势')
   }
   trendRecords.value = history
     .map((item) => ({
