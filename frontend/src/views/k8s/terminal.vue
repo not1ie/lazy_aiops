@@ -59,6 +59,7 @@ import { ElMessage } from 'element-plus'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
+import { getErrorMessage } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -80,39 +81,50 @@ let ws = null
 const route = useRoute()
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
-const extractAxiosError = (err, fallback = '请求失败') => err?.response?.data?.message || err?.message || fallback
 
 const canConnect = computed(() => {
   return clusterId.value && namespace.value && podName.value && container.value && shell.value
 })
 
 const fetchClusters = async () => {
-  const res = await axios.get('/api/v1/k8s/clusters', { headers: authHeaders() })
-  clusters.value = res.data.data || []
-  if (!clusterId.value && clusters.value.length > 0) {
-    clusterId.value = clusters.value[0].id
+  try {
+    const res = await axios.get('/api/v1/k8s/clusters', { headers: authHeaders() })
+    clusters.value = res.data.data || []
+    if (!clusterId.value && clusters.value.length > 0) {
+      clusterId.value = clusters.value[0].id
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取集群失败'))
   }
 }
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
-  if (!namespace.value && namespaces.value.length > 0) {
-    namespace.value = namespaces.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+    if (!namespace.value && namespaces.value.length > 0) {
+      namespace.value = namespaces.value[0].name
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
   }
 }
 
 const fetchPods = async () => {
   if (!clusterId.value || !namespace.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods`, {
-    headers: authHeaders()
-  })
-  pods.value = res.data.data || []
-  if (!podName.value && pods.value.length > 0) {
-    podName.value = pods.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods`, {
+      headers: authHeaders()
+    })
+    pods.value = res.data.data || []
+    if (!podName.value && pods.value.length > 0) {
+      podName.value = pods.value[0].name
+    }
+    handlePodChange()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取 Pod 列表失败'))
   }
-  handlePodChange()
 }
 
 const handlePodChange = () => {
@@ -151,7 +163,7 @@ const connect = async () => {
       }
     })
   } catch (err) {
-    ElMessage.error(extractAxiosError(err, '终端预检查失败'))
+    ElMessage.error(getErrorMessage(err, '终端预检查失败'))
     return
   }
 

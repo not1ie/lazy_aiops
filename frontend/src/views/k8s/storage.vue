@@ -122,6 +122,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -147,24 +149,32 @@ const fetchClusters = async () => {
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
+  }
 }
 
 const fetchData = async () => {
   if (!clusterId.value) return
-  const [scRes, pvRes] = await Promise.all([
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/storageclasses`, { headers: authHeaders() }),
-    axios.get(`/api/v1/k8s/clusters/${clusterId.value}/persistentvolumes`, { headers: authHeaders() })
-  ])
-  storageClasses.value = scRes.data.data || []
-  pvs.value = pvRes.data.data || []
+  try {
+    const [scRes, pvRes] = await Promise.all([
+      axios.get(`/api/v1/k8s/clusters/${clusterId.value}/storageclasses`, { headers: authHeaders() }),
+      axios.get(`/api/v1/k8s/clusters/${clusterId.value}/persistentvolumes`, { headers: authHeaders() })
+    ])
+    storageClasses.value = scRes.data.data || []
+    pvs.value = pvRes.data.data || []
 
-  if (namespace.value) {
-    const pvcRes = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/persistentvolumeclaims`, { headers: authHeaders() })
-    pvcs.value = pvcRes.data.data || []
-  } else {
-    pvcs.value = []
+    if (namespace.value) {
+      const pvcRes = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/persistentvolumeclaims`, { headers: authHeaders() })
+      pvcs.value = pvcRes.data.data || []
+    } else {
+      pvcs.value = []
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取存储资源失败'))
   }
 }
 

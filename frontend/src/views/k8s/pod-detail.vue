@@ -110,6 +110,7 @@ import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -258,45 +259,61 @@ const fetchClusters = async () => {
 
 const fetchNamespaces = async () => {
   if (!clusterId.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
-  namespaces.value = res.data.data || []
-  if (!namespace.value && namespaces.value.length > 0) {
-    namespace.value = namespaces.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces`, { headers: authHeaders() })
+    namespaces.value = res.data.data || []
+    if (!namespace.value && namespaces.value.length > 0) {
+      namespace.value = namespaces.value[0].name
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取命名空间失败'))
   }
 }
 
 const fetchPods = async () => {
   if (!clusterId.value || !namespace.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods`, {
-    headers: authHeaders()
-  })
-  pods.value = res.data.data || []
-  if (!podName.value && pods.value.length > 0) {
-    podName.value = pods.value[0].name
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods`, {
+      headers: authHeaders()
+    })
+    pods.value = res.data.data || []
+    if (!podName.value && pods.value.length > 0) {
+      podName.value = pods.value[0].name
+    }
+    await fetchPodDetail()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取 Pod 列表失败'))
   }
-  await fetchPodDetail()
 }
 
 const fetchPodDetail = async () => {
   if (!clusterId.value || !namespace.value || !podName.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}`, {
-    headers: authHeaders()
-  })
-  pod.value = res.data.data || {}
-  logContainers.value = pod.value.containers?.map(c => c.name) || []
-  if (!logContainer.value && logContainers.value.length > 0) {
-    logContainer.value = logContainers.value[0]
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}`, {
+      headers: authHeaders()
+    })
+    pod.value = res.data.data || {}
+    logContainers.value = pod.value.containers?.map(c => c.name) || []
+    if (!logContainer.value && logContainers.value.length > 0) {
+      logContainer.value = logContainers.value[0]
+    }
+    await fetchEvents()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取 Pod 详情失败'))
   }
-  await fetchEvents()
 }
 
 const fetchLogs = async () => {
   if (!clusterId.value || !namespace.value || !podName.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/logs`, {
-    headers: authHeaders(),
-    params: { container: logContainer.value, tail: logTail.value }
-  })
-  logText.value = res.data.data || ''
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/logs`, {
+      headers: authHeaders(),
+      params: { container: logContainer.value, tail: logTail.value }
+    })
+    logText.value = res.data.data || ''
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取日志失败'))
+  }
 }
 
 const toggleStream = () => {
@@ -404,22 +421,26 @@ const stopStream = () => {
 
 const fetchEvents = async () => {
   if (!clusterId.value || !namespace.value || !podName.value) return
-  const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/events`, {
-    headers: authHeaders(),
-    params: { namespace: namespace.value }
-  })
-  const raw = res.data.data || []
-  events.value = raw.filter((e) => {
-    if (!(e.involved_object || '').includes(podName.value)) return false
-    if (eventType.value && e.type !== eventType.value) return false
-    if (eventKeyword.value) {
-      const keyword = eventKeyword.value.toLowerCase()
-      const reason = (e.reason || '').toLowerCase()
-      const message = (e.message || '').toLowerCase()
-      if (!reason.includes(keyword) && !message.includes(keyword)) return false
-    }
-    return true
-  })
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/events`, {
+      headers: authHeaders(),
+      params: { namespace: namespace.value }
+    })
+    const raw = res.data.data || []
+    events.value = raw.filter((e) => {
+      if (!(e.involved_object || '').includes(podName.value)) return false
+      if (eventType.value && e.type !== eventType.value) return false
+      if (eventKeyword.value) {
+        const keyword = eventKeyword.value.toLowerCase()
+        const reason = (e.reason || '').toLowerCase()
+        const message = (e.message || '').toLowerCase()
+        if (!reason.includes(keyword) && !message.includes(keyword)) return false
+      }
+      return true
+    })
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '获取事件失败'))
+  }
 }
 
 const handleClusterChange = async () => {
@@ -435,30 +456,42 @@ const reloadAll = async () => {
 
 const deletePod = async () => {
   if (!clusterId.value || !namespace.value || !podName.value) return
-  await ElMessageBox.confirm(`确认删除 Pod ${podName.value} 吗？`, '提示', { type: 'warning' })
-  await axios.delete(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}`, {
-    headers: authHeaders()
-  })
-  ElMessage.success('删除成功')
-  router.push({ path: '/k8s/pods', query: { clusterId: clusterId.value, namespace: namespace.value } })
+  try {
+    await ElMessageBox.confirm(`确认删除 Pod ${podName.value} 吗？`, '提示', { type: 'warning' })
+    await axios.delete(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}`, {
+      headers: authHeaders()
+    })
+    ElMessage.success('删除成功')
+    router.push({ path: '/k8s/pods', query: { clusterId: clusterId.value, namespace: namespace.value } })
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '删除 Pod 失败'))
+  }
 }
 
 const restartPod = async () => {
   if (!clusterId.value || !namespace.value || !podName.value) return
-  await ElMessageBox.confirm(`确认重启 Pod ${podName.value} 吗？（将删除 Pod）`, '提示', { type: 'warning' })
-  const res = await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/restart`, {}, {
-    headers: authHeaders()
-  })
-  ElMessage.success(res.data.message || '已重启')
+  try {
+    await ElMessageBox.confirm(`确认重启 Pod ${podName.value} 吗？（将删除 Pod）`, '提示', { type: 'warning' })
+    const res = await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/restart`, {}, {
+      headers: authHeaders()
+    })
+    ElMessage.success(res.data.message || '已重启')
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '重启 Pod 失败'))
+  }
 }
 
 const restartWorkload = async () => {
   if (!clusterId.value || !namespace.value || !podName.value) return
-  await ElMessageBox.confirm('确认对所属工作负载执行滚动重启吗？', '提示', { type: 'warning' })
-  const res = await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/restart-workload`, {}, {
-    headers: authHeaders()
-  })
-  ElMessage.success(res.data.message || '已触发滚动重启')
+  try {
+    await ElMessageBox.confirm('确认对所属工作负载执行滚动重启吗？', '提示', { type: 'warning' })
+    const res = await axios.post(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${namespace.value}/pods/${podName.value}/restart-workload`, {}, {
+      headers: authHeaders()
+    })
+    ElMessage.success(res.data.message || '已触发滚动重启')
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '滚动重启工作负载失败'))
+  }
 }
 
 const openTerminal = (containerRow) => {
