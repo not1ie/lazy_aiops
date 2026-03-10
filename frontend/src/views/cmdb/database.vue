@@ -88,6 +88,7 @@
       </el-form-item>
       <el-form-item label="密码">
         <el-input v-model="form.password" type="password" show-password />
+        <div v-if="isEdit" class="helper-row">已加载当前密码，可直接在原值上修改。</div>
       </el-form-item>
       <el-form-item label="环境">
         <el-select v-model="form.environment" style="width: 100%">
@@ -224,11 +225,20 @@ const openCreate = () => {
   dialogVisible.value = true
 }
 
-const openEdit = (row) => {
+const openEdit = async (row) => {
   isEdit.value = true
   currentId.value = row.id
-  Object.assign(form, row)
-  dialogVisible.value = true
+  try {
+    const res = await axios.get(`/api/v1/cmdb/databases/${row.id}`, {
+      headers: authHeaders()
+    })
+    if (res.data.code === 0) {
+      Object.assign(form, res.data.data || {})
+      dialogVisible.value = true
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '获取详情失败'))
+  }
 }
 
 const saveItem = async () => {
@@ -400,4 +410,5 @@ onMounted(fetchData)
 .filters .el-input { width: 240px; }
 .filters .el-select { width: 160px; }
 .import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.helper-row { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 </style>

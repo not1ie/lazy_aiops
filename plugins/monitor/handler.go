@@ -105,6 +105,21 @@ func (h *MonitorHandler) CreateSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": req})
 }
 
+// GetSetting 获取监控配置详情（用于编辑）
+func (h *MonitorHandler) GetSetting(c *gin.Context) {
+	id := c.Param("id")
+	var setting MonitorSetting
+	if err := h.db.First(&setting, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "配置不存在"})
+		return
+	}
+	if err := h.decryptSettingSecrets(&setting); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置解密失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": setting})
+}
+
 // UpdateSetting 更新监控配置
 func (h *MonitorHandler) UpdateSetting(c *gin.Context) {
 	id := c.Param("id")

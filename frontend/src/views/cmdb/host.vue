@@ -84,9 +84,10 @@
         <el-form-item label="用户名">
           <el-input v-model="form.username" placeholder="root" />
         </el-form-item>
-        <el-form-item label="密码">
-          <el-input v-model="form.password" type="password" show-password placeholder="如有变更请填写" />
-        </el-form-item>
+      <el-form-item label="密码">
+        <el-input v-model="form.password" type="password" show-password placeholder="如有变更请填写" />
+        <div v-if="isEdit" class="helper-row">已加载当前密码，可直接修改。</div>
+      </el-form-item>
         <el-form-item label="分组">
           <el-input v-model="form.group_name" placeholder="默认分组" :disabled="isEdit" />
         </el-form-item>
@@ -462,4 +463,5 @@ onMounted(() => {
 .test-block { display: flex; flex-direction: column; gap: 10px; }
 .test-title { font-weight: 600; }
 .test-pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; max-height: 200px; }
+.helper-row { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 </style>

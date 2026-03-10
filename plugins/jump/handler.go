@@ -256,7 +256,18 @@ func (h *JumpHandler) GetAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "账号不存在"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": toSafeAccount(&item)})
+	detail := JumpAccountDetail{
+		SafeJumpAccount: toSafeAccount(&item),
+	}
+	if strings.TrimSpace(item.Secret) != "" {
+		plain, err := decryptJumpSecret(h.secretKey, strings.TrimSpace(item.Secret))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "账号密钥解密失败"})
+			return
+		}
+		detail.Secret = plain
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": detail})
 }
 
 func (h *JumpHandler) UpdateAccount(c *gin.Context) {

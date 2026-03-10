@@ -90,9 +90,11 @@
       </el-form-item>
       <el-form-item label="AccessKey">
         <el-input v-model="accountForm.access_key" />
+        <div v-if="isEdit" class="helper-row">已加载当前 AccessKey，可直接修改。</div>
       </el-form-item>
       <el-form-item label="SecretKey">
         <el-input v-model="accountForm.secret_key" type="password" show-password />
+        <div v-if="isEdit" class="helper-row">已加载当前 SecretKey，可直接修改。</div>
       </el-form-item>
       <el-form-item label="区域">
         <el-input v-model="accountForm.region" placeholder="如：ap-guangzhou" />
@@ -314,16 +316,24 @@ const openCreate = (tab) => {
   dialogVisible.value = true
 }
 
-const openEdit = (tab, row) => {
+const openEdit = async (tab, row) => {
   isEdit.value = true
   currentId.value = row.id
   activeDialog.value = tab
   if (tab === 'accounts') {
-    Object.assign(accountForm, row)
+    try {
+      const res = await axios.get(`/api/v1/cmdb/cloud/accounts/${row.id}`, { headers: headers() })
+      if (res.data.code === 0) {
+        Object.assign(accountForm, res.data.data || {})
+        dialogVisible.value = true
+      }
+    } catch (error) {
+      ElMessage.error(getErrorMessage(error, '获取云账号详情失败'))
+    }
   } else {
     Object.assign(resourceForm, row)
+    dialogVisible.value = true
   }
-  dialogVisible.value = true
 }
 
 const saveDialog = async () => {
@@ -506,4 +516,5 @@ onMounted(async () => {
 .filters .el-input { width: 260px; }
 .import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .test-tip { color: #909399; margin-top: 8px; }
+.helper-row { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 </style>

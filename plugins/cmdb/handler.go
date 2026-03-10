@@ -301,7 +301,12 @@ func (h *HostHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "主机不存在"})
 		return
 	}
-	h.sanitizeHostForResponse(&host)
+	if host.Credential != nil {
+		if err := DecryptCredentialFields(h.secretKey, host.Credential); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "主机凭据解密失败"})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": host})
 }
 
@@ -463,6 +468,21 @@ func (h *HostHandler) ListCredentials(c *gin.Context) {
 		SanitizeCredentialFields(&creds[i])
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": creds})
+}
+
+// GetCredential 获取凭据详情（用于编辑）
+func (h *HostHandler) GetCredential(c *gin.Context) {
+	id := c.Param("id")
+	var cred Credential
+	if err := h.db.First(&cred, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "凭据不存在"})
+		return
+	}
+	if err := DecryptCredentialFields(h.secretKey, &cred); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据解密失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cred})
 }
 
 // CreateCredential 创建凭据
@@ -679,7 +699,14 @@ func (h *HostHandler) GetDatabase(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
 		return
 	}
-	item.Password = ""
+	if strings.TrimSpace(item.Password) != "" {
+		plain, err := security.Decrypt(h.secretKey, "cmdb.database.password", item.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "数据库密码解密失败"})
+			return
+		}
+		item.Password = plain
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": item})
 }
 
@@ -819,8 +846,22 @@ func (h *HostHandler) GetCloudAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云账号不存在"})
 		return
 	}
-	account.AccessKey = ""
-	account.SecretKey = ""
+	if strings.TrimSpace(account.AccessKey) != "" {
+		plain, err := security.Decrypt(h.secretKey, "cmdb.cloud.access_key", account.AccessKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号 AccessKey 解密失败"})
+			return
+		}
+		account.AccessKey = plain
+	}
+	if strings.TrimSpace(account.SecretKey) != "" {
+		plain, err := security.Decrypt(h.secretKey, "cmdb.cloud.secret_key", account.SecretKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "云账号 SecretKey 解密失败"})
+			return
+		}
+		account.SecretKey = plain
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
 }
 

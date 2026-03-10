@@ -70,6 +70,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	creds := g.Group("/credentials")
 	{
 		creds.GET("", h.ListCredentials)
+		creds.GET("/:id", h.GetCredential)
 		creds.POST("", h.CreateCredential)
 		creds.POST("/:id/test", h.TestCredential)
 		creds.PUT("/:id", h.UpdateCredential)

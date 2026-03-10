@@ -50,6 +50,7 @@
       </el-form-item>
       <el-form-item label="密码">
         <el-input v-model="form.password" type="password" show-password />
+        <div v-if="isEdit" class="helper-row">已加载当前密码，可直接修改。</div>
       </el-form-item>
       <el-form-item label="描述">
         <el-input v-model="form.description" />
@@ -112,11 +113,18 @@ const openCreate = () => {
   dialogVisible.value = true
 }
 
-const openEdit = (row) => {
+const openEdit = async (row) => {
   isEdit.value = true
   currentId.value = row.id
-  Object.assign(form, row)
-  dialogVisible.value = true
+  try {
+    const res = await axios.get(`/api/v1/nacos/servers/${row.id}`, { headers: headers() })
+    if (res.data.code === 0) {
+      Object.assign(form, res.data.data || {})
+      dialogVisible.value = true
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '获取详情失败'))
+  }
 }
 
 const saveServer = async () => {
@@ -186,4 +194,5 @@ onMounted(fetchData)
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; margin-top: 4px; }
 .actions { display: flex; gap: 8px; }
+.helper-row { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 </style>

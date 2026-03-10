@@ -426,7 +426,7 @@
           </el-col>
         </el-row>
         <el-form-item label="API Key">
-          <el-input v-model="configForm.api_key" type="password" show-password placeholder="编辑时留空则保持原值" />
+          <el-input v-model="configForm.api_key" type="password" show-password :placeholder="configEditing ? '已加载当前 API Key，可直接修改' : '请输入 API Key'" />
         </el-form-item>
         <el-form-item label="附加请求头">
           <el-input
@@ -1124,19 +1124,29 @@ const handleConfigDialogClosed = () => {
   resetConfigForm()
 }
 
-const openConfigDialog = (row) => {
+const openConfigDialog = async (row) => {
   resetConfigForm()
   configEditing.value = !!row
   if (row) {
-    configForm.id = row.id
-    configForm.name = row.name || ''
-    configForm.provider = row.provider || 'openai'
-    configForm.base_url = row.base_url || ''
-    configForm.model = row.model || 'gpt-3.5-turbo'
-    configForm.auth_type = row.auth_type || 'bearer'
-    configForm.timeout_second = Number(row.timeout_second || 60)
-    configForm.extra_headers = row.extra_headers || '{}'
-    configForm.description = row.description || ''
+    try {
+      const res = await axios.get(`/api/v1/ai/configs/${row.id}`, { headers: authHeaders() })
+      if (res.data.code === 0) {
+        const data = res.data.data || {}
+        configForm.id = data.id
+        configForm.name = data.name || ''
+        configForm.provider = data.provider || 'openai'
+        configForm.base_url = data.base_url || ''
+        configForm.model = data.model || 'gpt-3.5-turbo'
+        configForm.auth_type = data.auth_type || 'bearer'
+        configForm.api_key = data.api_key || ''
+        configForm.timeout_second = Number(data.timeout_second || 60)
+        configForm.extra_headers = data.extra_headers || '{}'
+        configForm.description = data.description || ''
+      }
+    } catch (err) {
+      ElMessage.error(getErrorMessage(err, '加载模型配置详情失败'))
+      return
+    }
   }
   configDialogVisible.value = true
 }

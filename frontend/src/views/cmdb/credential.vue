@@ -73,18 +73,22 @@
       </el-form-item>
       <el-form-item label="密码" v-if="form.type === 'password'">
         <el-input v-model="form.password" type="password" show-password />
+        <div v-if="isEdit" class="helper-row">已加载当前密码，可直接修改。</div>
       </el-form-item>
       <el-form-item label="私钥" v-if="form.type === 'key'">
         <el-input v-model="form.private_key" type="textarea" :rows="4" placeholder="-----BEGIN RSA PRIVATE KEY-----" />
       </el-form-item>
       <el-form-item label="口令" v-if="form.type === 'key'">
         <el-input v-model="form.passphrase" type="password" show-password />
+        <div v-if="isEdit" class="helper-row">已加载当前口令，可直接修改。</div>
       </el-form-item>
       <el-form-item label="AccessKey" v-if="form.type === 'api'">
         <el-input v-model="form.access_key" />
+        <div v-if="isEdit" class="helper-row">已加载当前 AccessKey，可直接修改。</div>
       </el-form-item>
       <el-form-item label="SecretKey" v-if="form.type === 'api'">
         <el-input v-model="form.secret_key" type="password" show-password />
+        <div v-if="isEdit" class="helper-row">已加载当前 SecretKey，可直接修改。</div>
       </el-form-item>
       <el-form-item label="备注">
         <el-input v-model="form.notes" type="textarea" :rows="3" />
@@ -222,21 +226,31 @@ const openCreate = () => {
   dialogVisible.value = true
 }
 
-const openEdit = (row) => {
+const openEdit = async (row) => {
   isEdit.value = true
   currentId.value = row.id
-  Object.assign(form, {
-    name: row.name,
-    type: row.type || 'password',
-    username: row.username,
-    password: row.password,
-    private_key: row.private_key,
-    passphrase: row.passphrase,
-    access_key: row.access_key,
-    secret_key: row.secret_key,
-    notes: row.notes
-  })
-  dialogVisible.value = true
+  try {
+    const res = await axios.get(`/api/v1/cmdb/credentials/${row.id}`, {
+      headers: authHeaders()
+    })
+    if (res.data.code === 0) {
+      const data = res.data.data || {}
+      Object.assign(form, {
+        name: data.name || '',
+        type: data.type || 'password',
+        username: data.username || '',
+        password: data.password || '',
+        private_key: data.private_key || '',
+        passphrase: data.passphrase || '',
+        access_key: data.access_key || '',
+        secret_key: data.secret_key || '',
+        notes: data.notes || ''
+      })
+      dialogVisible.value = true
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '获取凭据详情失败'))
+  }
 }
 
 const saveCredential = async () => {
@@ -404,4 +418,5 @@ onMounted(fetchData)
 .actions { display: flex; gap: 8px; align-items: center; }
 .import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .test-tip { color: #909399; margin-bottom: 12px; }
+.helper-row { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 </style>

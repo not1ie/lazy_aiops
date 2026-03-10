@@ -110,6 +110,7 @@ func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/prometheus/history", h.CreatePromHistory)
 	g.PUT("/prometheus/history/:id", h.UpdatePromHistory)
 	g.GET("/settings", h.ListSettings)
+	g.GET("/settings/:id", h.GetSetting)
 	g.POST("/settings", h.CreateSetting)
 	g.PUT("/settings/:id", h.UpdateSetting)
 	g.DELETE("/settings/:id", h.DeleteSetting)

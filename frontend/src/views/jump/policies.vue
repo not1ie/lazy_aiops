@@ -103,7 +103,21 @@
         </el-select>
       </el-form-item>
       <el-form-item label="密钥/口令">
-        <el-input v-model="accountForm.secret" type="textarea" :rows="3" placeholder="password/私钥/token" show-password />
+        <el-input
+          v-if="accountForm.auth_type === 'key'"
+          v-model="accountForm.secret"
+          type="textarea"
+          :rows="4"
+          placeholder="请输入私钥内容"
+        />
+        <el-input
+          v-else
+          v-model="accountForm.secret"
+          type="password"
+          show-password
+          :placeholder="accountForm.auth_type === 'token' ? '请输入 Token' : '请输入密码'"
+        />
+        <div v-if="accountEditing" class="helper-row">已加载当前密钥/口令，可直接修改。</div>
       </el-form-item>
       <el-form-item label="描述">
         <el-input v-model="accountForm.description" type="textarea" :rows="2" />
@@ -360,18 +374,26 @@ const openAccountCreate = () => {
   accountDialogVisible.value = true
 }
 
-const openAccountEdit = (row) => {
+const openAccountEdit = async (row) => {
   accountEditing.value = true
   accountID.value = row.id
-  Object.assign(accountForm, {
-    name: row.name || '',
-    username: row.username || '',
-    auth_type: row.auth_type || 'password',
-    secret: '',
-    description: row.description || '',
-    enabled: row.enabled !== false
-  })
-  accountDialogVisible.value = true
+  try {
+    const res = await axios.get(`/api/v1/jump/accounts/${row.id}`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      const data = res.data.data || {}
+      Object.assign(accountForm, {
+        name: data.name || '',
+        username: data.username || '',
+        auth_type: data.auth_type || 'password',
+        secret: data.secret || '',
+        description: data.description || '',
+        enabled: data.enabled !== false
+      })
+      accountDialogVisible.value = true
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '获取账号详情失败'))
+  }
 }
 
 const saveAccount = async () => {

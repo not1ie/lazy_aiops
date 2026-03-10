@@ -69,7 +69,14 @@ func (h *NacosHandler) GetServer(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "服务器不存在"})
 		return
 	}
-	server.Password = ""
+	if strings.TrimSpace(server.Password) != "" {
+		password, err := security.Decrypt(h.secretKey, "nacos.server.password", server.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "密码解密失败"})
+			return
+		}
+		server.Password = password
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": server})
 }
 

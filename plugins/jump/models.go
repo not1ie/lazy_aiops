@@ -152,6 +152,11 @@ type SafeJumpAccount struct {
 	HasSecret   bool      `json:"has_secret"`
 }
 
+type JumpAccountDetail struct {
+	SafeJumpAccount
+	Secret string `json:"secret"`
+}
+
 func toSafeAccount(a *JumpAccount) SafeJumpAccount {
 	if a == nil {
 		return SafeJumpAccount{}

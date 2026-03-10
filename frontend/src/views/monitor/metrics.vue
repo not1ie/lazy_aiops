@@ -36,7 +36,7 @@
       </el-select>
       <el-input v-if="form.auth_type === 'basic'" v-model="form.username" placeholder="用户名" class="w-40" />
       <el-input v-if="form.auth_type === 'basic'" v-model="form.password" placeholder="密码" class="w-40" show-password />
-      <el-input v-if="form.auth_type === 'bearer'" v-model="form.token" placeholder="Token" class="w-52" />
+      <el-input v-if="form.auth_type === 'bearer'" v-model="form.token" placeholder="Token" class="w-52" show-password />
       <el-button type="primary" @click="saveSetting">{{ form.id ? '更新' : '新增' }}</el-button>
       <el-button @click="resetForm">清空</el-button>
     </div>
@@ -277,15 +277,23 @@ const resetForm = () => {
   }
 }
 
-const editSetting = (row) => {
-  form.value = {
-    id: row.id,
-    name: row.name || '',
-    prometheus_url: row.prometheus_url || '',
-    auth_type: row.auth_type || 'none',
-    username: row.username || '',
-    password: row.password || '',
-    token: row.token || ''
+const editSetting = async (row) => {
+  try {
+    const res = await axios.get(`/api/v1/monitor/settings/${row.id}`, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      const data = res.data.data || {}
+      form.value = {
+        id: data.id,
+        name: data.name || '',
+        prometheus_url: data.prometheus_url || '',
+        auth_type: data.auth_type || 'none',
+        username: data.username || '',
+        password: data.password || '',
+        token: data.token || ''
+      }
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Prometheus 配置详情失败'))
   }
 }
 

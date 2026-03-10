@@ -57,6 +57,7 @@ func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// 模型接入配置
 	g.GET("/configs", h.ListProviderConfigs)
+	g.GET("/configs/:id", h.GetProviderConfig)
 	g.POST("/configs", h.CreateProviderConfig)
 	g.PUT("/configs/:id", h.UpdateProviderConfig)
 	g.DELETE("/configs/:id", h.DeleteProviderConfig)
