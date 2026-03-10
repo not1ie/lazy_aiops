@@ -2292,7 +2292,9 @@ const fetchCMDBHosts = async () => {
     if (res.data.code === 0) {
       hosts.value = res.data.data
     }
-  } catch (e) {}
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e, '获取 CMDB 主机失败'))
+  }
 }
 
 const handleAdd = () => {
@@ -2314,26 +2316,35 @@ const submitForm = async () => {
         if (id) {
           await axios.get(`/api/v1/docker/hosts/${id}/info`, { headers: authHeaders() })
         }
-      } catch (e) {}
-      fetchData()
+      } catch (e) {
+        ElMessage.warning(extractErrorMessage(e, '环境已创建，但初始化信息拉取失败'))
+      }
+      await fetchData()
     } else {
       ElMessage.error(res.data.message)
     }
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e, '添加 Docker 环境失败'))
   } finally {
     submitting.value = false
   }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm('确定删除该 Docker 环境吗?', '警告', {
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(async () => {
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定删除该 Docker 环境吗?', '警告', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
     await axios.delete(`/api/v1/docker/hosts/${row.id}`, { headers: authHeaders() })
     ElMessage.success('删除成功')
-    fetchData()
-  })
+    await fetchData()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close' && e !== 'abort') {
+      ElMessage.error(extractErrorMessage(e, '删除 Docker 环境失败'))
+    }
+  }
 }
 
 const handleManage = async (row) => {
@@ -2352,7 +2363,9 @@ const refreshManage = async () => {
       if (idx >= 0) tableData.value[idx] = res.data.data
       activeHost.value = res.data.data
     }
-  } catch (e) {}
+  } catch (e) {
+    ElMessage.error(extractErrorMessage(e, '获取 Docker 环境信息失败'))
+  }
   if (manageTab.value === 'containers') {
     await loadContainers()
     await loadContainerStats()
@@ -4025,7 +4038,9 @@ const fetchContainersForUsage = async () => {
     if (res.data.code === 0) {
       return normalizeContainers(res.data.data || [])
     }
-  } catch (e) {}
+  } catch (e) {
+    ElMessage.warning(extractErrorMessage(e, '获取容器引用关系失败'))
+  }
   return []
 }
 
@@ -4092,7 +4107,9 @@ const confirmDeleteNetworks = async (rows) => {
           used.push({ label: row.name || row.id, containers: names })
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('fetch network usage failed', row?.id, e)
+    }
   }
   let message = `确定删除选中的 ${rows.length} 个网络吗?`
   if (used.length > 0) {
