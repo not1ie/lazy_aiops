@@ -2,7 +2,36 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+import {
+  ArrowDown,
+  Close,
+  Coin,
+  Connection,
+  Delete,
+  DocumentCopy,
+  Download,
+  Edit,
+  EditPen,
+  FirstAidKit,
+  Histogram,
+  MagicStick,
+  Monitor,
+  Moon,
+  Odometer,
+  Operation,
+  Platform,
+  Plus,
+  Refresh,
+  Search,
+  Setting,
+  Share,
+  Sunny,
+  Tickets,
+  Upload,
+  User,
+  VideoPlay,
+  WarningFilled
+} from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
 import './style.css'
@@ -12,7 +41,38 @@ initTheme()
 
 const app = createApp(App)
 
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+const iconRegistry = {
+  ArrowDown,
+  Close,
+  Coin,
+  Connection,
+  Delete,
+  DocumentCopy,
+  Download,
+  Edit,
+  EditPen,
+  FirstAidKit,
+  Histogram,
+  MagicStick,
+  Monitor,
+  Moon,
+  Odometer,
+  Operation,
+  Platform,
+  Plus,
+  Refresh,
+  Search,
+  Setting,
+  Share,
+  Sunny,
+  Tickets,
+  Upload,
+  User,
+  VideoPlay,
+  WarningFilled
+}
+
+for (const [key, component] of Object.entries(iconRegistry)) {
   app.component(key, component)
 }
 

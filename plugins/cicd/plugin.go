@@ -18,9 +18,11 @@ type CICDPlugin struct {
 	handler *CICDHandler
 }
 
-func (p *CICDPlugin) Name() string        { return "cicd" }
-func (p *CICDPlugin) Version() string     { return "1.0.0" }
-func (p *CICDPlugin) Description() string { return "CI/CD集成 - Jenkins/GitLab/ArgoCD对接、定时发布" }
+func (p *CICDPlugin) Name() string    { return "cicd" }
+func (p *CICDPlugin) Version() string { return "1.0.0" }
+func (p *CICDPlugin) Description() string {
+	return "CI/CD集成 - Jenkins/GitLab/ArgoCD对接、定时发布"
+}
 
 func (p *CICDPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -36,9 +38,10 @@ func (p *CICDPlugin) Migrate() error {
 }
 
 func (p *CICDPlugin) RegisterRoutes(r *gin.RouterGroup) {
-	p.handler = NewCICDHandler(p.core.DB)
+	p.handler = NewCICDHandler(p.core.DB, p.core.Config.JWT.Secret)
 
 	// Pipeline管理
+	r.GET("/credentials", p.handler.ListCredentials)
 	r.GET("/pipelines", p.handler.ListPipelines)
 	r.POST("/pipelines", p.handler.CreatePipeline)
 	r.GET("/pipelines/:id", p.handler.GetPipeline)

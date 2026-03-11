@@ -3,6 +3,7 @@ package alert
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -179,8 +180,14 @@ func (h *AlertHandler) ReceiveAlert(c *gin.Context) {
 	if shouldNotify && h.notifier != nil {
 		summary := h.aggregator.GenerateSummary(processedAlert.GroupKey)
 		title := "🚨 告警通知: " + processedAlert.RuleName
-		// TODO: 获取规则关联的通知组
-		go h.notifier("", title, summary)
+		notifyGroupID := ""
+		if ruleID := strings.TrimSpace(processedAlert.RuleID); ruleID != "" {
+			var rule AlertRule
+			if err := h.db.Select("notify_group_id").First(&rule, "id = ?", ruleID).Error; err == nil {
+				notifyGroupID = strings.TrimSpace(rule.NotifyGroupID)
+			}
+		}
+		go h.notifier(notifyGroupID, title, summary)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": processedAlert})
@@ -205,11 +212,11 @@ func (h *AlertHandler) GetStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": gin.H{
-			"total":          totalAlerts,
-			"active":         activeAlerts,
-			"resolved":       resolvedAlerts,
-			"today":          todayAlerts,
-			"aggregation":    aggStats,
+			"total":       totalAlerts,
+			"active":      activeAlerts,
+			"resolved":    resolvedAlerts,
+			"today":       todayAlerts,
+			"aggregation": aggStats,
 		},
 	})
 }

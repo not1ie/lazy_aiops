@@ -401,16 +401,19 @@ func (h *DomainHandler) checkSSL(domain string) (map[string]interface{}, error) 
 	}, nil
 }
 
-// 云厂商API调用 (简化实现，实际需要使用SDK)
+// 云厂商API调用
 func (h *DomainHandler) syncAliyunDomains(account *CloudAccount) ([]CloudDomain, error) {
-	// TODO: 使用阿里云SDK获取域名列表
-	// 这里返回示例数据
-	return []CloudDomain{}, nil
+	if account == nil {
+		return nil, fmt.Errorf("账号信息为空")
+	}
+	return nil, fmt.Errorf("阿里云域名同步未启用：请接入阿里云 SDK 后再使用")
 }
 
 func (h *DomainHandler) syncTencentDomains(account *CloudAccount) ([]CloudDomain, error) {
-	// TODO: 使用腾讯云SDK获取域名列表
-	return []CloudDomain{}, nil
+	if account == nil {
+		return nil, fmt.Errorf("账号信息为空")
+	}
+	return nil, fmt.Errorf("腾讯云域名同步未启用：请接入腾讯云 SDK 后再使用")
 }
 
 // 用于解析云API响应

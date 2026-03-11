@@ -16,6 +16,7 @@
     <el-table :fit="true" :data="pipelines" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="provider" label="Provider" width="120" />
+      <el-table-column prop="credential_name" label="统一凭据" min-width="160" show-overflow-tooltip />
       <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
           <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '启用' : '禁用' }}</el-tag>
@@ -46,6 +47,16 @@
           <el-option label="GitLab" value="gitlab" />
           <el-option label="ArgoCD" value="argocd" />
           <el-option label="GitHub" value="github" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="统一凭据">
+        <el-select v-model="form.credential_id" clearable filterable placeholder="可选，选择后优先使用凭据中的账号/Token" style="width: 100%">
+          <el-option
+            v-for="item in credentialOptions"
+            :key="item.id"
+            :label="`${item.name}${item.username ? ` (${item.username})` : ''}`"
+            :value="item.id"
+          />
         </el-select>
       </el-form-item>
 
@@ -138,6 +149,7 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const pipelines = ref([])
+const credentialOptions = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
@@ -152,6 +164,8 @@ const form = reactive({
   name: '',
   description: '',
   provider: 'jenkins',
+  credential_id: '',
+  credential_name: '',
   jenkins_url: '',
   jenkins_job: '',
   jenkins_user: '',
@@ -180,6 +194,8 @@ const resetForm = () => {
     name: '',
     description: '',
     provider: 'jenkins',
+    credential_id: '',
+    credential_name: '',
     jenkins_url: '',
     jenkins_job: '',
     jenkins_user: '',
@@ -227,6 +243,17 @@ const fetchData = async () => {
   }
 }
 
+const fetchCredentialOptions = async () => {
+  try {
+    const res = await axios.get('/api/v1/cicd/credentials', { headers: headers() })
+    if (res.data.code === 0) {
+      credentialOptions.value = Array.isArray(res.data.data) ? res.data.data : []
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载凭据失败'))
+  }
+}
+
 const openCreate = () => {
   isEdit.value = false
   currentId.value = ''
@@ -234,21 +261,28 @@ const openCreate = () => {
   dialogVisible.value = true
 }
 
-const openEdit = (row) => {
+const openEdit = async (row) => {
   isEdit.value = true
   currentId.value = row.id
-  Object.assign(form, row)
-  dialogVisible.value = true
-}
-
-const handleDialogClosed = () => {
+  try {
+    const res = await axios.get(`/api/v1/cicd/pipelines/${row.id}`, { headers: headers() })
+    if (res.data.code === 0) {
+      Object.assign(form, res.data.data || {})
+      dialogVisible.value = true
+      return
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载流水线详情失败'))
+  }
   isEdit.value = false
   currentId.value = ''
   resetForm()
 }
 
-const handleTriggerDialogClosed = () => {
-  resetTriggerForm()
+const buildPayload = () => {
+  const payload = { ...form }
+  delete payload.credential_name
+  return payload
 }
 
 const savePipeline = async () => {
@@ -260,7 +294,7 @@ const savePipeline = async () => {
   try {
     const url = isEdit.value ? `/api/v1/cicd/pipelines/${currentId.value}` : '/api/v1/cicd/pipelines'
     const method = isEdit.value ? 'put' : 'post'
-    const res = await axios({ url, method, data: form, headers: headers() })
+    const res = await axios({ url, method, data: buildPayload(), headers: headers() })
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
       dialogVisible.value = false
@@ -274,10 +308,19 @@ const savePipeline = async () => {
 }
 
 const openTrigger = (row) => {
-  triggerPipelineId.value = row.id
   resetTriggerForm()
   triggerPipelineId.value = row.id
   triggerVisible.value = true
+}
+
+const handleDialogClosed = () => {
+  isEdit.value = false
+  currentId.value = ''
+  resetForm()
+}
+
+const handleTriggerDialogClosed = () => {
+  resetTriggerForm()
 }
 
 const triggerPipeline = async () => {
@@ -316,7 +359,9 @@ const handleDelete = async (row) => {
   }
 }
 
-onMounted(fetchData)
+onMounted(async () => {
+  await Promise.all([fetchData(), fetchCredentialOptions()])
+})
 </script>
 
 <style scoped>

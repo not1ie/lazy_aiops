@@ -17,10 +17,10 @@ import (
 
 // Engine 工作流引擎
 type Engine struct {
-	db          *gorm.DB
-	executions  sync.Map // executionID -> *ExecutionContext
-	notifier    func(channelID, title, content string) error
-	aiAnalyzer  func(prompt string) string
+	db         *gorm.DB
+	executions sync.Map // executionID -> *ExecutionContext
+	notifier   func(channelID, title, content string) error
+	aiAnalyzer func(prompt string) string
 }
 
 type ExecutionContext struct {
@@ -371,7 +371,25 @@ func (e *Engine) executeAI(ctx *ExecutionContext, node *Node) (interface{}, erro
 func (e *Engine) executeApproval(ctx *ExecutionContext, node *Node) error {
 	// 更新执行状态为等待审批
 	e.db.Model(ctx.Execution).Update("status", 4)
-	// TODO: 发送审批通知，等待审批结果
+	if e.notifier != nil {
+		channelID, _ := node.Config["channel_id"].(string)
+		title, _ := node.Config["title"].(string)
+		content, _ := node.Config["content"].(string)
+
+		if strings.TrimSpace(title) == "" {
+			title = fmt.Sprintf("工作流待审批: %s", ctx.Workflow.Name)
+		}
+		if strings.TrimSpace(content) == "" {
+			content = fmt.Sprintf("执行ID: %s\n节点: %s\n触发人: %s", ctx.Execution.ID, node.Name, ctx.Execution.TriggerBy)
+		}
+
+		title = e.renderTemplate(title, ctx.Variables)
+		content = e.renderTemplate(content, ctx.Variables)
+
+		if err := e.notifier(channelID, title, content); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

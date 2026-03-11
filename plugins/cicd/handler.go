@@ -11,19 +11,134 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"gorm.io/gorm"
 )
 
 type CICDHandler struct {
 	db        *gorm.DB
+	secretKey string
 	scheduler *Scheduler
 }
 
-func NewCICDHandler(db *gorm.DB) *CICDHandler {
-	h := &CICDHandler{db: db}
+func NewCICDHandler(db *gorm.DB, secretKey string) *CICDHandler {
+	h := &CICDHandler{db: db, secretKey: secretKey}
 	h.scheduler = NewScheduler(db, h)
 	h.scheduler.Start()
 	return h
+}
+
+type CICDCredentialOption struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Username string `json:"username"`
+}
+
+func pickCredentialSecret(cred *cmdb.Credential) string {
+	if cred == nil {
+		return ""
+	}
+	candidates := []string{cred.Password, cred.SecretKey, cred.AccessKey, cred.Passphrase}
+	for _, item := range candidates {
+		if strings.TrimSpace(item) != "" {
+			return item
+		}
+	}
+	return ""
+}
+
+func (h *CICDHandler) applyCredential(pipeline *CICDPipeline) error {
+	if pipeline == nil || strings.TrimSpace(pipeline.CredentialID) == "" {
+		return nil
+	}
+
+	var cred cmdb.Credential
+	if err := h.db.First(&cred, "id = ?", pipeline.CredentialID).Error; err != nil {
+		return fmt.Errorf("凭据不存在或不可用")
+	}
+	if err := cmdb.DecryptCredentialFields(h.secretKey, &cred); err != nil {
+		return fmt.Errorf("凭据解密失败: %w", err)
+	}
+
+	token := pickCredentialSecret(&cred)
+	switch strings.ToLower(strings.TrimSpace(pipeline.Provider)) {
+	case "jenkins":
+		if strings.TrimSpace(cred.Username) != "" {
+			pipeline.JenkinsUser = cred.Username
+		}
+		if strings.TrimSpace(token) != "" {
+			pipeline.JenkinsToken = token
+		}
+	case "gitlab":
+		if strings.TrimSpace(token) != "" {
+			pipeline.GitLabToken = token
+		}
+	case "argocd":
+		if strings.TrimSpace(token) != "" {
+			pipeline.ArgoCDToken = token
+		}
+	case "github":
+		if strings.TrimSpace(token) != "" {
+			pipeline.GitHubToken = token
+		}
+	}
+	return nil
+}
+
+func (h *CICDHandler) attachCredentialNames(pipelines []CICDPipeline) error {
+	if len(pipelines) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(pipelines))
+	idSet := make(map[string]struct{}, len(pipelines))
+	for i := range pipelines {
+		id := strings.TrimSpace(pipelines[i].CredentialID)
+		if id == "" {
+			continue
+		}
+		if _, ok := idSet[id]; ok {
+			continue
+		}
+		idSet[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	var creds []cmdb.Credential
+	if err := h.db.Select("id", "name").Where("id IN ?", ids).Find(&creds).Error; err != nil {
+		return err
+	}
+	nameMap := make(map[string]string, len(creds))
+	for i := range creds {
+		nameMap[creds[i].ID] = creds[i].Name
+	}
+	for i := range pipelines {
+		if name, ok := nameMap[pipelines[i].CredentialID]; ok {
+			pipelines[i].CredentialName = name
+		}
+	}
+	return nil
+}
+
+func (h *CICDHandler) ListCredentials(c *gin.Context) {
+	var creds []cmdb.Credential
+	if err := h.db.Order("created_at DESC").Find(&creds).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	options := make([]CICDCredentialOption, 0, len(creds))
+	for i := range creds {
+		options = append(options, CICDCredentialOption{
+			ID:       creds[i].ID,
+			Name:     creds[i].Name,
+			Type:     creds[i].Type,
+			Username: creds[i].Username,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": options})
 }
 
 // ListPipelines 流水线列表
@@ -34,6 +149,10 @@ func (h *CICDHandler) ListPipelines(c *gin.Context) {
 		query = query.Where("provider = ?", provider)
 	}
 	if err := query.Find(&pipelines).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.attachCredentialNames(pipelines); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -61,6 +180,12 @@ func (h *CICDHandler) GetPipeline(c *gin.Context) {
 	if err := h.db.First(&pipeline, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "流水线不存在"})
 		return
+	}
+	if strings.TrimSpace(pipeline.CredentialID) != "" {
+		var cred cmdb.Credential
+		if err := h.db.Select("id", "name").First(&cred, "id = ?", pipeline.CredentialID).Error; err == nil {
+			pipeline.CredentialName = cred.Name
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": pipeline})
 }
@@ -118,11 +243,16 @@ func (h *CICDHandler) TriggerPipeline(c *gin.Context) {
 
 // triggerBuild 触发构建
 func (h *CICDHandler) triggerBuild(pipeline *CICDPipeline, params map[string]string, trigger, triggerBy string) (*CICDExecution, error) {
+	resolvedPipeline := *pipeline
+	if err := h.applyCredential(&resolvedPipeline); err != nil {
+		return nil, err
+	}
+
 	paramsJSON, _ := json.Marshal(params)
 	execution := &CICDExecution{
-		PipelineID:   pipeline.ID,
-		PipelineName: pipeline.Name,
-		Provider:     pipeline.Provider,
+		PipelineID:   resolvedPipeline.ID,
+		PipelineName: resolvedPipeline.Name,
+		Provider:     resolvedPipeline.Provider,
 		Status:       0,
 		Trigger:      trigger,
 		TriggerBy:    triggerBy,
@@ -133,17 +263,17 @@ func (h *CICDHandler) triggerBuild(pipeline *CICDPipeline, params map[string]str
 	var remoteBuildID string
 	var err error
 
-	switch pipeline.Provider {
+	switch resolvedPipeline.Provider {
 	case "jenkins":
-		remoteBuildID, err = h.triggerJenkins(pipeline, params)
+		remoteBuildID, err = h.triggerJenkins(&resolvedPipeline, params)
 	case "gitlab":
-		remoteBuildID, err = h.triggerGitLab(pipeline, params)
+		remoteBuildID, err = h.triggerGitLab(&resolvedPipeline, params)
 	case "argocd":
-		remoteBuildID, err = h.triggerArgoCD(pipeline)
+		remoteBuildID, err = h.triggerArgoCD(&resolvedPipeline)
 	case "github":
-		remoteBuildID, err = h.triggerGitHub(pipeline, params)
+		remoteBuildID, err = h.triggerGitHub(&resolvedPipeline, params)
 	default:
-		err = fmt.Errorf("不支持的Provider: %s", pipeline.Provider)
+		err = fmt.Errorf("不支持的Provider: %s", resolvedPipeline.Provider)
 	}
 
 	if err != nil {
@@ -157,7 +287,7 @@ func (h *CICDHandler) triggerBuild(pipeline *CICDPipeline, params map[string]str
 
 	// 异步轮询状态
 	if err == nil {
-		go h.pollBuildStatus(execution, pipeline)
+		go h.pollBuildStatus(execution, &resolvedPipeline)
 	}
 
 	return execution, err
@@ -689,6 +819,10 @@ func (h *CICDHandler) SyncFromRemote(c *gin.Context) {
 	var pipeline CICDPipeline
 	if err := h.db.First(&pipeline, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "流水线不存在"})
+		return
+	}
+	if err := h.applyCredential(&pipeline); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 
