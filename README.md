@@ -9,7 +9,11 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 - 默认监听端口：`8080`
 - 默认数据库：SQLite（`data/lazy-auto-ops.db`）
 - 默认账号：`admin`
-- 默认密码：`admin123`（首次使用默认密码登录后需修改）
+- 初始化密码说明：
+  - 设置 `LAO_ALLOW_INSECURE_BOOTSTRAP=true` 时，初始密码为 `admin123`
+  - 设置 `LAO_BOOTSTRAP_ADMIN_PASSWORD=<你的密码>` 时，初始密码为指定值
+  - 都不设置时，系统会自动生成随机临时密码并打印到启动日志
+  - 以上逻辑只在首次初始化 `admin` 账号时生效；如果数据目录里已有库文件，不会覆盖已有密码
 
 ## 功能介绍
 
@@ -80,6 +84,7 @@ docker run -d --name lazy-aiops \
   --restart unless-stopped \
   -p 8080:8080 \
   -e TZ=Asia/Shanghai \
+  -e LAO_ALLOW_INSECURE_BOOTSTRAP=true \
   -v $(pwd)/lazy-aiops/data:/app/data \
   $IMAGE:$VERSION
 ```
@@ -91,6 +96,7 @@ docker run -d --name lazy-aiops \
   --restart unless-stopped \
   -p 8080:8080 \
   -e TZ=Asia/Shanghai \
+  -e LAO_ALLOW_INSECURE_BOOTSTRAP=true \
   -v $(pwd)/lazy-aiops/data:/app/data \
   -v $(pwd)/configs/config.yaml:/app/configs/config.yaml:ro \
   $IMAGE:$VERSION
@@ -99,6 +105,9 @@ docker run -d --name lazy-aiops \
 #### Docker Swarm 发布
 
 ```bash
+export LAZY_AIOPS_IMAGE=$IMAGE:$VERSION
+export LAO_ALLOW_INSECURE_BOOTSTRAP=true
+
 LAZY_AIOPS_IMAGE=$IMAGE:$VERSION \
 docker stack deploy -c deploy/swarm/stack.yml lazy-aiops
 ```
@@ -116,6 +125,13 @@ curl -s http://127.0.0.1:8080/health
 git clone https://github.com/not1ie/lazy_aiops.git
 cd lazy_aiops
 
+docker compose -f deploy/docker/docker-compose.yml up -d --build
+```
+
+如需初始化默认密码为 `admin123`，可在启动前导出：
+
+```bash
+export LAO_ALLOW_INSECURE_BOOTSTRAP=true
 docker compose -f deploy/docker/docker-compose.yml up -d --build
 ```
 
@@ -144,6 +160,8 @@ docker pull $IMAGE
 kubectl apply -k deploy/k8s
 kubectl -n lazy-aiops set image deployment/lazy-auto-ops \
   lazy-auto-ops=$IMAGE
+kubectl -n lazy-aiops set env deployment/lazy-auto-ops \
+  LAO_ALLOW_INSECURE_BOOTSTRAP=true
 kubectl -n lazy-aiops rollout status deployment/lazy-auto-ops
 ```
 
@@ -187,6 +205,7 @@ ExecStart=/opt/lazy-aiops/bin/lazy-auto-ops
 Restart=always
 RestartSec=5
 Environment=TZ=Asia/Shanghai
+Environment=LAO_ALLOW_INSECURE_BOOTSTRAP=true
 
 [Install]
 WantedBy=multi-user.target
@@ -247,12 +266,8 @@ PASSWORD='your-password' BASE_URL='http://127.0.0.1:8080' bash scripts/verify_ju
 
 ## 联系方式
 
-有工作推荐请联系：
-给孩子推推工作吧，大佬们
-`slpsz1774190386@gmail.com`
+有工作推荐请联系：`slpsz1774190386@gmail.com`
 
 联系作者：
 
 ![微信二维码](docs/wechat-qrcode.png)
-
-

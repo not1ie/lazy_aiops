@@ -26,6 +26,8 @@ services:
     environment:
       TZ: Asia/Shanghai
       LAO_SERVER_MODE: release
+      LAO_ALLOW_INSECURE_BOOTSTRAP: ${LAO_ALLOW_INSECURE_BOOTSTRAP:-false}
+      LAO_BOOTSTRAP_ADMIN_PASSWORD: ${LAO_BOOTSTRAP_ADMIN_PASSWORD:-}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s

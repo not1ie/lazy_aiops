@@ -61,6 +61,8 @@ services:
       - TZ=Asia/Shanghai
       - LAO_SERVER_MODE=release
       - LAO_JWT_SECRET=${JWT_SECRET}
+      - LAO_ALLOW_INSECURE_BOOTSTRAP=${LAO_ALLOW_INSECURE_BOOTSTRAP:-false}
+      - LAO_BOOTSTRAP_ADMIN_PASSWORD=${LAO_BOOTSTRAP_ADMIN_PASSWORD:-}
     networks:
       - lazy-auto-ops-net
     depends_on:
