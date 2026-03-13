@@ -149,6 +149,13 @@ const scheduleForm = reactive({
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const assignCurrentConfig = (data = {}) => {
+  Object.keys(currentConfig).forEach((key) => {
+    delete currentConfig[key]
+  })
+  Object.assign(currentConfig, data)
+}
+
 const getErrorMessage = (error, fallback) => {
   if (error?.response?.data?.message) return error.response.data.message
   if (error?.message) return error.message
@@ -183,9 +190,19 @@ const fetchConfigs = async () => {
   }
 }
 
-const openConfig = (row) => {
-  Object.assign(currentConfig, row)
-  configDialog.value = true
+const openConfig = async (row) => {
+  if (!row?.id) return
+  try {
+    const res = await axios.get(`/api/v1/nacos/configs/${row.id}`, { headers: headers() })
+    if (res.data.code !== 0) {
+      ElMessage.error(res.data.message || '读取配置详情失败')
+      return
+    }
+    assignCurrentConfig(res.data.data || row)
+    configDialog.value = true
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '读取配置详情失败'))
+  }
 }
 
 const saveConfig = async () => {

@@ -211,6 +211,20 @@ func normalizeConnectPayload(req *terminalConnectPayload) error {
 	return nil
 }
 
+func maskSessionSecrets(session *TerminalSession) {
+	if session == nil {
+		return
+	}
+	session.HasPassword = strings.TrimSpace(session.Password) != ""
+	session.HasPrivateKey = strings.TrimSpace(session.PrivateKey) != ""
+}
+
+func maskSessionSecretsBatch(sessions []TerminalSession) {
+	for i := range sessions {
+		maskSessionSecrets(&sessions[i])
+	}
+}
+
 // ListSessions 会话列表
 func (h *TerminalHandler) ListSessions(c *gin.Context) {
 	var sessions []TerminalSession
@@ -235,6 +249,7 @@ func (h *TerminalHandler) ListSessions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	maskSessionSecretsBatch(sessions)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": sessions})
 }
 
@@ -246,6 +261,7 @@ func (h *TerminalHandler) GetSession(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
 		return
 	}
+	maskSessionSecrets(&session)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 
@@ -281,6 +297,7 @@ func (h *TerminalHandler) CreateSession(c *gin.Context) {
 		return
 	}
 
+	maskSessionSecrets(&session)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 
@@ -327,9 +344,11 @@ func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 		"last_error": "",
 	}
 
-	if req.Password != "" || req.KeyAuth != "" {
-		updates["password"] = strings.TrimSpace(req.Password)
-		updates["private_key"] = strings.TrimSpace(req.KeyAuth)
+	if password := strings.TrimSpace(req.Password); password != "" {
+		updates["password"] = password
+	}
+	if keyAuth := strings.TrimSpace(req.KeyAuth); keyAuth != "" {
+		updates["private_key"] = keyAuth
 	}
 
 	if err := h.db.Model(&session).Updates(updates).Error; err != nil {
@@ -341,6 +360,7 @@ func (h *TerminalHandler) UpdateSession(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "会话刷新失败"})
 		return
 	}
+	maskSessionSecrets(&session)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 

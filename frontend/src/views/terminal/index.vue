@@ -157,6 +157,15 @@
         <el-form-item label="私钥">
           <el-input v-model="createForm.key_auth" type="textarea" :rows="4" placeholder="可选，与密码二选一" />
         </el-form-item>
+        <el-form-item v-if="editingSessionId && (editingHasPassword || editingHasPrivateKey)" label="凭据提示">
+          <div class="credential-hint">
+            当前会话已配置
+            <span v-if="editingHasPassword">密码</span>
+            <span v-if="editingHasPassword && editingHasPrivateKey"> / </span>
+            <span v-if="editingHasPrivateKey">私钥</span>
+            ，留空表示保持原值不变。
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
@@ -271,6 +280,8 @@ const currentAudit = ref(null)
 const createVisible = ref(false)
 const editingSessionId = ref('')
 const precheckLoading = ref(false)
+const editingHasPassword = ref(false)
+const editingHasPrivateKey = ref(false)
 const createForm = ref({
   host_id: '',
   host: '',
@@ -412,6 +423,8 @@ const onRecordSelectionChange = (rows) => {
 
 const resetCreateForm = () => {
   editingSessionId.value = ''
+  editingHasPassword.value = false
+  editingHasPrivateKey.value = false
   createForm.value = { host_id: '', host: '', port: 22, username: '', password: '', key_auth: '' }
 }
 
@@ -426,6 +439,8 @@ const openCreateDialog = () => {
 
 const openEditDialog = (row) => {
   editingSessionId.value = row.id
+  editingHasPassword.value = !!row.has_password
+  editingHasPrivateKey.value = !!row.has_private_key
   createForm.value = {
     host_id: row.host_id || row.host,
     host: row.host || '',
@@ -1042,6 +1057,7 @@ onBeforeUnmount(() => {
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .record-actions { display: flex; gap: 8px; }
+.credential-hint { color: #64748b; font-size: 13px; line-height: 1.4; }
 .terminal-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
 .terminal-status { margin-left: auto; color: #606266; font-size: 13px; align-self: center; }
 .terminal-output { height: 480px; overflow: auto; background: #0f172a; color: #dbeafe; padding: 10px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; line-height: 1.4; }

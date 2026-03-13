@@ -1376,7 +1376,7 @@
           </el-select>
         </el-form-item>
         <el-form-item v-if="gitDeployForm.authType === 'token'" label="Token">
-          <el-input v-model="gitDeployForm.token" show-password />
+          <el-input v-model="gitDeployForm.token" type="password" show-password />
         </el-form-item>
         <el-form-item v-if="gitDeployForm.authType === 'basic'" label="用户名">
           <el-input v-model="gitDeployForm.username" />

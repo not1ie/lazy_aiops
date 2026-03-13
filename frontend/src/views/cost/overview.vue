@@ -160,7 +160,7 @@
           <el-input v-model="accountForm.access_key" />
         </el-form-item>
         <el-form-item label="SecretKey">
-          <el-input v-model="accountForm.secret_key" show-password />
+          <el-input v-model="accountForm.secret_key" type="password" show-password />
         </el-form-item>
         <el-form-item label="Region">
           <el-input v-model="accountForm.region" placeholder="例如：cn-hangzhou" />

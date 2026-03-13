@@ -117,8 +117,16 @@
           <el-col :span="12"><el-form-item label="SNMP端口"><el-input-number v-model="deviceForm.snmp_port" :min="1" :max="65535" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="Community"><el-input v-model="deviceForm.snmp_community" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="SNMP用户"><el-input v-model="deviceForm.snmp_user" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="Auth密码"><el-input v-model="deviceForm.snmp_auth_pass" type="password" show-password /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="Priv密码"><el-input v-model="deviceForm.snmp_priv_pass" type="password" show-password /></el-form-item></el-col>
+          <el-col :span="12">
+            <el-form-item label="Auth密码">
+              <el-input v-model="deviceForm.snmp_auth_pass" type="password" show-password :placeholder="deviceEditing ? '留空表示不修改' : ''" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="Priv密码">
+              <el-input v-model="deviceForm.snmp_priv_pass" type="password" show-password :placeholder="deviceEditing ? '留空表示不修改' : ''" />
+            </el-form-item>
+          </el-col>
           <el-col :span="24"><el-form-item label="描述"><el-input v-model="deviceForm.description" type="textarea" :rows="2" /></el-form-item></el-col>
         </el-row>
       </el-form>
@@ -381,10 +389,12 @@ const saveDevice = async () => {
       snmp_community: deviceForm.snmp_community,
       snmp_port: Number(deviceForm.snmp_port || 161),
       snmp_user: deviceForm.snmp_user,
-      snmp_auth_pass: deviceForm.snmp_auth_pass,
-      snmp_priv_pass: deviceForm.snmp_priv_pass,
       description: deviceForm.description
     }
+    const authPass = (deviceForm.snmp_auth_pass || '').trim()
+    const privPass = (deviceForm.snmp_priv_pass || '').trim()
+    if (!deviceEditing.value || authPass !== '') payload.snmp_auth_pass = authPass
+    if (!deviceEditing.value || privPass !== '') payload.snmp_priv_pass = privPass
 
     if (deviceEditing.value && deviceForm.id) {
       await axios.put(`/api/v1/firewall/devices/${deviceForm.id}`, payload, { headers: authHeaders() })

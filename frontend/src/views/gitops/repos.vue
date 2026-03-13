@@ -46,7 +46,7 @@
           <el-input v-model="form.branch" placeholder="main" />
         </el-form-item>
         <el-form-item label="SSH私钥">
-          <el-input v-model="form.ssh_key" type="textarea" :rows="4" placeholder="可选：私有仓库可填" show-password />
+          <el-input v-model="form.ssh_key" type="textarea" :rows="4" placeholder="可选：私有仓库可填" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />

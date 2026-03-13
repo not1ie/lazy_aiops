@@ -48,13 +48,13 @@
           <el-input v-model="form.webhook" />
         </el-form-item>
         <el-form-item label="签名密钥" v-if="showWebhook">
-          <el-input v-model="form.secret" show-password />
+          <el-input v-model="form.secret" type="password" show-password />
         </el-form-item>
         <el-form-item label="AppID" v-if="showAppAuth">
           <el-input v-model="form.app_id" />
         </el-form-item>
         <el-form-item label="AppSecret" v-if="showAppAuth">
-          <el-input v-model="form.app_secret" show-password />
+          <el-input v-model="form.app_secret" type="password" show-password />
         </el-form-item>
         <el-form-item label="SMTP Host" v-if="form.type === 'email'">
           <el-input v-model="form.smtp_host" />
@@ -66,7 +66,7 @@
           <el-input v-model="form.smtp_user" />
         </el-form-item>
         <el-form-item label="SMTP 密码" v-if="form.type === 'email'">
-          <el-input v-model="form.smtp_pass" show-password />
+          <el-input v-model="form.smtp_pass" type="password" show-password />
         </el-form-item>
         <el-form-item label="短信厂商" v-if="form.type === 'sms'">
           <el-select v-model="form.sms_provider" class="w-52">

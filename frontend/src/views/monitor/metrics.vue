@@ -35,8 +35,8 @@
         <el-option label="Bearer" value="bearer" />
       </el-select>
       <el-input v-if="form.auth_type === 'basic'" v-model="form.username" placeholder="用户名" class="w-40" />
-      <el-input v-if="form.auth_type === 'basic'" v-model="form.password" placeholder="密码" class="w-40" show-password />
-      <el-input v-if="form.auth_type === 'bearer'" v-model="form.token" placeholder="Token" class="w-52" show-password />
+      <el-input v-if="form.auth_type === 'basic'" v-model="form.password" type="password" placeholder="密码" class="w-40" show-password />
+      <el-input v-if="form.auth_type === 'bearer'" v-model="form.token" type="password" placeholder="Token" class="w-52" show-password />
       <el-button type="primary" @click="saveSetting">{{ form.id ? '更新' : '新增' }}</el-button>
       <el-button @click="resetForm">清空</el-button>
     </div>
