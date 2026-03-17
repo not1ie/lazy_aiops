@@ -156,20 +156,23 @@ def parse_register_routes(plugin_file: pathlib.Path, plugin_name: str) -> List[R
     return routes
 
 
-def parse_server_routes(server_file: pathlib.Path) -> List[RouteRef]:
-    text = server_file.read_text(encoding="utf-8", errors="ignore")
+def parse_server_routes(api_root: pathlib.Path) -> List[RouteRef]:
     routes: List[RouteRef] = []
+    fn_re = re.compile(r"func\s*\(s\s*\*Server\)\s*(\w+)\(\s*(\w+)\s+\*gin\.RouterGroup\s*\)")
 
-    for fn in ("setupPublicRoutes(g *gin.RouterGroup)", "setupAuthRoutes(g *gin.RouterGroup)"):
-        body = extract_function_body(text, f"func (s *Server) {fn}")
-        if not body:
-            continue
-        route_re = re.compile(r"\bg\.(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\(\s*\"([^\"]*)\"")
-        for m in route_re.finditer(body):
-            method, suffix = m.groups()
-            full = join_path("/api/v1", suffix)
-            if full:
-                routes.append(RouteRef(method=method, path=full, source=str(server_file)))
+    for go_file in sorted(api_root.glob("*.go")):
+        text = go_file.read_text(encoding="utf-8", errors="ignore")
+        for fn in fn_re.finditer(text):
+            group_var = fn.group(2)
+            body = extract_block_body(text, fn.end())
+            if not body:
+                continue
+            route_re = re.compile(rf"\b{re.escape(group_var)}\.(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)\(\s*\"([^\"]*)\"")
+            for m in route_re.finditer(body):
+                method, suffix = m.groups()
+                full = join_path("/api/v1", suffix)
+                if full:
+                    routes.append(RouteRef(method=method, path=full, source=str(go_file)))
     return routes
 
 
@@ -256,6 +259,16 @@ def parse_click_handler_refs(front_root: pathlib.Path) -> List[ClickRef]:
                     script_setup,
                 )
             )
+            for m in re.finditer(r"\bconst\s*\{([^}]*)\}\s*=", script_setup):
+                for raw_name in m.group(1).split(","):
+                    candidate = raw_name.strip()
+                    if not candidate:
+                        continue
+                    if ":" in candidate:
+                        candidate = candidate.split(":", 1)[1].strip()
+                    candidate = candidate.split("=", 1)[0].strip()
+                    if candidate and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", candidate):
+                        setup_defs.add(candidate)
             setup_defs.update(re.findall(r"\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", script_setup))
 
         # options api methods
@@ -313,7 +326,8 @@ def main() -> int:
 
     root = pathlib.Path(args.root).resolve()
     plugin_root = root / "plugins"
-    server_file = root / "internal" / "api" / "server.go"
+    api_root = root / "internal" / "api"
+    server_file = api_root / "server.go"
     front_root = root / "frontend" / "src"
 
     if not plugin_root.exists() or not server_file.exists() or not front_root.exists():
@@ -321,7 +335,7 @@ def main() -> int:
         return 2
 
     backend_routes: List[RouteRef] = []
-    backend_routes.extend(parse_server_routes(server_file))
+    backend_routes.extend(parse_server_routes(api_root))
     plugin_names = parse_plugin_names(plugin_root)
     for plugin_file, plugin_name in plugin_names.items():
         backend_routes.extend(parse_register_routes(plugin_file, plugin_name))
