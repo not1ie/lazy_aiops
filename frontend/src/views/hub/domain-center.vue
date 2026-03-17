@@ -77,8 +77,28 @@
 
       <el-col :span="14">
         <el-card>
-          <template #header>风险清单（可直接处置）</template>
-          <el-table :fit="true" :data="riskRows" size="small" max-height="470" empty-text="暂无风险项">
+          <template #header>
+            <div class="risk-header">
+              <span>风险清单（可直接处置）</span>
+              <div class="risk-actions">
+                <el-tag type="danger" effect="light">高危 {{ riskCriticalCount }}</el-tag>
+                <el-tag type="warning" effect="light">待复检 {{ riskStaleCount }}</el-tag>
+                <el-button size="small" type="warning" plain :loading="riskBatching" :disabled="!selectedRiskCount" @click="batchHandleSelectedRisk">批量复检已选</el-button>
+                <el-button size="small" plain :loading="riskBatching" :disabled="!riskCriticalCount" @click="batchHandleCriticalRisk">处置高危</el-button>
+                <el-button size="small" plain :loading="riskBatching" :disabled="!riskStaleCount" @click="batchHandleStaleRisk">复检过期</el-button>
+              </div>
+            </div>
+          </template>
+          <el-table
+            ref="riskTableRef"
+            :fit="true"
+            :data="riskRows"
+            size="small"
+            max-height="470"
+            empty-text="暂无风险项"
+            @selection-change="onRiskSelectionChange"
+          >
+            <el-table-column type="selection" width="46" />
             <el-table-column prop="type" label="类型" width="90" />
             <el-table-column prop="name" label="对象" min-width="170" />
             <el-table-column prop="reason" label="风险" min-width="140">
@@ -87,6 +107,11 @@
               </template>
             </el-table-column>
             <el-table-column prop="detail" label="详情" min-width="180" show-overflow-tooltip />
+            <el-table-column label="检查时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="row.stale ? 'warning' : 'success'">{{ row.stale ? '待复检' : '及时' }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" min-width="150">
               <template #default="{ row }">
                 <el-button link type="primary" @click="handleRiskAction(row)">复检</el-button>
@@ -94,6 +119,18 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="risk-group-list">
+            <el-tag
+              v-for="group in riskReasonGroups"
+              :key="group.reason"
+              :type="group.level"
+              effect="plain"
+              class="risk-group-tag"
+              @click="batchHandleRiskGroup(group)"
+            >
+              {{ group.reason }} · {{ group.count }}
+            </el-tag>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -279,11 +316,14 @@ const router = useRouter()
 const loading = ref(false)
 const checking = ref(false)
 const checkingCert = ref(false)
+const riskBatching = ref(false)
 const domains = ref([])
 const certs = ref([])
 const accounts = ref([])
 const alerts = ref([])
 const nowTick = ref(Date.now())
+const riskTableRef = ref(null)
+const selectedRiskRows = ref([])
 let dayTicker = null
 
 const activePanel = ref('domains')
@@ -449,8 +489,10 @@ const riskRows = computed(() => {
   const rows = []
   domains.value.forEach((item) => {
     const health = normalizeText(item.health_status)
+    const domainCheckAt = item.last_check_at || item.updated_at
     if (health === 'warning' || health === 'critical') {
       rows.push({
+        key: `domain-health-${item.domain}`,
         kind: 'domain',
         domain: item.domain,
         type: '域名',
@@ -458,6 +500,8 @@ const riskRows = computed(() => {
         reason: health === 'critical' ? '可用性故障' : '可用性预警',
         detail: `HTTP ${item.http_status_code || '-'} / ${item.response_time_ms || '-'}ms`,
         level: health === 'critical' ? 'danger' : 'warning',
+        checkAt: domainCheckAt,
+        stale: isCheckStale(domainCheckAt),
         path: '/domain/ssl'
       })
     }
@@ -465,6 +509,7 @@ const riskRows = computed(() => {
     const certRemain = Number(sslDays(item))
     if (!Number.isNaN(certRemain) && certRemain <= 30) {
       rows.push({
+        key: `domain-cert-${item.domain}`,
         kind: 'domain',
         domain: item.domain,
         type: '域名证书',
@@ -472,12 +517,15 @@ const riskRows = computed(() => {
         reason: certRemain <= 7 ? '即将过期' : '临近到期',
         detail: `剩余 ${certRemain} 天`,
         level: certRemain <= 7 ? 'danger' : 'warning',
+        checkAt: domainCheckAt,
+        stale: isCheckStale(domainCheckAt),
         path: '/domain/ssl'
       })
     }
 
     if (isCheckStale(item.last_check_at)) {
       rows.push({
+        key: `domain-stale-${item.domain}`,
         kind: 'domain',
         domain: item.domain,
         type: '域名巡检',
@@ -485,15 +533,19 @@ const riskRows = computed(() => {
         reason: '检查过期',
         detail: `上次检查 ${formatCheckFreshness(item.last_check_at)}`,
         level: 'warning',
+        checkAt: item.last_check_at,
+        stale: true,
         path: '/domain/ssl'
       })
     }
   })
 
   certs.value.forEach((item) => {
+    const certCheckAt = item.last_check_at || item.updated_at
     const days = Number(certDays(item))
     if (days <= 30) {
       rows.push({
+        key: `cert-expire-${item.id}`,
         kind: 'cert',
         id: item.id,
         domain: item.domain,
@@ -502,12 +554,15 @@ const riskRows = computed(() => {
         reason: days <= 7 ? '即将过期' : '临近到期',
         detail: `剩余 ${days} 天`,
         level: days <= 7 ? 'danger' : 'warning',
+        checkAt: certCheckAt,
+        stale: isCheckStale(certCheckAt),
         path: '/domain/ssl'
       })
     }
 
     if (isCheckStale(item.last_check_at)) {
       rows.push({
+        key: `cert-stale-${item.id}`,
         kind: 'cert',
         id: item.id,
         domain: item.domain,
@@ -516,13 +571,20 @@ const riskRows = computed(() => {
         reason: '检查过期',
         detail: `上次检查 ${formatCheckFreshness(item.last_check_at)}`,
         level: 'warning',
+        checkAt: item.last_check_at,
+        stale: true,
         path: '/domain/ssl'
       })
     }
   })
 
+  const levelWeight = { danger: 2, warning: 1, info: 0 }
   return rows
-    .sort((a, b) => (a.level === 'danger' ? -1 : 1) - (b.level === 'danger' ? -1 : 1))
+    .sort((a, b) => {
+      const levelDiff = (levelWeight[b.level] || 0) - (levelWeight[a.level] || 0)
+      if (levelDiff !== 0) return levelDiff
+      return Number(b.stale) - Number(a.stale)
+    })
     .slice(0, 30)
 })
 
@@ -543,6 +605,21 @@ const domainAlerts = computed(() => {
 })
 
 const domainAlertCount = computed(() => domainAlerts.value.length)
+const riskCriticalCount = computed(() => riskRows.value.filter((item) => item.level === 'danger').length)
+const riskStaleCount = computed(() => riskRows.value.filter((item) => item.stale).length)
+const selectedRiskCount = computed(() => selectedRiskRows.value.length)
+const riskReasonGroups = computed(() => {
+  const map = new Map()
+  riskRows.value.forEach((item) => {
+    const key = item.reason || '未分类'
+    const current = map.get(key) || { reason: key, count: 0, level: item.level, rows: [] }
+    current.count += 1
+    if (item.level === 'danger') current.level = 'danger'
+    current.rows.push(item)
+    map.set(key, current)
+  })
+  return [...map.values()].sort((a, b) => b.count - a.count).slice(0, 8)
+})
 
 const filterRows = (rows, fields) => {
   const keyword = normalizeText(panelKeyword.value)
@@ -603,9 +680,80 @@ const openCurrentPanel = () => {
   go(panelRouteMap[activePanel.value] || '/domain/ssl')
 }
 
+const onRiskSelectionChange = (rows) => {
+  selectedRiskRows.value = Array.isArray(rows) ? rows : []
+}
+
+const doRiskCheck = async (row) => {
+  if (row.kind === 'cert' && row.id) {
+    return axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
+  }
+  const domain = row.domain || row.name
+  if (!domain) {
+    return Promise.reject(new Error('缺少域名信息'))
+  }
+  return axios.post('/api/v1/domain/domains/check', { domain }, { headers: authHeaders() })
+}
+
+const runBatchRiskAction = async (rows, title, message) => {
+  const uniqueRows = []
+  const seen = new Set()
+  rows.forEach((item) => {
+    const key = item.key || `${item.kind}-${item.id || item.domain || item.name}`
+    if (seen.has(key)) return
+    seen.add(key)
+    uniqueRows.push(item)
+  })
+  if (!uniqueRows.length) {
+    ElMessage.info('没有可处置项')
+    return
+  }
+
+  riskBatching.value = true
+  try {
+    await ElMessageBox.confirm(message, title, { type: 'warning' })
+    const settled = await Promise.allSettled(uniqueRows.map((item) => doRiskCheck(item)))
+    const success = settled.filter((item) => item.status === 'fulfilled').length
+    const fail = settled.length - success
+    ElMessage.success(`批量处置完成：成功 ${success}，失败 ${fail}`)
+    selectedRiskRows.value = []
+    if (riskTableRef.value?.clearSelection) riskTableRef.value.clearSelection()
+    await refreshAll()
+  } catch (err) {
+    if (!isCancelError(err)) {
+      ElMessage.error(getErrorMessage(err, '批量处置失败'))
+    }
+  } finally {
+    riskBatching.value = false
+  }
+}
+
+const batchHandleSelectedRisk = async () => {
+  await runBatchRiskAction(
+    selectedRiskRows.value,
+    '批量复检',
+    `确认复检已选择的 ${selectedRiskRows.value.length} 个风险对象吗？`
+  )
+}
+
+const batchHandleCriticalRisk = async () => {
+  const rows = riskRows.value.filter((item) => item.level === 'danger')
+  await runBatchRiskAction(rows, '处置高危风险', `确认对 ${rows.length} 个高危风险对象执行复检吗？`)
+}
+
+const batchHandleStaleRisk = async () => {
+  const rows = riskRows.value.filter((item) => item.stale)
+  await runBatchRiskAction(rows, '复检过期对象', `确认对 ${rows.length} 个待复检对象执行复检吗？`)
+}
+
+const batchHandleRiskGroup = async (group) => {
+  const rows = Array.isArray(group?.rows) ? group.rows : []
+  await runBatchRiskAction(rows, `批量处置：${group?.reason || '风险组'}`, `确认对「${group?.reason || '风险组'}」共 ${rows.length} 项执行复检吗？`)
+}
+
 const checkDomainRow = async (row) => {
   try {
-    await axios.post('/api/v1/domain/domains/check', { domain: row.domain }, { headers: authHeaders() })
+    await doRiskCheck({ kind: 'domain', domain: row.domain })
     ElMessage.success(`域名 ${row.domain} 已触发体检`)
     await refreshAll()
   } catch (err) {
@@ -615,7 +763,7 @@ const checkDomainRow = async (row) => {
 
 const checkCertRow = async (row) => {
   try {
-    await axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
+    await doRiskCheck({ kind: 'cert', id: row.id })
     ElMessage.success(`证书 ${row.domain} 已触发检查`)
     await refreshAll()
   } catch (err) {
@@ -808,6 +956,31 @@ onBeforeUnmount(() => {
 .mt-12 { margin-top: 12px; }
 .mtop { margin-top: 12px; }
 
+.risk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.risk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.risk-group-list {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.risk-group-tag {
+  cursor: pointer;
+}
+
 .integration-card {
   margin-top: 12px;
 }
@@ -845,6 +1018,15 @@ onBeforeUnmount(() => {
   }
 
   .panel-search {
+    width: 100%;
+  }
+
+  .risk-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .risk-actions {
     width: 100%;
   }
 }
