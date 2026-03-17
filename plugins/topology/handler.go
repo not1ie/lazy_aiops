@@ -124,11 +124,30 @@ func (h *TopologyHandler) UpdateNode(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "节点不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&node); err != nil {
+	var req ServiceNode
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	h.db.Save(&node)
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"type":        req.Type,
+		"icon":        req.Icon,
+		"description": req.Description,
+		"namespace":   req.Namespace,
+		"cluster":     req.Cluster,
+		"endpoints":   req.Endpoints,
+		"metadata":    req.Metadata,
+		"status":      req.Status,
+		"health_url":  req.HealthURL,
+		"x":           req.X,
+		"y":           req.Y,
+	}
+	if err := h.db.Model(&node).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	_ = h.db.First(&node, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": node})
 }
 
@@ -144,8 +163,14 @@ func (h *TopologyHandler) UpdateNodePosition(c *gin.Context) {
 		X int `json:"x"`
 		Y int `json:"y"`
 	}
-	c.ShouldBindJSON(&req)
-	h.db.Model(&ServiceNode{}).Where("id = ?", id).Updates(map[string]interface{}{"x": req.X, "y": req.Y})
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if err := h.db.Model(&ServiceNode{}).Where("id = ?", id).Updates(map[string]interface{}{"x": req.X, "y": req.Y}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "更新成功"})
 }
 

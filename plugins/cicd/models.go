@@ -9,11 +9,15 @@ import (
 // CICDPipeline CI/CD流水线
 type CICDPipeline struct {
 	core.BaseModel
-	Name           string `json:"name" gorm:"size:100"`
-	Description    string `json:"description" gorm:"size:500"`
-	Provider       string `json:"provider" gorm:"size:50"` // jenkins, gitlab, argocd, github
-	CredentialID   string `json:"credential_id,omitempty" gorm:"size:36;index"`
-	CredentialName string `json:"credential_name,omitempty" gorm:"-"`
+	Name            string `json:"name" gorm:"size:100"`
+	Description     string `json:"description" gorm:"size:500"`
+	Provider        string `json:"provider" gorm:"size:50"` // jenkins, gitlab, argocd, github
+	CredentialID    string `json:"credential_id,omitempty" gorm:"size:36;index"`
+	CredentialName  string `json:"credential_name,omitempty" gorm:"-"`
+	RequireApproval bool   `json:"require_approval" gorm:"default:false"`
+	WorkorderTypeID string `json:"workorder_type_id,omitempty" gorm:"size:36;index"`
+	NotifyTargetID  string `json:"notify_target_id,omitempty" gorm:"size:36;index"`
+	NotifyReceiver  string `json:"notify_receiver,omitempty" gorm:"size:256"`
 	// Jenkins配置
 	JenkinsURL   string `json:"jenkins_url,omitempty" gorm:"size:500"`
 	JenkinsJob   string `json:"jenkins_job,omitempty" gorm:"size:200"`
@@ -55,6 +59,7 @@ type CICDExecution struct {
 	PipelineID    string     `json:"pipeline_id" gorm:"size:36;index"`
 	PipelineName  string     `json:"pipeline_name" gorm:"size:100"`
 	Provider      string     `json:"provider" gorm:"size:50"`
+	WorkOrderID   string     `json:"workorder_id,omitempty" gorm:"size:36;index"`
 	RemoteBuildID string     `json:"remote_build_id" gorm:"size:100"`
 	Status        int        `json:"status" gorm:"default:0"` // 0运行中 1成功 2失败 3取消
 	Trigger       string     `json:"trigger" gorm:"size:50"`  // manual, schedule, webhook

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -1065,7 +1066,10 @@ func (h *JumpHandler) RejectSession(c *gin.Context) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		reason = "审批拒绝"
@@ -1363,7 +1367,10 @@ func (h *JumpHandler) DisconnectSession(c *gin.Context) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		reason = "管理员强制断开"
@@ -1426,7 +1433,10 @@ func (h *JumpHandler) CloseSession(c *gin.Context) {
 		CloseReason string `json:"close_reason"`
 		Status      string `json:"status"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
 	now := time.Now()
 	status := strings.TrimSpace(req.Status)

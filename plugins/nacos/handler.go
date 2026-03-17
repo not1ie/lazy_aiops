@@ -611,17 +611,48 @@ func (h *NacosHandler) UpdateSyncSchedule(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "同步计划不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&schedule); err != nil {
+	var req struct {
+		Name        *string `json:"name"`
+		ServerID    *string `json:"server_id"`
+		Cron        *string `json:"cron"`
+		Enabled     *bool   `json:"enabled"`
+		Description *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if schedule.Cron != "" {
-		if _, err := cron.ParseStandard(schedule.Cron); err != nil {
+	if req.Cron != nil && *req.Cron != "" {
+		if _, err := cron.ParseStandard(*req.Cron); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Cron表达式无效"})
 			return
 		}
 	}
-	if err := h.db.Save(&schedule).Error; err != nil {
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.ServerID != nil {
+		updates["server_id"] = *req.ServerID
+	}
+	if req.Cron != nil {
+		updates["cron"] = *req.Cron
+	}
+	if req.Enabled != nil {
+		updates["enabled"] = *req.Enabled
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedule})
+		return
+	}
+	if err := h.db.Model(&schedule).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&schedule, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}

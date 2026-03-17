@@ -142,14 +142,14 @@ func (h *RBACHandler) UpdateUser(c *gin.Context) {
 // DeleteUser 删除用户
 func (h *RBACHandler) DeleteUser(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	// 不能删除admin用户
 	var user core.User
 	if err := h.db.First(&user, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "用户不存在"})
 		return
 	}
-	
+
 	if user.Username == "admin" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "不能删除管理员账号"})
 		return
@@ -257,10 +257,19 @@ func (h *RBACHandler) ListRoles(c *gin.Context) {
 
 // CreateRole 创建角色
 func (h *RBACHandler) CreateRole(c *gin.Context) {
-	var role core.Role
-	if err := c.ShouldBindJSON(&role); err != nil {
+	var req struct {
+		Name        string `json:"name" binding:"required"`
+		Code        string `json:"code" binding:"required"`
+		Description string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
+	}
+	role := core.Role{
+		Name:        req.Name,
+		Code:        req.Code,
+		Description: req.Description,
 	}
 
 	if err := h.db.Create(&role).Error; err != nil {
@@ -292,15 +301,26 @@ func (h *RBACHandler) UpdateRole(c *gin.Context) {
 		return
 	}
 
-	if err := c.ShouldBindJSON(&role); err != nil {
+	var req struct {
+		Name        string `json:"name"`
+		Code        string `json:"code"`
+		Description string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
 
-	if err := h.db.Save(&role).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"code":        req.Code,
+		"description": req.Description,
+	}
+	if err := h.db.Model(&role).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&role, "id = ?", id)
 
 	h.logOperation(c, "role", "update", role.Name, "更新角色")
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": role})
@@ -309,19 +329,19 @@ func (h *RBACHandler) UpdateRole(c *gin.Context) {
 // DeleteRole 删除角色
 func (h *RBACHandler) DeleteRole(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	var role core.Role
 	if err := h.db.First(&role, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "角色不存在"})
 		return
 	}
-	
+
 	// 不能删除admin角色
 	if role.Code == "admin" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "不能删除管理员角色"})
 		return
 	}
-	
+
 	// 检查是否有用户使用该角色
 	var count int64
 	h.db.Model(&core.User{}).Where("role_id = ?", id).Count(&count)
@@ -393,10 +413,21 @@ func (h *RBACHandler) ListPermissions(c *gin.Context) {
 
 // CreatePermission 创建权限
 func (h *RBACHandler) CreatePermission(c *gin.Context) {
-	var permission core.Permission
-	if err := c.ShouldBindJSON(&permission); err != nil {
+	var req struct {
+		Name     string `json:"name" binding:"required"`
+		Code     string `json:"code" binding:"required"`
+		Type     string `json:"type"`
+		ParentID string `json:"parent_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
+	}
+	permission := core.Permission{
+		Name:     req.Name,
+		Code:     req.Code,
+		Type:     req.Type,
+		ParentID: req.ParentID,
 	}
 
 	if err := h.db.Create(&permission).Error; err != nil {
@@ -428,15 +459,28 @@ func (h *RBACHandler) UpdatePermission(c *gin.Context) {
 		return
 	}
 
-	if err := c.ShouldBindJSON(&permission); err != nil {
+	var req struct {
+		Name     string `json:"name"`
+		Code     string `json:"code"`
+		Type     string `json:"type"`
+		ParentID string `json:"parent_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
 
-	if err := h.db.Save(&permission).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":      req.Name,
+		"code":      req.Code,
+		"type":      req.Type,
+		"parent_id": req.ParentID,
+	}
+	if err := h.db.Model(&permission).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&permission, "id = ?", id)
 
 	h.logOperation(c, "permission", "update", permission.Name, "更新权限")
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": permission})
@@ -445,7 +489,7 @@ func (h *RBACHandler) UpdatePermission(c *gin.Context) {
 // DeletePermission 删除权限
 func (h *RBACHandler) DeletePermission(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	var permission core.Permission
 	if err := h.db.First(&permission, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "权限不存在"})
@@ -527,7 +571,7 @@ func (h *RBACHandler) logOperation(c *gin.Context, module, action, target, detai
 // buildPermissionTree 构建权限树
 func buildPermissionTree(permissions []core.Permission, parentID string) []map[string]interface{} {
 	tree := []map[string]interface{}{}
-	
+
 	for _, perm := range permissions {
 		if perm.ParentID == parentID {
 			node := map[string]interface{}{
@@ -540,6 +584,6 @@ func buildPermissionTree(permissions []core.Permission, parentID string) []map[s
 			tree = append(tree, node)
 		}
 	}
-	
+
 	return tree
 }

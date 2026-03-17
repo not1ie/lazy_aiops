@@ -152,7 +152,10 @@ func (h *AnsibleHandler) ExecutePlaybook(c *gin.Context) {
 		Limit       string            `json:"limit"`
 		Check       bool              `json:"check"` // dry-run
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
 	// 创建执行记录
 	extraVarsJSON, _ := json.Marshal(req.ExtraVars)

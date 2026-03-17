@@ -12,8 +12,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/notify"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/workorder"
 	"gorm.io/gorm"
 )
+
+type cicdApprovalFormData struct {
+	Source      string            `json:"source"`
+	PipelineID  string            `json:"pipeline_id"`
+	Pipeline    string            `json:"pipeline_name"`
+	Provider    string            `json:"provider"`
+	Parameters  map[string]string `json:"parameters"`
+	Reason      string            `json:"reason,omitempty"`
+	Trigger     string            `json:"trigger"`
+	TriggerBy   string            `json:"trigger_by"`
+	RequestedAt time.Time         `json:"requested_at"`
+}
 
 type CICDHandler struct {
 	db        *gorm.DB
@@ -33,19 +47,153 @@ type CICDCredentialOption struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Username string `json:"username"`
+	Provider string `json:"provider,omitempty"`
 }
 
-func pickCredentialSecret(cred *cmdb.Credential) string {
+func pickCredentialSecretForProvider(provider string, cred *cmdb.Credential) (string, error) {
 	if cred == nil {
-		return ""
+		return "", fmt.Errorf("凭据为空")
 	}
-	candidates := []string{cred.Password, cred.SecretKey, cred.AccessKey, cred.Passphrase}
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	credentialType := strings.ToLower(strings.TrimSpace(cred.Type))
+	candidates := []string{}
+
+	switch provider {
+	case "jenkins":
+		candidates = []string{cred.Password, cred.SecretKey, cred.AccessKey, cred.Passphrase}
+	case "gitlab", "github", "argocd":
+		if credentialType == "api" {
+			candidates = []string{cred.SecretKey, cred.Password, cred.AccessKey}
+		} else {
+			candidates = []string{cred.Password, cred.SecretKey, cred.AccessKey, cred.Passphrase}
+		}
+	default:
+		candidates = []string{cred.Password, cred.SecretKey, cred.AccessKey, cred.Passphrase}
+	}
+
 	for _, item := range candidates {
 		if strings.TrimSpace(item) != "" {
-			return item
+			return item, nil
 		}
 	}
-	return ""
+	return "", fmt.Errorf("凭据缺少可用密钥字段")
+}
+
+func (h *CICDHandler) loadCredential(credentialID string) (*cmdb.Credential, error) {
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return nil, nil
+	}
+	var cred cmdb.Credential
+	if err := h.db.First(&cred, "id = ?", credentialID).Error; err != nil {
+		return nil, fmt.Errorf("凭据不存在或不可用")
+	}
+	if err := cmdb.DecryptCredentialFields(h.secretKey, &cred); err != nil {
+		return nil, fmt.Errorf("凭据解密失败: %w", err)
+	}
+	return &cred, nil
+}
+
+func providerDisplayName(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "jenkins":
+		return "Jenkins"
+	case "gitlab":
+		return "GitLab"
+	case "github":
+		return "GitHub"
+	case "argocd":
+		return "ArgoCD"
+	default:
+		return provider
+	}
+}
+
+func (h *CICDHandler) validatePipelineAuth(pipeline *CICDPipeline) error {
+	if pipeline == nil {
+		return fmt.Errorf("流水线不能为空")
+	}
+	pipeline.Provider = strings.ToLower(strings.TrimSpace(pipeline.Provider))
+	switch pipeline.Provider {
+	case "jenkins", "gitlab", "argocd", "github":
+	default:
+		return fmt.Errorf("不支持的 Provider: %s", pipeline.Provider)
+	}
+
+	credentialID := strings.TrimSpace(pipeline.CredentialID)
+	if credentialID != "" {
+		cred, err := h.loadCredential(credentialID)
+		if err != nil {
+			return err
+		}
+		if _, err := pickCredentialSecretForProvider(pipeline.Provider, cred); err != nil {
+			return fmt.Errorf("%s 凭据不可用于 %s: %w", cred.Name, providerDisplayName(pipeline.Provider), err)
+		}
+		if pipeline.Provider == "jenkins" && strings.TrimSpace(cred.Username) == "" && strings.TrimSpace(pipeline.JenkinsUser) == "" {
+			return fmt.Errorf("Jenkins 统一凭据缺少用户名，请在凭据里维护 Username 或在流水线里填写 Jenkins 用户名")
+		}
+		return nil
+	}
+
+	switch pipeline.Provider {
+	case "jenkins":
+		if strings.TrimSpace(pipeline.JenkinsUser) == "" || strings.TrimSpace(pipeline.JenkinsToken) == "" {
+			return fmt.Errorf("Jenkins 用户名和 Token 不能为空（或选择统一凭据）")
+		}
+	case "gitlab":
+		if strings.TrimSpace(pipeline.GitLabToken) == "" {
+			return fmt.Errorf("GitLab Token 不能为空（或选择统一凭据）")
+		}
+	case "argocd":
+		if strings.TrimSpace(pipeline.ArgoCDToken) == "" {
+			return fmt.Errorf("ArgoCD Token 不能为空（或选择统一凭据）")
+		}
+	case "github":
+		if strings.TrimSpace(pipeline.GitHubToken) == "" {
+			return fmt.Errorf("GitHub Token 不能为空（或选择统一凭据）")
+		}
+	}
+	return nil
+}
+
+func (h *CICDHandler) validatePipelineConfig(pipeline *CICDPipeline) error {
+	if pipeline == nil {
+		return fmt.Errorf("流水线不能为空")
+	}
+	if strings.TrimSpace(pipeline.Name) == "" {
+		return fmt.Errorf("流水线名称不能为空")
+	}
+	if err := h.validatePipelineAuth(pipeline); err != nil {
+		return err
+	}
+	switch pipeline.Provider {
+	case "jenkins":
+		if strings.TrimSpace(pipeline.JenkinsURL) == "" || strings.TrimSpace(pipeline.JenkinsJob) == "" {
+			return fmt.Errorf("Jenkins URL 和 Job Name 不能为空")
+		}
+	case "gitlab":
+		if strings.TrimSpace(pipeline.GitLabURL) == "" || strings.TrimSpace(pipeline.GitLabProjectID) == "" {
+			return fmt.Errorf("GitLab URL 和 Project ID 不能为空")
+		}
+	case "argocd":
+		if strings.TrimSpace(pipeline.ArgoCDURL) == "" || strings.TrimSpace(pipeline.ArgoCDApp) == "" {
+			return fmt.Errorf("ArgoCD URL 和 App Name 不能为空")
+		}
+	case "github":
+		if strings.TrimSpace(pipeline.GitHubRepo) == "" || strings.TrimSpace(pipeline.GitHubWorkflow) == "" {
+			return fmt.Errorf("GitHub Repo 和 Workflow 不能为空")
+		}
+	}
+	if pipeline.RequireApproval && strings.TrimSpace(pipeline.WorkorderTypeID) != "" {
+		var count int64
+		if err := h.db.Model(&workorder.WorkOrderType{}).Where("id = ?", strings.TrimSpace(pipeline.WorkorderTypeID)).Count(&count).Error; err != nil {
+			return fmt.Errorf("工单类型校验失败: %w", err)
+		}
+		if count == 0 {
+			return fmt.Errorf("指定的工单类型不存在")
+		}
+	}
+	return nil
 }
 
 func (h *CICDHandler) applyCredential(pipeline *CICDPipeline) error {
@@ -53,15 +201,15 @@ func (h *CICDHandler) applyCredential(pipeline *CICDPipeline) error {
 		return nil
 	}
 
-	var cred cmdb.Credential
-	if err := h.db.First(&cred, "id = ?", pipeline.CredentialID).Error; err != nil {
-		return fmt.Errorf("凭据不存在或不可用")
-	}
-	if err := cmdb.DecryptCredentialFields(h.secretKey, &cred); err != nil {
-		return fmt.Errorf("凭据解密失败: %w", err)
+	cred, err := h.loadCredential(pipeline.CredentialID)
+	if err != nil {
+		return err
 	}
 
-	token := pickCredentialSecret(&cred)
+	token, err := pickCredentialSecretForProvider(pipeline.Provider, cred)
+	if err != nil {
+		return fmt.Errorf("凭据与当前 Provider 不匹配: %w", err)
+	}
 	switch strings.ToLower(strings.TrimSpace(pipeline.Provider)) {
 	case "jenkins":
 		if strings.TrimSpace(cred.Username) != "" {
@@ -124,6 +272,7 @@ func (h *CICDHandler) attachCredentialNames(pipelines []CICDPipeline) error {
 }
 
 func (h *CICDHandler) ListCredentials(c *gin.Context) {
+	provider := strings.ToLower(strings.TrimSpace(c.Query("provider")))
 	var creds []cmdb.Credential
 	if err := h.db.Order("created_at DESC").Find(&creds).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -131,11 +280,24 @@ func (h *CICDHandler) ListCredentials(c *gin.Context) {
 	}
 	options := make([]CICDCredentialOption, 0, len(creds))
 	for i := range creds {
+		if provider != "" {
+			fullCred, err := h.loadCredential(creds[i].ID)
+			if err != nil {
+				continue
+			}
+			if _, err := pickCredentialSecretForProvider(provider, fullCred); err != nil {
+				continue
+			}
+			if provider == "jenkins" && strings.TrimSpace(fullCred.Username) == "" {
+				continue
+			}
+		}
 		options = append(options, CICDCredentialOption{
 			ID:       creds[i].ID,
 			Name:     creds[i].Name,
 			Type:     creds[i].Type,
 			Username: creds[i].Username,
+			Provider: provider,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": options})
@@ -166,9 +328,19 @@ func (h *CICDHandler) CreatePipeline(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
+	if err := h.validatePipelineConfig(&pipeline); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
 	if err := h.db.Create(&pipeline).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	if strings.TrimSpace(pipeline.CredentialID) != "" {
+		var cred cmdb.Credential
+		if err := h.db.Select("id", "name").First(&cred, "id = ?", pipeline.CredentialID).Error; err == nil {
+			pipeline.CredentialName = cred.Name
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": pipeline})
 }
@@ -198,13 +370,52 @@ func (h *CICDHandler) UpdatePipeline(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "流水线不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&pipeline); err != nil {
+	var req CICDPipeline
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&pipeline).Error; err != nil {
+	if err := h.validatePipelineConfig(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	updates := map[string]interface{}{
+		"name":               req.Name,
+		"description":        req.Description,
+		"provider":           strings.ToLower(strings.TrimSpace(req.Provider)),
+		"credential_id":      req.CredentialID,
+		"require_approval":   req.RequireApproval,
+		"workorder_type_id":  req.WorkorderTypeID,
+		"notify_target_id":   req.NotifyTargetID,
+		"notify_receiver":    req.NotifyReceiver,
+		"jenkins_url":        req.JenkinsURL,
+		"jenkins_job":        req.JenkinsJob,
+		"jenkins_user":       req.JenkinsUser,
+		"jenkins_token":      req.JenkinsToken,
+		"git_lab_url":        req.GitLabURL,
+		"git_lab_project_id": req.GitLabProjectID,
+		"git_lab_token":      req.GitLabToken,
+		"git_lab_ref":        req.GitLabRef,
+		"argo_cd_url":        req.ArgoCDURL,
+		"argo_cd_app":        req.ArgoCDApp,
+		"argo_cd_token":      req.ArgoCDToken,
+		"git_hub_repo":       req.GitHubRepo,
+		"git_hub_token":      req.GitHubToken,
+		"git_hub_workflow":   req.GitHubWorkflow,
+		"parameters":         req.Parameters,
+		"env_vars":           req.EnvVars,
+		"status":             req.Status,
+	}
+	if err := h.db.Model(&pipeline).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	_ = h.db.First(&pipeline, "id = ?", id)
+	if strings.TrimSpace(pipeline.CredentialID) != "" {
+		var cred cmdb.Credential
+		if err := h.db.Select("id", "name").First(&cred, "id = ?", pipeline.CredentialID).Error; err == nil {
+			pipeline.CredentialName = cred.Name
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": pipeline})
 }
@@ -230,19 +441,295 @@ func (h *CICDHandler) TriggerPipeline(c *gin.Context) {
 
 	var req struct {
 		Parameters map[string]string `json:"parameters"`
+		Reason     string            `json:"reason"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
-	execution, err := h.triggerBuild(&pipeline, req.Parameters, "manual", c.GetString("username"))
+	triggerBy := c.GetString("username")
+	if strings.TrimSpace(triggerBy) == "" {
+		triggerBy = "system"
+	}
+	triggerByID := c.GetString("user_id")
+
+	if pipeline.RequireApproval {
+		order, err := h.createApprovalWorkOrder(&pipeline, req.Parameters, req.Reason, "manual", triggerBy, triggerByID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"mode":         "approval_required",
+				"workorder_id": order.ID,
+				"status":       "pending",
+			},
+		})
+		return
+	}
+
+	execution, err := h.triggerBuild(&pipeline, req.Parameters, "manual", triggerBy, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	h.sendExecutionNotify(&pipeline, execution, "流水线已触发", "流水线已开始执行")
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": execution})
 }
 
+// ExecuteByWorkOrder 根据工单触发流水线（审批通过后执行）
+func (h *CICDHandler) ExecuteByWorkOrder(c *gin.Context) {
+	orderID := strings.TrimSpace(c.Param("orderID"))
+	if orderID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "工单ID不能为空"})
+		return
+	}
+
+	var order workorder.WorkOrder
+	if err := h.db.First(&order, "id = ?", orderID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "工单不存在"})
+		return
+	}
+	if order.Status != 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "工单未审批通过，无法执行"})
+		return
+	}
+
+	var form cicdApprovalFormData
+	if err := json.Unmarshal([]byte(order.FormData), &form); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "工单表单数据解析失败"})
+		return
+	}
+	if strings.ToLower(strings.TrimSpace(form.Source)) != "cicd" || strings.TrimSpace(form.PipelineID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "该工单不是CI/CD触发工单"})
+		return
+	}
+
+	var pipeline CICDPipeline
+	if err := h.db.First(&pipeline, "id = ?", form.PipelineID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "关联流水线不存在"})
+		return
+	}
+
+	operator := c.GetString("username")
+	if strings.TrimSpace(operator) == "" {
+		operator = "system"
+	}
+	operatorID := c.GetString("user_id")
+	updates := map[string]interface{}{
+		"status":      4,
+		"assignee":    operator,
+		"assignee_id": operatorID,
+	}
+	_ = h.db.Model(&order).Updates(updates).Error
+	h.addWorkOrderComment(h.db, order.ID, operator, "system", "已从CI/CD模块触发执行")
+
+	execution, err := h.triggerBuild(&pipeline, form.Parameters, "workorder", operator, order.ID)
+	if err != nil {
+		_ = h.db.Model(&order).Updates(map[string]interface{}{"status": 2}).Error
+		h.addWorkOrderComment(h.db, order.ID, operator, "system", "触发失败: "+err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	h.sendExecutionNotify(&pipeline, execution, "工单执行已触发", "工单已进入流水线执行阶段")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": execution})
+}
+
+func (h *CICDHandler) resolveWorkOrderType(typeID string) (*workorder.WorkOrderType, error) {
+	if strings.TrimSpace(typeID) != "" {
+		var t workorder.WorkOrderType
+		if err := h.db.First(&t, "id = ?", strings.TrimSpace(typeID)).Error; err != nil {
+			return nil, fmt.Errorf("工单类型不存在")
+		}
+		return &t, nil
+	}
+
+	var preferred workorder.WorkOrderType
+	if err := h.db.Where("code = ? AND enabled = ?", "change_apply", true).First(&preferred).Error; err == nil {
+		return &preferred, nil
+	}
+
+	var fallback workorder.WorkOrderType
+	if err := h.db.Where("enabled = ?", true).Order("created_at ASC").First(&fallback).Error; err == nil {
+		return &fallback, nil
+	}
+
+	created := workorder.WorkOrderType{
+		Name:        "CI/CD发布",
+		Code:        "cicd_release",
+		Icon:        "upload",
+		Enabled:     true,
+		Description: "CI/CD流水线触发审批工单",
+	}
+	if err := h.db.Create(&created).Error; err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+func (h *CICDHandler) createWorkOrderSteps(db *gorm.DB, order *workorder.WorkOrder, orderType *workorder.WorkOrderType) error {
+	if db == nil {
+		db = h.db
+	}
+	if order == nil {
+		return fmt.Errorf("工单为空")
+	}
+	if orderType == nil || strings.TrimSpace(orderType.FlowID) == "" {
+		order.TotalSteps = 1
+		order.CurrentStep = 1
+		if err := db.Model(order).Updates(map[string]interface{}{"total_steps": 1, "current_step": 1}).Error; err != nil {
+			return err
+		}
+		defaultStep := workorder.WorkOrderStep{
+			OrderID: order.ID,
+			Step:    1,
+			Name:    "默认审批",
+			Status:  0,
+		}
+		return db.Create(&defaultStep).Error
+	}
+
+	var flow workorder.WorkOrderFlow
+	if err := db.First(&flow, "id = ?", orderType.FlowID).Error; err != nil {
+		return err
+	}
+	var steps []map[string]interface{}
+	if err := json.Unmarshal([]byte(flow.Steps), &steps); err != nil {
+		return err
+	}
+	if len(steps) == 0 {
+		return h.createWorkOrderSteps(db, order, nil)
+	}
+
+	order.TotalSteps = len(steps)
+	order.CurrentStep = 1
+	if err := db.Model(order).Updates(map[string]interface{}{
+		"total_steps":  len(steps),
+		"current_step": 1,
+	}).Error; err != nil {
+		return err
+	}
+	for i := range steps {
+		step := workorder.WorkOrderStep{
+			OrderID: order.ID,
+			Step:    i + 1,
+			Status:  0,
+		}
+		if name, ok := steps[i]["name"].(string); ok && strings.TrimSpace(name) != "" {
+			step.Name = name
+		} else {
+			step.Name = fmt.Sprintf("审批步骤%d", i+1)
+		}
+		if approver, ok := steps[i]["approver"].(string); ok {
+			step.Approver = approver
+		}
+		if err := db.Create(&step).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *CICDHandler) addWorkOrderComment(db *gorm.DB, orderID, username, commentType, content string) {
+	if db == nil {
+		db = h.db
+	}
+	if strings.TrimSpace(orderID) == "" || strings.TrimSpace(content) == "" {
+		return
+	}
+	comment := workorder.WorkOrderComment{
+		OrderID:  orderID,
+		Username: username,
+		Type:     commentType,
+		Content:  content,
+	}
+	_ = db.Create(&comment).Error
+}
+
+func (h *CICDHandler) createApprovalWorkOrder(pipeline *CICDPipeline, params map[string]string, reason, trigger, triggerBy, triggerByID string) (*workorder.WorkOrder, error) {
+	if pipeline == nil {
+		return nil, fmt.Errorf("流水线不存在")
+	}
+	if params == nil {
+		params = map[string]string{}
+	}
+	orderType, err := h.resolveWorkOrderType(pipeline.WorkorderTypeID)
+	if err != nil {
+		return nil, err
+	}
+
+	form := cicdApprovalFormData{
+		Source:      "cicd",
+		PipelineID:  pipeline.ID,
+		Pipeline:    pipeline.Name,
+		Provider:    pipeline.Provider,
+		Parameters:  params,
+		Reason:      strings.TrimSpace(reason),
+		Trigger:     trigger,
+		TriggerBy:   triggerBy,
+		RequestedAt: time.Now(),
+	}
+	formJSON, _ := json.Marshal(form)
+
+	content := fmt.Sprintf("流水线「%s」触发审批申请\nProvider: %s", pipeline.Name, providerDisplayName(pipeline.Provider))
+	if form.Reason != "" {
+		content += "\n触发原因: " + form.Reason
+	}
+
+	order := &workorder.WorkOrder{
+		Title:       fmt.Sprintf("CI/CD发布审批 - %s", pipeline.Name),
+		TypeID:      orderType.ID,
+		TypeName:    orderType.Name,
+		Content:     content,
+		FormData:    string(formJSON),
+		Priority:    2,
+		Status:      0,
+		Submitter:   triggerBy,
+		SubmitterID: triggerByID,
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(order).Error; err != nil {
+			return err
+		}
+		if err := h.createWorkOrderSteps(tx, order, orderType); err != nil {
+			return err
+		}
+		h.addWorkOrderComment(tx, order.ID, triggerBy, "system", "CI/CD触发申请已创建，等待审批")
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(pipeline.NotifyTargetID) != "" {
+		title := fmt.Sprintf("【待审批】CI/CD发布申请：%s", pipeline.Name)
+		body := fmt.Sprintf("工单ID: %s\n提交人: %s\n触发方式: %s", order.ID, triggerBy, trigger)
+		if form.Reason != "" {
+			body += "\n原因: " + form.Reason
+		}
+		if err := notify.SendByTarget(h.db, pipeline.NotifyTargetID, title, body, strings.TrimSpace(pipeline.NotifyReceiver), "workorder", order.ID); err != nil {
+			h.addWorkOrderComment(h.db, order.ID, "system", "system", "通知发送失败: "+err.Error())
+		}
+	}
+	return order, nil
+}
+
+func (h *CICDHandler) sendExecutionNotify(pipeline *CICDPipeline, execution *CICDExecution, titlePrefix, content string) {
+	if pipeline == nil || execution == nil || strings.TrimSpace(pipeline.NotifyTargetID) == "" {
+		return
+	}
+	title := fmt.Sprintf("【%s】%s", titlePrefix, pipeline.Name)
+	body := fmt.Sprintf("%s\n执行ID: %s\n触发方式: %s\n触发人: %s", content, execution.ID, execution.Trigger, execution.TriggerBy)
+	if strings.TrimSpace(execution.WorkOrderID) != "" {
+		body += "\n关联工单: " + execution.WorkOrderID
+	}
+	_ = notify.SendByTarget(h.db, pipeline.NotifyTargetID, title, body, strings.TrimSpace(pipeline.NotifyReceiver), "cicd", execution.ID)
+}
+
 // triggerBuild 触发构建
-func (h *CICDHandler) triggerBuild(pipeline *CICDPipeline, params map[string]string, trigger, triggerBy string) (*CICDExecution, error) {
+func (h *CICDHandler) triggerBuild(pipeline *CICDPipeline, params map[string]string, trigger, triggerBy, workOrderID string) (*CICDExecution, error) {
 	resolvedPipeline := *pipeline
 	if err := h.applyCredential(&resolvedPipeline); err != nil {
 		return nil, err
@@ -253,6 +740,7 @@ func (h *CICDHandler) triggerBuild(pipeline *CICDPipeline, params map[string]str
 		PipelineID:   resolvedPipeline.ID,
 		PipelineName: resolvedPipeline.Name,
 		Provider:     resolvedPipeline.Provider,
+		WorkOrderID:  strings.TrimSpace(workOrderID),
 		Status:       0,
 		Trigger:      trigger,
 		TriggerBy:    triggerBy,
@@ -454,8 +942,52 @@ func (h *CICDHandler) pollBuildStatus(execution *CICDExecution, pipeline *CICDPi
 		h.db.Model(execution).Updates(updates)
 
 		if status != 0 {
+			execution.Status = status
+			execution.Logs = logs
+			execution.FinishedAt = &now
+			execution.Duration = int(now.Sub(execution.StartedAt).Seconds())
+			h.handleExecutionFinished(execution, pipeline)
 			return
 		}
+	}
+}
+
+func (h *CICDHandler) handleExecutionFinished(execution *CICDExecution, pipeline *CICDPipeline) {
+	if execution == nil {
+		return
+	}
+
+	switch execution.Status {
+	case 1:
+		h.sendExecutionNotify(pipeline, execution, "执行成功", "流水线执行成功")
+	case 2:
+		h.sendExecutionNotify(pipeline, execution, "执行失败", "流水线执行失败")
+	case 3:
+		h.sendExecutionNotify(pipeline, execution, "执行取消", "流水线执行已取消")
+	}
+
+	if strings.TrimSpace(execution.WorkOrderID) == "" {
+		return
+	}
+	var order workorder.WorkOrder
+	if err := h.db.First(&order, "id = ?", execution.WorkOrderID).Error; err != nil {
+		return
+	}
+
+	switch execution.Status {
+	case 1:
+		now := time.Now()
+		_ = h.db.Model(&order).Updates(map[string]interface{}{
+			"status":       5,
+			"completed_at": now,
+		}).Error
+		h.addWorkOrderComment(h.db, order.ID, "system", "system", "流水线执行成功，工单自动完成")
+	case 2:
+		_ = h.db.Model(&order).Updates(map[string]interface{}{"status": 2}).Error
+		h.addWorkOrderComment(h.db, order.ID, "system", "system", "流水线执行失败，请检查执行日志后重新触发")
+	case 3:
+		_ = h.db.Model(&order).Updates(map[string]interface{}{"status": 6}).Error
+		h.addWorkOrderComment(h.db, order.ID, "system", "system", "流水线执行已取消，工单已取消")
 	}
 }
 
@@ -934,14 +1466,26 @@ func (h *CICDHandler) UpdateSchedule(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "定时任务不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&schedule); err != nil {
+	var req CICDSchedule
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&schedule).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"pipeline_id": req.PipelineID,
+		"cron":        req.Cron,
+		"parameters":  req.Parameters,
+		"enabled":     req.Enabled,
+		"last_run_at": req.LastRunAt,
+		"next_run_at": req.NextRunAt,
+		"description": req.Description,
+	}
+	if err := h.db.Model(&schedule).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&schedule, "id = ?", id)
 	h.scheduler.Reload()
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedule})
 }
@@ -1012,18 +1556,31 @@ func (h *CICDHandler) UpdateRelease(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "发布记录不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&release); err != nil {
+	var req CICDRelease
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if release.Status == 1 && release.ReleaseAt == nil {
+	if req.Status == 1 && req.ReleaseAt == nil {
 		now := time.Now()
-		release.ReleaseAt = &now
+		req.ReleaseAt = &now
 	}
-	if err := h.db.Save(&release).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":          req.Name,
+		"pipeline_id":   req.PipelineID,
+		"pipeline_name": req.PipelineName,
+		"version":       req.Version,
+		"environment":   req.Environment,
+		"status":        req.Status,
+		"notes":         req.Notes,
+		"release_at":    req.ReleaseAt,
+		"operator":      c.GetString("username"),
+	}
+	if err := h.db.Model(&release).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&release, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": release})
 }
 
@@ -1062,11 +1619,21 @@ func (h *CICDHandler) HandleWebhook(c *gin.Context) {
 			skipped++
 			continue
 		}
-		execution, err := h.triggerBuild(pipeline, event.Params, "webhook", event.Actor)
+		if pipeline.RequireApproval {
+			order, err := h.createApprovalWorkOrder(pipeline, event.Params, "Webhook触发审批", "webhook", event.Actor, "")
+			if err != nil {
+				failed = append(failed, fmt.Sprintf("%s: %v", pipeline.Name, err))
+				continue
+			}
+			triggered = append(triggered, "workorder:"+order.ID)
+			continue
+		}
+		execution, err := h.triggerBuild(pipeline, event.Params, "webhook", event.Actor, "")
 		if err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", pipeline.Name, err))
 			continue
 		}
+		h.sendExecutionNotify(pipeline, execution, "流水线已触发", "Webhook 已触发流水线执行")
 		triggered = append(triggered, execution.ID)
 	}
 

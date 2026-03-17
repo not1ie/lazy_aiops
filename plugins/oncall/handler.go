@@ -60,11 +60,62 @@ func (h *OnCallHandler) UpdateSchedule(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "排班不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&schedule); err != nil {
+	var req struct {
+		Name        *string `json:"name"`
+		TeamID      *string `json:"team_id"`
+		TeamName    *string `json:"team_name"`
+		Type        *string `json:"type"`
+		Timezone    *string `json:"timezone"`
+		StartTime   *string `json:"start_time"`
+		EndTime     *string `json:"end_time"`
+		Rotation    *string `json:"rotation"`
+		Enabled     *bool   `json:"enabled"`
+		Description *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&schedule).Error; err != nil {
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.TeamID != nil {
+		updates["team_id"] = *req.TeamID
+	}
+	if req.TeamName != nil {
+		updates["team_name"] = *req.TeamName
+	}
+	if req.Type != nil {
+		updates["type"] = *req.Type
+	}
+	if req.Timezone != nil {
+		updates["timezone"] = *req.Timezone
+	}
+	if req.StartTime != nil {
+		updates["start_time"] = *req.StartTime
+	}
+	if req.EndTime != nil {
+		updates["end_time"] = *req.EndTime
+	}
+	if req.Rotation != nil {
+		updates["rotation"] = *req.Rotation
+	}
+	if req.Enabled != nil {
+		updates["enabled"] = *req.Enabled
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": schedule})
+		return
+	}
+	if err := h.db.Model(&schedule).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&schedule, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -279,11 +330,42 @@ func (h *OnCallHandler) UpdateEscalation(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "升级策略不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&escalation); err != nil {
+	var req struct {
+		Name        *string `json:"name"`
+		ScheduleID  *string `json:"schedule_id"`
+		Rules       *string `json:"rules"`
+		Enabled     *bool   `json:"enabled"`
+		Description *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&escalation).Error; err != nil {
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.ScheduleID != nil {
+		updates["schedule_id"] = *req.ScheduleID
+	}
+	if req.Rules != nil {
+		updates["rules"] = *req.Rules
+	}
+	if req.Enabled != nil {
+		updates["enabled"] = *req.Enabled
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": escalation})
+		return
+	}
+	if err := h.db.Model(&escalation).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&escalation, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}

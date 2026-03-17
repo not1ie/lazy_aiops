@@ -22,6 +22,19 @@ func NewDomainHandler(db *gorm.DB) *DomainHandler {
 	return &DomainHandler{db: db}
 }
 
+type domainRuntimeResult struct {
+	Domain          string                 `json:"domain"`
+	DNSResolved     bool                   `json:"dns_resolved"`
+	IPs             []string               `json:"ips"`
+	HTTPStatusCode  int                    `json:"http_status_code"`
+	ResponseTimeMS  int                    `json:"response_time_ms"`
+	HealthStatus    string                 `json:"health_status"`
+	SSLDaysToExpire int                    `json:"ssl_days_to_expire"`
+	SSL             map[string]interface{} `json:"ssl,omitempty"`
+	Error           string                 `json:"error,omitempty"`
+	CheckedAt       time.Time              `json:"checked_at"`
+}
+
 // ListAccounts 云账号列表
 func (h *DomainHandler) ListAccounts(c *gin.Context) {
 	var accounts []CloudAccount
@@ -162,33 +175,49 @@ func (h *DomainHandler) CheckDomain(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-
-	// 查询WHOIS信息 (简化实现)
-	result := gin.H{
-		"domain": req.Domain,
-		"status": "unknown",
+	result, err := h.inspectDomainRuntime(req.Domain)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
 	}
-
-	// 检查DNS解析
-	ips, err := net.LookupIP(req.Domain)
-	if err == nil && len(ips) > 0 {
-		ipList := make([]string, 0)
-		for _, ip := range ips {
-			ipList = append(ipList, ip.String())
-		}
-		result["dns_resolved"] = true
-		result["ips"] = ipList
-	} else {
-		result["dns_resolved"] = false
-	}
-
-	// 检查SSL证书
-	certInfo, err := h.checkSSL(req.Domain)
-	if err == nil {
-		result["ssl"] = certInfo
-	}
-
+	h.updateDomainRuntimeByDomain(req.Domain, result)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
+// CheckAllDomains 批量体检
+func (h *DomainHandler) CheckAllDomains(c *gin.Context) {
+	var domains []CloudDomain
+	if err := h.db.Select("id", "domain").Where("domain <> ''").Find(&domains).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	unique := make(map[string]struct{})
+	checked := 0
+	success := 0
+	failed := 0
+	for i := range domains {
+		domain := strings.TrimSpace(domains[i].Domain)
+		if domain == "" {
+			continue
+		}
+		if _, ok := unique[domain]; ok {
+			continue
+		}
+		unique[domain] = struct{}{}
+		checked++
+		result, err := h.inspectDomainRuntime(domain)
+		if err != nil {
+			failed++
+			continue
+		}
+		h.updateDomainRuntimeByDomain(domain, result)
+		success++
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"total":   checked,
+		"success": success,
+		"failed":  failed,
+	}})
 }
 
 // ListCerts SSL证书列表
@@ -371,6 +400,119 @@ func (h *DomainHandler) ListExpiringCerts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": certs})
 }
 
+func (h *DomainHandler) inspectDomainRuntime(domain string) (*domainRuntimeResult, error) {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return nil, fmt.Errorf("域名不能为空")
+	}
+	result := &domainRuntimeResult{
+		Domain:       domain,
+		HealthStatus: "unknown",
+		CheckedAt:    time.Now(),
+	}
+
+	ips, dnsErr := net.LookupIP(domain)
+	if dnsErr == nil && len(ips) > 0 {
+		result.DNSResolved = true
+		ipList := make([]string, 0, len(ips))
+		for _, ip := range ips {
+			ipList = append(ipList, ip.String())
+		}
+		result.IPs = ipList
+	}
+
+	statusCode, latencyMS, httpErr := h.probeHTTP(domain)
+	if httpErr == nil {
+		result.HTTPStatusCode = statusCode
+		result.ResponseTimeMS = latencyMS
+	}
+
+	certInfo, sslErr := h.checkSSL(domain)
+	if sslErr == nil {
+		result.SSL = certInfo
+		if days, ok := certInfo["days_to_expire"].(int); ok {
+			result.SSLDaysToExpire = days
+		}
+	}
+
+	result.HealthStatus = deriveHealthStatus(result, dnsErr, httpErr, sslErr)
+	if dnsErr != nil {
+		result.Error = dnsErr.Error()
+	} else if httpErr != nil {
+		result.Error = httpErr.Error()
+	} else if sslErr != nil {
+		result.Error = sslErr.Error()
+	}
+	return result, nil
+}
+
+func (h *DomainHandler) probeHTTP(domain string) (int, int, error) {
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("redirect loop")
+			}
+			return nil
+		},
+	}
+	targets := []string{"https://" + domain, "http://" + domain}
+	var lastErr error
+	for _, target := range targets {
+		req, _ := http.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("User-Agent", "LazyAutoOps-DomainCheck/1.0")
+		start := time.Now()
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode, int(time.Since(start).Milliseconds()), nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("http probe failed")
+	}
+	return 0, 0, lastErr
+}
+
+func deriveHealthStatus(result *domainRuntimeResult, dnsErr, httpErr, sslErr error) string {
+	if result == nil {
+		return "unknown"
+	}
+	if dnsErr != nil || !result.DNSResolved {
+		return "critical"
+	}
+	if httpErr != nil || result.HTTPStatusCode >= 500 || result.HTTPStatusCode == 0 {
+		return "critical"
+	}
+	if result.HTTPStatusCode >= 400 {
+		return "warning"
+	}
+	if sslErr != nil {
+		return "warning"
+	}
+	if result.SSLDaysToExpire > 0 && result.SSLDaysToExpire <= 30 {
+		return "warning"
+	}
+	return "healthy"
+}
+
+func (h *DomainHandler) updateDomainRuntimeByDomain(domain string, runtime *domainRuntimeResult) {
+	if runtime == nil {
+		return
+	}
+	updates := map[string]interface{}{
+		"dns_resolved":       runtime.DNSResolved,
+		"http_status_code":   runtime.HTTPStatusCode,
+		"response_time_ms":   runtime.ResponseTimeMS,
+		"ssl_days_to_expire": runtime.SSLDaysToExpire,
+		"health_status":      runtime.HealthStatus,
+		"last_check_at":      runtime.CheckedAt,
+	}
+	_ = h.db.Model(&CloudDomain{}).Where("domain = ?", domain).Updates(updates).Error
+}
+
 func (h *DomainHandler) checkSSL(domain string) (map[string]interface{}, error) {
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", domain+":443", &tls.Config{
 		InsecureSkipVerify: true,
@@ -487,4 +629,14 @@ func (h *DomainHandler) refreshDomainRuntimeFields(domain *CloudDomain) {
 		return
 	}
 	domain.DaysToExpire = calcDaysToExpire(domain.ExpirationAt)
+	if strings.TrimSpace(domain.HealthStatus) == "" {
+		switch {
+		case domain.DaysToExpire == 0:
+			domain.HealthStatus = "critical"
+		case domain.DaysToExpire > 0 && domain.DaysToExpire <= 30:
+			domain.HealthStatus = "warning"
+		default:
+			domain.HealthStatus = "unknown"
+		}
+	}
 }

@@ -2,6 +2,8 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -65,15 +67,27 @@ func (h *WorkflowHandler) UpdateWorkflow(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "工作流不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&workflow); err != nil {
+	var req Workflow
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	workflow.Version++
-	if err := h.db.Save(&workflow).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"description": req.Description,
+		"category":    req.Category,
+		"definition":  req.Definition,
+		"variables":   req.Variables,
+		"trigger":     req.Trigger,
+		"cron_expr":   req.CronExpr,
+		"enabled":     req.Enabled,
+		"version":     workflow.Version + 1,
+	}
+	if err := h.db.Model(&workflow).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&workflow, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": workflow})
 }
 
@@ -99,7 +113,10 @@ func (h *WorkflowHandler) ExecuteWorkflow(c *gin.Context) {
 	var req struct {
 		Variables map[string]interface{} `json:"variables"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
 	if req.Variables == nil {
 		req.Variables = make(map[string]interface{})
@@ -225,7 +242,10 @@ func (h *WorkflowHandler) WebhookTrigger(c *gin.Context) {
 	}
 
 	var variables map[string]interface{}
-	c.ShouldBindJSON(&variables)
+	if err := c.ShouldBindJSON(&variables); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 	if variables == nil {
 		variables = make(map[string]interface{})
 	}

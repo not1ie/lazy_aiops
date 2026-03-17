@@ -56,14 +56,32 @@ func (h *AlertHandler) UpdateRule(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "规则不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&rule); err != nil {
+	var req AlertRule
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&rule).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":            req.Name,
+		"type":            req.Type,
+		"target":          req.Target,
+		"metric":          req.Metric,
+		"operator":        req.Operator,
+		"threshold":       req.Threshold,
+		"duration":        req.Duration,
+		"severity":        req.Severity,
+		"notify_group_id": req.NotifyGroupID,
+		"enabled":         req.Enabled,
+		"ai_analysis":     req.AIAnalysis,
+		"auto_recover":    req.AutoRecover,
+		"recover_script":  req.RecoverScript,
+		"description":     req.Description,
+	}
+	if err := h.db.Model(&rule).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&rule, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": rule})
 }
 
@@ -254,11 +272,46 @@ func (h *AlertHandler) UpdateSilence(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "静默不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&silence); err != nil {
+	var req struct {
+		Name     *string    `json:"name"`
+		Matchers *string    `json:"matchers"`
+		StartsAt *time.Time `json:"starts_at"`
+		EndsAt   *time.Time `json:"ends_at"`
+		Comment  *string    `json:"comment"`
+		Status   *int       `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&silence).Error; err != nil {
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.Matchers != nil {
+		updates["matchers"] = *req.Matchers
+	}
+	if req.StartsAt != nil {
+		updates["starts_at"] = *req.StartsAt
+	}
+	if req.EndsAt != nil {
+		updates["ends_at"] = *req.EndsAt
+	}
+	if req.Comment != nil {
+		updates["comment"] = *req.Comment
+	}
+	if req.Status != nil {
+		updates["status"] = *req.Status
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": silence})
+		return
+	}
+	if err := h.db.Model(&silence).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&silence, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -297,11 +350,42 @@ func (h *AlertHandler) UpdateAggregation(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "聚合配置不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&agg); err != nil {
+	var req struct {
+		Name        *string `json:"name"`
+		GroupBy     *string `json:"group_by"`
+		Interval    *int    `json:"interval"`
+		Enabled     *bool   `json:"enabled"`
+		Description *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&agg).Error; err != nil {
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.GroupBy != nil {
+		updates["group_by"] = *req.GroupBy
+	}
+	if req.Interval != nil {
+		updates["interval"] = *req.Interval
+	}
+	if req.Enabled != nil {
+		updates["enabled"] = *req.Enabled
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": agg})
+		return
+	}
+	if err := h.db.Model(&agg).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&agg, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}

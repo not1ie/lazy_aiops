@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
+	notifyplugin "github.com/lazyautoops/lazy-auto-ops/plugins/notify"
 )
 
 func init() {
@@ -43,7 +44,7 @@ func (p *AlertPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 		var prompt strings.Builder
 		prompt.WriteString("你是一个专业的运维专家。请分析以下聚合在一起的告警事件，找出它们的共同点、可能的根本原因，并给出排查建议。\n\n告警列表：\n")
 		for i, a := range alerts {
-			prompt.WriteString(fmt.Sprintf("%d. [%s] %s - 目标: %s, 指标: %s, 当前值: %s\n", 
+			prompt.WriteString(fmt.Sprintf("%d. [%s] %s - 目标: %s, 指标: %s, 当前值: %s\n",
 				i+1, a.Severity, a.RuleName, a.Target, a.Metric, a.Value))
 		}
 		prompt.WriteString("\n请以简练的中文回答。")
@@ -67,6 +68,9 @@ func (p *AlertPlugin) Migrate() error {
 
 func (p *AlertPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	h := NewAlertHandler(p.core.DB, p.aggregator)
+	h.SetNotifier(func(targetID, title, content string) error {
+		return notifyplugin.SendByTarget(p.core.DB, targetID, title, content, "", "alert", "")
+	})
 
 	// 规则
 	rules := g.Group("/rules")

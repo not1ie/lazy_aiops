@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
+	notifyplugin "github.com/lazyautoops/lazy-auto-ops/plugins/notify"
 )
 
 func init() {
@@ -18,9 +19,11 @@ type WorkflowPlugin struct {
 	engine *Engine
 }
 
-func (p *WorkflowPlugin) Name() string        { return "workflow" }
-func (p *WorkflowPlugin) Version() string     { return "1.0.0" }
-func (p *WorkflowPlugin) Description() string { return "运维编排 - 可视化工作流、自动化任务" }
+func (p *WorkflowPlugin) Name() string    { return "workflow" }
+func (p *WorkflowPlugin) Version() string { return "1.0.0" }
+func (p *WorkflowPlugin) Description() string {
+	return "运维编排 - 可视化工作流、自动化任务"
+}
 
 func (p *WorkflowPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
@@ -42,6 +45,9 @@ func (p *WorkflowPlugin) Migrate() error {
 
 func (p *WorkflowPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	h := NewWorkflowHandler(p.core.DB, p.engine)
+	p.engine.SetNotifier(func(targetID, title, content string) error {
+		return notifyplugin.SendByTarget(p.core.DB, targetID, title, content, "", "workflow", "")
+	})
 
 	// 工作流
 	workflows := g.Group("/workflows")

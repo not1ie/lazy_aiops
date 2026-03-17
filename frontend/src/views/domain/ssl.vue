@@ -56,10 +56,12 @@
 
       <el-tab-pane label="云域名" name="domains">
         <el-row :gutter="12" class="summary-row">
-          <el-col :span="6"><el-card><div class="card-title">域名总数</div><div class="card-value">{{ domainSummary.total }}</div></el-card></el-col>
-          <el-col :span="6"><el-card><div class="card-title">30天内过期</div><div class="card-value warn">{{ domainSummary.expiring }}</div></el-card></el-col>
-          <el-col :span="6"><el-card><div class="card-title">已过期</div><div class="card-value critical">{{ domainSummary.expired }}</div></el-card></el-col>
-          <el-col :span="6"><el-card><div class="card-title">云账号</div><div class="card-value">{{ accounts.length }}</div></el-card></el-col>
+          <el-col :span="4"><el-card><div class="card-title">域名总数</div><div class="card-value">{{ domainSummary.total }}</div></el-card></el-col>
+          <el-col :span="4"><el-card><div class="card-title">健康</div><div class="card-value ok">{{ domainSummary.healthy }}</div></el-card></el-col>
+          <el-col :span="4"><el-card><div class="card-title">风险</div><div class="card-value warn">{{ domainSummary.warning }}</div></el-card></el-col>
+          <el-col :span="4"><el-card><div class="card-title">故障</div><div class="card-value critical">{{ domainSummary.critical }}</div></el-card></el-col>
+          <el-col :span="4"><el-card><div class="card-title">30天内过期</div><div class="card-value warn">{{ domainSummary.expiring }}</div></el-card></el-col>
+          <el-col :span="4"><el-card><div class="card-title">云账号</div><div class="card-value">{{ accounts.length }}</div></el-card></el-col>
         </el-row>
 
         <div class="toolbar">
@@ -67,6 +69,7 @@
             <el-option v-for="item in accounts" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
           <el-input v-model="domainKeyword" placeholder="搜索域名" class="w-52" clearable />
+          <el-button type="primary" @click="checkAllDomains">一键体检</el-button>
         </div>
 
         <el-table :fit="true" :data="filteredDomains" v-loading="domainLoading" style="width: 100%">
@@ -87,6 +90,28 @@
                 {{ domainStatusText(domainDays(row)) }}
               </el-tag>
             </template>
+          </el-table-column>
+          <el-table-column label="DNS" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.dns_resolved ? 'success' : 'danger'">{{ row.dns_resolved ? '正常' : '失败' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="HTTP" width="100">
+            <template #default="{ row }">{{ row.http_status_code || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="响应(ms)" width="110">
+            <template #default="{ row }">{{ row.response_time_ms || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="SSL剩余天" width="120">
+            <template #default="{ row }">{{ row.ssl_days_to_expire || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="健康状态" width="120">
+            <template #default="{ row }">
+              <el-tag :type="healthTag(row.health_status)">{{ healthText(row.health_status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="最后体检" width="180">
+            <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
           </el-table-column>
           <el-table-column label="操作" width="140" fixed="right">
             <template #default="{ row }">
@@ -124,7 +149,12 @@
     <el-dialog append-to-body v-model="domainCheckVisible" title="域名检测结果" width="760px">
       <el-descriptions :column="2" border v-if="domainCheckResult">
         <el-descriptions-item label="域名">{{ domainCheckResult.domain || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="健康状态">
+          <el-tag :type="healthTag(domainCheckResult.health_status)">{{ healthText(domainCheckResult.health_status) }}</el-tag>
+        </el-descriptions-item>
         <el-descriptions-item label="DNS解析">{{ domainCheckResult.dns_resolved ? '正常' : '失败' }}</el-descriptions-item>
+        <el-descriptions-item label="HTTP状态码">{{ domainCheckResult.http_status_code || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="响应耗时">{{ domainCheckResult.response_time_ms ? `${domainCheckResult.response_time_ms} ms` : '-' }}</el-descriptions-item>
         <el-descriptions-item label="IP列表" :span="2">{{ (domainCheckResult.ips || []).join(', ') || '-' }}</el-descriptions-item>
         <el-descriptions-item label="证书颁发者">{{ domainCheckResult.ssl?.issuer || '-' }}</el-descriptions-item>
         <el-descriptions-item label="证书到期">{{ formatTime(domainCheckResult.ssl?.not_after) }}</el-descriptions-item>
@@ -198,6 +228,20 @@ const domainStatusTag = (days) => {
   return 'success'
 }
 
+const healthText = (status) => {
+  if (status === 'healthy') return '健康'
+  if (status === 'warning') return '风险'
+  if (status === 'critical') return '故障'
+  return '未知'
+}
+
+const healthTag = (status) => {
+  if (status === 'healthy') return 'success'
+  if (status === 'warning') return 'warning'
+  if (status === 'critical') return 'danger'
+  return 'info'
+}
+
 const certSummary = computed(() => {
   const total = certs.value.length
   const expired = certs.value.filter(item => certDays(item) <= 0 || item.status === 0).length
@@ -210,7 +254,10 @@ const domainSummary = computed(() => {
   const total = domains.value.length
   const expired = domains.value.filter(item => domainDays(item) <= 0).length
   const expiring = domains.value.filter(item => domainDays(item) > 0 && domainDays(item) <= 30).length
-  return { total, expired, expiring }
+  const healthy = domains.value.filter(item => item.health_status === 'healthy').length
+  const warning = domains.value.filter(item => item.health_status === 'warning').length
+  const critical = domains.value.filter(item => item.health_status === 'critical').length
+  return { total, expired, expiring, healthy, warning, critical }
 })
 
 const calcDaysToExpire = (expireValue) => {
@@ -356,9 +403,23 @@ const checkDomain = async (row) => {
     if (res.data?.code === 0) {
       domainCheckResult.value = res.data.data
       domainCheckVisible.value = true
+      await fetchDomains()
     }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '检测失败'))
+  }
+}
+
+const checkAllDomains = async () => {
+  try {
+    const res = await axios.post('/api/v1/domain/domains/check_all', {}, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      const stats = res.data.data || {}
+      ElMessage.success(`体检完成: 成功${stats.success || 0}, 失败${stats.failed || 0}`)
+    }
+    await fetchDomains()
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '批量体检失败'))
   }
 }
 

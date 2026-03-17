@@ -3,6 +3,7 @@ package workflow
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,8 @@ type Engine struct {
 	notifier   func(channelID, title, content string) error
 	aiAnalyzer func(prompt string) string
 }
+
+var errApprovalPending = errors.New("workflow approval pending")
 
 type ExecutionContext struct {
 	Execution *WorkflowExecution
@@ -125,6 +128,9 @@ func (e *Engine) run(ctx *ExecutionContext) {
 
 	// 从开始节点执行
 	if err := e.executeNode(ctx, startNode, nodeMap); err != nil {
+		if errors.Is(err, errApprovalPending) {
+			return
+		}
 		e.finishExecution(ctx, 2, err.Error())
 		return
 	}
@@ -390,7 +396,7 @@ func (e *Engine) executeApproval(ctx *ExecutionContext, node *Node) error {
 			return err
 		}
 	}
-	return nil
+	return errApprovalPending
 }
 
 func (e *Engine) evaluateCondition(ctx *ExecutionContext, expression string) bool {

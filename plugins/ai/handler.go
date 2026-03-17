@@ -2,7 +2,9 @@ package ai
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -136,7 +138,10 @@ func (h *AIHandler) CreateSession(c *gin.Context) {
 		Title   string `json:"title"`
 		Context string `json:"context"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
 	userID := h.currentUserID(c)
 	if userID == "" {

@@ -48,6 +48,7 @@ func (p *CICDPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.PUT("/pipelines/:id", p.handler.UpdatePipeline)
 	r.DELETE("/pipelines/:id", p.handler.DeletePipeline)
 	r.POST("/pipelines/:id/trigger", p.handler.TriggerPipeline)
+	r.POST("/orders/:orderID/execute", p.handler.ExecuteByWorkOrder)
 	r.POST("/pipelines/:id/sync", p.handler.SyncFromRemote)
 
 	// 执行记录

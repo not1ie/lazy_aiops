@@ -35,6 +35,7 @@ func (p *CMDBPlugin) Stop() error  { return nil }
 func (p *CMDBPlugin) Migrate() error {
 	return p.core.DB.AutoMigrate(
 		&Host{},
+		&NetworkDevice{},
 		&HostGroup{},
 		&Credential{},
 		&DatabaseAsset{},
@@ -55,6 +56,18 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		hosts.POST("/:id/test", h.TestHost)
 		hosts.PUT("/:id", h.Update)
 		hosts.DELETE("/:id", h.Delete)
+	}
+
+	// 网络设备（交换机/防火墙）
+	networkDevices := g.Group("/network-devices")
+	{
+		networkDevices.GET("", h.ListNetworkDevices)
+		networkDevices.POST("", h.CreateNetworkDevice)
+		networkDevices.GET("/:id", h.GetNetworkDevice)
+		networkDevices.POST("/:id/test", h.TestNetworkDevice)
+		networkDevices.PUT("/:id", h.UpdateNetworkDevice)
+		networkDevices.DELETE("/:id", h.DeleteNetworkDevice)
+		networkDevices.POST("/sync/firewalls", h.SyncNetworkDevicesFromFirewalls)
 	}
 
 	// 主机分组

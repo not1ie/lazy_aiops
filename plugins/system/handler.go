@@ -46,11 +46,25 @@ func (h *SystemHandler) UpdateDepartment(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "Not Found"})
 		return
 	}
-	if err := c.ShouldBindJSON(&dept); err != nil {
+	var req Department
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	h.db.Save(&dept)
+	updates := map[string]interface{}{
+		"name":      req.Name,
+		"parent_id": req.ParentID,
+		"sort":      req.Sort,
+		"leader":    req.Leader,
+		"phone":     req.Phone,
+		"email":     req.Email,
+		"status":    req.Status,
+	}
+	if err := h.db.Model(&dept).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	_ = h.db.First(&dept, "id = ?", c.Param("id"))
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": dept})
 }
 
@@ -121,14 +135,23 @@ func (h *SystemHandler) UpdatePost(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "岗位不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&post); err != nil {
+	var req Post
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&post).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"code":        req.Code,
+		"sort":        req.Sort,
+		"status":      req.Status,
+		"description": req.Description,
+	}
+	if err := h.db.Model(&post).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&post, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": post})
 }
 

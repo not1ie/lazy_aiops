@@ -40,6 +40,35 @@ type Host struct {
 	Description  string      `gorm:"size:512" json:"description"`
 }
 
+// NetworkDevice 网络设备资产（交换机/防火墙）
+type NetworkDevice struct {
+	BaseModel
+	Name            string      `gorm:"size:128" json:"name"`
+	DeviceType      string      `gorm:"size:32;index:idx_network_type_ip" json:"device_type"` // switch, firewall
+	Vendor          string      `gorm:"size:64" json:"vendor"`
+	Model           string      `gorm:"size:64" json:"model"`
+	IP              string      `gorm:"size:64;index:idx_network_type_ip" json:"ip"`
+	ManagePort      int         `gorm:"default:22" json:"manage_port"`
+	SNMPVersion     string      `gorm:"size:16;default:v2c" json:"snmp_version"` // v1, v2c, v3
+	SNMPCommunity   string      `gorm:"size:128" json:"snmp_community"`
+	SNMPPort        int         `gorm:"default:161" json:"snmp_port"`
+	SNMPUser        string      `gorm:"size:64" json:"snmp_user"`
+	SNMPAuthProto   string      `gorm:"size:16" json:"snmp_auth_proto"` // MD5, SHA
+	SNMPAuthPass    string      `gorm:"size:128" json:"snmp_auth_pass,omitempty"`
+	SNMPPrivProto   string      `gorm:"size:16" json:"snmp_priv_proto"` // DES, AES
+	SNMPPrivPass    string      `gorm:"size:128" json:"snmp_priv_pass,omitempty"`
+	CredentialID    string      `gorm:"size:36" json:"credential_id"`
+	Credential      *Credential `gorm:"foreignKey:CredentialID" json:"credential,omitempty"`
+	Location        string      `gorm:"size:128" json:"location"`
+	Rack            string      `gorm:"size:64" json:"rack"`
+	SerialNumber    string      `gorm:"size:128" json:"serial_number"`
+	FirmwareVersion string      `gorm:"size:128" json:"firmware_version"`
+	Status          int         `gorm:"default:1" json:"status"` // 1:在线 0:离线 2:告警
+	LastCheckAt     *time.Time  `json:"last_check_at"`
+	Tags            string      `gorm:"size:256" json:"tags"`
+	Description     string      `gorm:"size:512" json:"description"`
+}
+
 // HostGroup 主机分组
 type HostGroup struct {
 	BaseModel
@@ -94,15 +123,15 @@ type CloudAccount struct {
 // CloudResource 云资源
 type CloudResource struct {
 	BaseModel
-	AccountID string        `gorm:"size:36;index" json:"account_id"`
-	Account   *CloudAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
-	ResourceID string       `gorm:"size:128" json:"resource_id"`
-	Name       string       `gorm:"size:128" json:"name"`
-	Type       string       `gorm:"size:32" json:"type"` // ecs, rds, slb, vpc
-	Region     string       `gorm:"size:64" json:"region"`
-	Zone       string       `gorm:"size:64" json:"zone"`
-	IP         string       `gorm:"size:64" json:"ip"`
-	Status     string       `gorm:"size:32" json:"status"`
-	Spec       string       `gorm:"size:128" json:"spec"`
-	Tags       string       `gorm:"size:256" json:"tags"`
+	AccountID  string        `gorm:"size:36;index" json:"account_id"`
+	Account    *CloudAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	ResourceID string        `gorm:"size:128" json:"resource_id"`
+	Name       string        `gorm:"size:128" json:"name"`
+	Type       string        `gorm:"size:32" json:"type"` // ecs, rds, slb, vpc
+	Region     string        `gorm:"size:64" json:"region"`
+	Zone       string        `gorm:"size:64" json:"zone"`
+	IP         string        `gorm:"size:64" json:"ip"`
+	Status     string        `gorm:"size:32" json:"status"`
+	Spec       string        `gorm:"size:128" json:"spec"`
+	Tags       string        `gorm:"size:256" json:"tags"`
 }

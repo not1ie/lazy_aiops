@@ -91,7 +91,14 @@ func (s *Scheduler) runSchedule(scheduleID string) {
 	}
 
 	// 触发构建
-	s.handler.triggerBuild(&pipeline, params, "schedule", "scheduler")
+	if pipeline.RequireApproval {
+		_, _ = s.handler.createApprovalWorkOrder(&pipeline, params, "定时任务触发审批", "schedule", "scheduler", "")
+	} else {
+		execution, _ := s.handler.triggerBuild(&pipeline, params, "schedule", "scheduler", "")
+		if execution != nil {
+			s.handler.sendExecutionNotify(&pipeline, execution, "流水线已触发", "定时任务已触发流水线执行")
+		}
+	}
 
 	// 更新执行时间
 	now := time.Now()

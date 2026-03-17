@@ -99,7 +99,7 @@ func TestTriggerBuildUsesCredentialForJenkins(t *testing.T) {
 		JenkinsJob:   "demo-job",
 	}
 
-	exec, err := h.triggerBuild(&pipeline, map[string]string{"env": "prod"}, "manual", "tester")
+	exec, err := h.triggerBuild(&pipeline, map[string]string{"env": "prod"}, "manual", "tester", "")
 	if err != nil {
 		t.Fatalf("triggerBuild failed: %v", err)
 	}

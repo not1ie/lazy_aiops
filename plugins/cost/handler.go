@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -60,14 +61,25 @@ func (h *CostHandler) UpdateAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "账号不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&account); err != nil {
+	var req CloudAccount
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&account).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"provider":    req.Provider,
+		"access_key":  req.AccessKey,
+		"secret_key":  req.SecretKey,
+		"region":      req.Region,
+		"description": req.Description,
+		"status":      req.Status,
+	}
+	if err := h.db.Model(&account).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&account, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": account})
 }
 
@@ -94,7 +106,10 @@ func (h *CostHandler) SyncCost(c *gin.Context) {
 		StartDate string `json:"start_date"`
 		EndDate   string `json:"end_date"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
 	startDate, endDate, err := normalizeSyncRange(req.StartDate, req.EndDate)
 	if err != nil {
@@ -289,14 +304,27 @@ func (h *CostHandler) UpdateBudget(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "预算不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&budget); err != nil {
+	var req CostBudget
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&budget).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":         req.Name,
+		"account_id":   req.AccountID,
+		"product_code": req.ProductCode,
+		"budget_type":  req.BudgetType,
+		"amount":       req.Amount,
+		"alert_at":     req.AlertAt,
+		"start_date":   req.StartDate,
+		"end_date":     req.EndDate,
+		"status":       req.Status,
+	}
+	if err := h.db.Model(&budget).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&budget, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": budget})
 }
 

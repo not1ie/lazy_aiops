@@ -2,6 +2,8 @@ package workorder
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -54,14 +56,25 @@ func (h *WorkOrderHandler) UpdateType(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "工单类型不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&t); err != nil {
+	var req WorkOrderType
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&t).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"code":        req.Code,
+		"icon":        req.Icon,
+		"flow_id":     req.FlowID,
+		"template":    req.Template,
+		"enabled":     req.Enabled,
+		"description": req.Description,
+	}
+	if err := h.db.Model(&t).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&t, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": t})
 }
 
@@ -280,7 +293,10 @@ func (h *WorkOrderHandler) CompleteOrder(c *gin.Context) {
 	var req struct {
 		Result string `json:"result"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
 	now := time.Now()
 	username := c.GetString("username")
@@ -344,16 +360,52 @@ func (h *WorkOrderHandler) createApprovalSteps(order *WorkOrder, orderType *Work
 		order.TotalSteps = 1
 		order.CurrentStep = 1
 		h.db.Save(order)
+		h.db.Create(&WorkOrderStep{
+			OrderID: order.ID,
+			Step:    1,
+			Name:    "默认审批",
+			Status:  0,
+		})
 		return
 	}
 
 	var flow WorkOrderFlow
 	if err := h.db.First(&flow, "id = ?", orderType.FlowID).Error; err != nil {
+		order.TotalSteps = 1
+		order.CurrentStep = 1
+		h.db.Save(order)
+		h.db.Create(&WorkOrderStep{
+			OrderID: order.ID,
+			Step:    1,
+			Name:    "默认审批",
+			Status:  0,
+		})
 		return
 	}
 
 	var steps []map[string]interface{}
 	if err := json.Unmarshal([]byte(flow.Steps), &steps); err != nil {
+		order.TotalSteps = 1
+		order.CurrentStep = 1
+		h.db.Save(order)
+		h.db.Create(&WorkOrderStep{
+			OrderID: order.ID,
+			Step:    1,
+			Name:    "默认审批",
+			Status:  0,
+		})
+		return
+	}
+	if len(steps) == 0 {
+		order.TotalSteps = 1
+		order.CurrentStep = 1
+		h.db.Save(order)
+		h.db.Create(&WorkOrderStep{
+			OrderID: order.ID,
+			Step:    1,
+			Name:    "默认审批",
+			Status:  0,
+		})
 		return
 	}
 

@@ -121,36 +121,45 @@ func (h *K8sHandler) UpdateCluster(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name        string `json:"name"`
-		DisplayName string `json:"display_name"`
-		APIServer   string `json:"api_server"`
-		KubeConfig  string `json:"kube_config"`
-		Description string `json:"description"`
-		Status      *int   `json:"status"`
+		Name        *string `json:"name"`
+		DisplayName *string `json:"display_name"`
+		APIServer   *string `json:"api_server"`
+		KubeConfig  *string `json:"kube_config"`
+		Description *string `json:"description"`
+		Status      *int    `json:"status"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if req.Name != "" {
-		cluster.Name = req.Name
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
 	}
-	if req.DisplayName != "" {
-		cluster.DisplayName = req.DisplayName
+	if req.DisplayName != nil {
+		updates["display_name"] = *req.DisplayName
 	}
-	if req.APIServer != "" {
-		cluster.APIServer = req.APIServer
+	if req.APIServer != nil {
+		updates["api_server"] = *req.APIServer
 	}
-	if req.KubeConfig != "" {
-		cluster.KubeConfig = req.KubeConfig
+	if req.KubeConfig != nil {
+		updates["kube_config"] = *req.KubeConfig
 	}
-	if req.Description != "" {
-		cluster.Description = req.Description
+	if req.Description != nil {
+		updates["description"] = *req.Description
 	}
 	if req.Status != nil {
-		cluster.Status = *req.Status
+		updates["status"] = *req.Status
 	}
-	if err := h.db.Save(&cluster).Error; err != nil {
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": cluster})
+		return
+	}
+	if err := h.db.Model(&cluster).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&cluster, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}

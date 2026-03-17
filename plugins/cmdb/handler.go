@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gosnmp/gosnmp"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/internal/security"
 	"gorm.io/gorm"
@@ -320,10 +322,20 @@ func (h *HostHandler) Update(c *gin.Context) {
 	}
 
 	var req struct {
-		Host
-		GroupName string `json:"group_name"`
-		Username  string `json:"username"`
-		Password  string `json:"password"`
+		Name        *string `json:"name"`
+		IP          *string `json:"ip"`
+		Port        *int    `json:"port"`
+		OS          *string `json:"os"`
+		Status      *int    `json:"status"`
+		GroupID     *string `json:"group_id"`
+		GroupName   *string `json:"group_name"`
+		CPU         *string `json:"cpu"`
+		Memory      *string `json:"memory"`
+		Disk        *string `json:"disk"`
+		Tags        *string `json:"tags"`
+		Description *string `json:"description"`
+		Username    *string `json:"username"`
+		Password    *string `json:"password"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -331,65 +343,107 @@ func (h *HostHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// 更新基本字段
-	host.Name = req.Name
-	host.IP = req.IP
-	host.Port = req.Port
-	host.OS = req.OS
-	host.Status = req.Status
-	if req.GroupID != "" {
-		host.GroupID = req.GroupID
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
 	}
-	if req.GroupName != "" {
+	if req.IP != nil {
+		updates["ip"] = *req.IP
+	}
+	if req.Port != nil {
+		updates["port"] = *req.Port
+	}
+	if req.OS != nil {
+		updates["os"] = *req.OS
+	}
+	if req.Status != nil {
+		updates["status"] = *req.Status
+	}
+	if req.GroupID != nil {
+		updates["group_id"] = *req.GroupID
+	}
+	if req.CPU != nil {
+		updates["cpu"] = *req.CPU
+	}
+	if req.Memory != nil {
+		updates["memory"] = *req.Memory
+	}
+	if req.Disk != nil {
+		updates["disk"] = *req.Disk
+	}
+	if req.Tags != nil {
+		updates["tags"] = *req.Tags
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if req.GroupName != nil && strings.TrimSpace(*req.GroupName) != "" {
 		var group HostGroup
-		if err := h.db.FirstOrCreate(&group, HostGroup{Name: req.GroupName}).Error; err == nil {
-			host.GroupID = group.ID
+		if err := h.db.FirstOrCreate(&group, HostGroup{Name: *req.GroupName}).Error; err == nil {
+			updates["group_id"] = group.ID
 		}
 	}
-	// host.Description = req.Description // 如果需要支持更多字段
 
 	// 更新或创建凭据
-	if req.Username != "" {
+	username := ""
+	password := ""
+	if req.Username != nil {
+		username = strings.TrimSpace(*req.Username)
+	}
+	if req.Password != nil {
+		password = *req.Password
+	}
+	if username != "" {
 		if host.CredentialID != "" {
 			// 更新现有凭据（空密码不覆盖）
 			var cred Credential
 			if err := h.db.First(&cred, "id = ?", host.CredentialID).Error; err == nil {
-				updates := map[string]interface{}{"username": req.Username}
-				if strings.TrimSpace(req.Password) != "" {
-					enc, encErr := security.Encrypt(h.secretKey, "cmdb.credential.password", req.Password)
+				credUpdates := map[string]interface{}{"username": username}
+				if strings.TrimSpace(password) != "" {
+					enc, encErr := security.Encrypt(h.secretKey, "cmdb.credential.password", password)
 					if encErr != nil {
 						c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + encErr.Error()})
 						return
 					}
-					updates["password"] = enc
+					credUpdates["password"] = enc
 				}
-				_ = h.db.Model(&Credential{}).Where("id = ?", host.CredentialID).Updates(updates).Error
+				_ = h.db.Model(&Credential{}).Where("id = ?", host.CredentialID).Updates(credUpdates).Error
 			}
 		} else {
 			// 创建新凭据
+			credName := host.Name
+			if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
+				credName = strings.TrimSpace(*req.Name)
+			}
 			cred := Credential{
-				Name:     host.Name + "-cred",
+				Name:     credName + "-cred",
 				Type:     "password",
-				Username: req.Username,
-				Password: req.Password,
+				Username: username,
+				Password: password,
 			}
 			if err := EncryptCredentialFields(h.secretKey, &cred); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
 				return
 			}
 			if err := h.db.Create(&cred).Error; err == nil {
-				host.CredentialID = cred.ID
+				updates["credential_id"] = cred.ID
 			}
 		}
 	}
 
-	if err := h.db.Save(&host).Error; err != nil {
+	if len(updates) > 0 {
+		if err := h.db.Model(&host).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+	if err := h.db.First(&host, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 	// 如果凭据更新过，尝试重新识别 OS
-	if req.Username != "" {
-		go h.detectOSAsync(host.ID, req.Username, req.Password)
+	if username != "" {
+		go h.detectOSAsync(host.ID, username, password)
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": host})
 }
@@ -402,6 +456,585 @@ func (h *HostHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+type firewallDeviceSnapshot struct {
+	Name          string `json:"name"`
+	Vendor        string `json:"vendor"`
+	Model         string `json:"model"`
+	IP            string `json:"ip"`
+	ManagePort    int    `json:"manage_port"`
+	SNMPVersion   string `json:"snmp_version"`
+	SNMPCommunity string `json:"snmp_community"`
+	SNMPPort      int    `json:"snmp_port"`
+	SNMPUser      string `json:"snmp_user"`
+	SNMPAuthProto string `json:"snmp_auth_proto"`
+	SNMPPrivProto string `json:"snmp_priv_proto"`
+	Status        int    `json:"status"`
+	Description   string `json:"description"`
+}
+
+// ListNetworkDevices 网络设备列表（交换机/防火墙）
+func (h *HostHandler) ListNetworkDevices(c *gin.Context) {
+	var devices []NetworkDevice
+	query := h.db.Preload("Credential").Order("updated_at DESC")
+
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR ip LIKE ? OR vendor LIKE ? OR model LIKE ? OR serial_number LIKE ?", like, like, like, like, like)
+	}
+	if deviceType := strings.TrimSpace(c.Query("device_type")); deviceType != "" {
+		query = query.Where("device_type = ?", strings.ToLower(deviceType))
+	}
+	if statusText := strings.TrimSpace(c.Query("status")); statusText != "" {
+		if status, err := strconv.Atoi(statusText); err == nil {
+			query = query.Where("status = ?", status)
+		}
+	}
+
+	if err := query.Find(&devices).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	for i := range devices {
+		h.sanitizeNetworkDeviceForResponse(&devices[i])
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": devices})
+}
+
+// CreateNetworkDevice 创建网络设备
+func (h *HostHandler) CreateNetworkDevice(c *gin.Context) {
+	var req struct {
+		NetworkDevice
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+
+	device := req.NetworkDevice
+	device.DeviceType = strings.ToLower(strings.TrimSpace(device.DeviceType))
+	if device.DeviceType == "" {
+		device.DeviceType = "switch"
+	}
+	if device.DeviceType != "switch" && device.DeviceType != "firewall" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "device_type 仅支持 switch/firewall"})
+		return
+	}
+	device.IP = strings.TrimSpace(device.IP)
+	if device.IP == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "IP 不能为空"})
+		return
+	}
+	if device.ManagePort == 0 {
+		if device.DeviceType == "firewall" {
+			device.ManagePort = 443
+		} else {
+			device.ManagePort = 22
+		}
+	}
+	if device.SNMPPort == 0 {
+		device.SNMPPort = 161
+	}
+	if device.SNMPVersion == "" {
+		device.SNMPVersion = "v2c"
+	}
+
+	var exists NetworkDevice
+	if err := h.db.Where("device_type = ? AND ip = ?", device.DeviceType, device.IP).First(&exists).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "message": "该类型设备 IP 已存在"})
+		return
+	} else if err != nil && err != gorm.ErrRecordNotFound {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	if username := strings.TrimSpace(req.Username); username != "" {
+		cred := Credential{
+			Name:     strings.TrimSpace(device.Name) + "-network-cred",
+			Type:     "password",
+			Username: username,
+			Password: req.Password,
+		}
+		if err := EncryptCredentialFields(h.secretKey, &cred); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+			return
+		}
+		if err := h.db.Create(&cred).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		device.CredentialID = cred.ID
+	}
+
+	if err := h.db.Create(&device).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	h.sanitizeNetworkDeviceForResponse(&device)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": device})
+}
+
+// GetNetworkDevice 获取网络设备详情（用于编辑）
+func (h *HostHandler) GetNetworkDevice(c *gin.Context) {
+	id := c.Param("id")
+	var device NetworkDevice
+	if err := h.db.Preload("Credential").First(&device, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "网络设备不存在"})
+		return
+	}
+	if device.Credential != nil {
+		if err := DecryptCredentialFields(h.secretKey, device.Credential); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "设备凭据解密失败"})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": device})
+}
+
+// UpdateNetworkDevice 更新网络设备
+func (h *HostHandler) UpdateNetworkDevice(c *gin.Context) {
+	id := c.Param("id")
+	var device NetworkDevice
+	if err := h.db.First(&device, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "网络设备不存在"})
+		return
+	}
+
+	var req struct {
+		Name            *string `json:"name"`
+		DeviceType      *string `json:"device_type"`
+		Vendor          *string `json:"vendor"`
+		Model           *string `json:"model"`
+		IP              *string `json:"ip"`
+		ManagePort      *int    `json:"manage_port"`
+		SNMPVersion     *string `json:"snmp_version"`
+		SNMPCommunity   *string `json:"snmp_community"`
+		SNMPPort        *int    `json:"snmp_port"`
+		SNMPUser        *string `json:"snmp_user"`
+		SNMPAuthProto   *string `json:"snmp_auth_proto"`
+		SNMPAuthPass    *string `json:"snmp_auth_pass"`
+		SNMPPrivProto   *string `json:"snmp_priv_proto"`
+		SNMPPrivPass    *string `json:"snmp_priv_pass"`
+		Location        *string `json:"location"`
+		Rack            *string `json:"rack"`
+		SerialNumber    *string `json:"serial_number"`
+		FirmwareVersion *string `json:"firmware_version"`
+		Status          *int    `json:"status"`
+		Tags            *string `json:"tags"`
+		Description     *string `json:"description"`
+		Username        *string `json:"username"`
+		Password        *string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误: " + err.Error()})
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = strings.TrimSpace(*req.Name)
+	}
+	if req.DeviceType != nil {
+		deviceType := strings.ToLower(strings.TrimSpace(*req.DeviceType))
+		if deviceType != "switch" && deviceType != "firewall" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "device_type 仅支持 switch/firewall"})
+			return
+		}
+		updates["device_type"] = deviceType
+	}
+	if req.Vendor != nil {
+		updates["vendor"] = strings.TrimSpace(*req.Vendor)
+	}
+	if req.Model != nil {
+		updates["model"] = strings.TrimSpace(*req.Model)
+	}
+	if req.IP != nil {
+		ip := strings.TrimSpace(*req.IP)
+		if ip == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "IP 不能为空"})
+			return
+		}
+		updates["ip"] = ip
+	}
+	if req.ManagePort != nil {
+		updates["manage_port"] = *req.ManagePort
+	}
+	if req.SNMPVersion != nil {
+		updates["snmp_version"] = strings.TrimSpace(*req.SNMPVersion)
+	}
+	if req.SNMPCommunity != nil {
+		updates["snmp_community"] = strings.TrimSpace(*req.SNMPCommunity)
+	}
+	if req.SNMPPort != nil {
+		updates["snmp_port"] = *req.SNMPPort
+	}
+	if req.SNMPUser != nil {
+		updates["snmp_user"] = strings.TrimSpace(*req.SNMPUser)
+	}
+	if req.SNMPAuthProto != nil {
+		updates["snmp_auth_proto"] = strings.TrimSpace(*req.SNMPAuthProto)
+	}
+	if req.SNMPAuthPass != nil {
+		updates["snmp_auth_pass"] = *req.SNMPAuthPass
+	}
+	if req.SNMPPrivProto != nil {
+		updates["snmp_priv_proto"] = strings.TrimSpace(*req.SNMPPrivProto)
+	}
+	if req.SNMPPrivPass != nil {
+		updates["snmp_priv_pass"] = *req.SNMPPrivPass
+	}
+	if req.Location != nil {
+		updates["location"] = strings.TrimSpace(*req.Location)
+	}
+	if req.Rack != nil {
+		updates["rack"] = strings.TrimSpace(*req.Rack)
+	}
+	if req.SerialNumber != nil {
+		updates["serial_number"] = strings.TrimSpace(*req.SerialNumber)
+	}
+	if req.FirmwareVersion != nil {
+		updates["firmware_version"] = strings.TrimSpace(*req.FirmwareVersion)
+	}
+	if req.Status != nil {
+		updates["status"] = *req.Status
+	}
+	if req.Tags != nil {
+		updates["tags"] = strings.TrimSpace(*req.Tags)
+	}
+	if req.Description != nil {
+		updates["description"] = strings.TrimSpace(*req.Description)
+	}
+
+	if len(updates) > 0 {
+		if err := h.db.Model(&device).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
+
+	username := ""
+	password := ""
+	if req.Username != nil {
+		username = strings.TrimSpace(*req.Username)
+	}
+	if req.Password != nil {
+		password = *req.Password
+	}
+	if username != "" {
+		if device.CredentialID != "" {
+			var cred Credential
+			if err := h.db.First(&cred, "id = ?", device.CredentialID).Error; err == nil {
+				credUpdates := map[string]interface{}{"username": username}
+				if strings.TrimSpace(password) != "" {
+					enc, err := security.Encrypt(h.secretKey, "cmdb.credential.password", password)
+					if err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+						return
+					}
+					credUpdates["password"] = enc
+				}
+				if err := h.db.Model(&Credential{}).Where("id = ?", device.CredentialID).Updates(credUpdates).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+					return
+				}
+			}
+		} else {
+			credName := strings.TrimSpace(device.Name)
+			if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
+				credName = strings.TrimSpace(*req.Name)
+			}
+			cred := Credential{
+				Name:     credName + "-network-cred",
+				Type:     "password",
+				Username: username,
+				Password: password,
+			}
+			if err := EncryptCredentialFields(h.secretKey, &cred); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据加密失败: " + err.Error()})
+				return
+			}
+			if err := h.db.Create(&cred).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+				return
+			}
+			if err := h.db.Model(&device).Update("credential_id", cred.ID).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+				return
+			}
+		}
+	}
+
+	var latest NetworkDevice
+	if err := h.db.Preload("Credential").First(&latest, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	h.sanitizeNetworkDeviceForResponse(&latest)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": latest})
+}
+
+// DeleteNetworkDevice 删除网络设备
+func (h *HostHandler) DeleteNetworkDevice(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.db.Delete(&NetworkDevice{}, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
+}
+
+// TestNetworkDevice 测试网络设备连通性（管理口/SSH/SNMP）
+func (h *HostHandler) TestNetworkDevice(c *gin.Context) {
+	id := c.Param("id")
+	var device NetworkDevice
+	if err := h.db.Preload("Credential").First(&device, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "网络设备不存在"})
+		return
+	}
+	if device.Credential != nil {
+		if err := DecryptCredentialFields(h.secretKey, device.Credential); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "设备凭据解密失败"})
+			return
+		}
+	}
+
+	result := gin.H{}
+	tcpOK := false
+	sshOK := false
+	snmpOK := false
+
+	managePort := device.ManagePort
+	if managePort == 0 {
+		managePort = 22
+	}
+	addr := net.JoinHostPort(device.IP, fmt.Sprintf("%d", managePort))
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		result["tcp"] = gin.H{"ok": false, "error": err.Error()}
+	} else {
+		_ = conn.Close()
+		tcpOK = true
+		result["tcp"] = gin.H{"ok": true, "latency_ms": time.Since(start).Milliseconds()}
+	}
+
+	if device.Credential != nil && strings.TrimSpace(device.Credential.Username) != "" {
+		client := &core.SSHClient{
+			Host:     device.IP,
+			Port:     managePort,
+			Username: device.Credential.Username,
+			Password: device.Credential.Password,
+			Key:      device.Credential.PrivateKey,
+			Timeout:  8 * time.Second,
+		}
+		stdout, stderr, err := client.Execute("echo ok")
+		if err != nil {
+			result["ssh"] = gin.H{"ok": false, "error": strings.TrimSpace(stderr)}
+		} else {
+			sshOK = true
+			result["ssh"] = gin.H{"ok": true, "out": strings.TrimSpace(stdout)}
+		}
+	} else {
+		result["ssh"] = gin.H{"ok": false, "message": "未配置 SSH 凭据"}
+	}
+
+	if strings.TrimSpace(device.SNMPCommunity) != "" || strings.EqualFold(strings.TrimSpace(device.SNMPVersion), "v3") {
+		snmp, err := h.createSNMPClientForNetworkDevice(&device)
+		if err != nil {
+			result["snmp"] = gin.H{"ok": false, "error": err.Error()}
+		} else {
+			defer snmp.Conn.Close()
+			pdu, err := snmp.Get([]string{"1.3.6.1.2.1.1.1.0"})
+			if err != nil {
+				result["snmp"] = gin.H{"ok": false, "error": err.Error()}
+			} else {
+				sysDesc := ""
+				if len(pdu.Variables) > 0 && pdu.Variables[0].Type == gosnmp.OctetString {
+					if v, ok := pdu.Variables[0].Value.([]byte); ok {
+						sysDesc = string(v)
+					}
+				}
+				snmpOK = true
+				result["snmp"] = gin.H{"ok": true, "sys_desc": sysDesc}
+			}
+		}
+	} else {
+		result["snmp"] = gin.H{"ok": false, "message": "未配置 SNMP 参数"}
+	}
+
+	status := 0
+	if tcpOK && (sshOK || device.Credential == nil) && (snmpOK || strings.TrimSpace(device.SNMPCommunity) == "") {
+		status = 1
+	} else if tcpOK || sshOK || snmpOK {
+		status = 2
+	}
+	now := time.Now()
+	_ = h.db.Model(&device).Updates(map[string]interface{}{
+		"status":        status,
+		"last_check_at": &now,
+	}).Error
+
+	result["status"] = status
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
+// SyncNetworkDevicesFromFirewalls 从 firewall 模块同步防火墙资产到网络设备 CMDB
+func (h *HostHandler) SyncNetworkDevicesFromFirewalls(c *gin.Context) {
+	var source []firewallDeviceSnapshot
+	if err := h.db.Table("firewalls").Select(
+		"name", "vendor", "model", "ip", "manage_port", "snmp_version", "snmp_community",
+		"snmp_port", "snmp_user", "snmp_auth_proto", "snmp_priv_proto", "status", "description",
+	).Find(&source).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "读取 firewall 设备失败: " + err.Error()})
+		return
+	}
+
+	created := 0
+	updated := 0
+	skipped := 0
+	for _, item := range source {
+		ip := strings.TrimSpace(item.IP)
+		if ip == "" {
+			skipped++
+			continue
+		}
+		managePort := item.ManagePort
+		if managePort == 0 {
+			managePort = 443
+		}
+		snmpPort := item.SNMPPort
+		if snmpPort == 0 {
+			snmpPort = 161
+		}
+		payload := map[string]interface{}{
+			"name":            strings.TrimSpace(item.Name),
+			"device_type":     "firewall",
+			"vendor":          strings.TrimSpace(item.Vendor),
+			"model":           strings.TrimSpace(item.Model),
+			"ip":              ip,
+			"manage_port":     managePort,
+			"snmp_version":    strings.TrimSpace(item.SNMPVersion),
+			"snmp_community":  strings.TrimSpace(item.SNMPCommunity),
+			"snmp_port":       snmpPort,
+			"snmp_user":       strings.TrimSpace(item.SNMPUser),
+			"snmp_auth_proto": strings.TrimSpace(item.SNMPAuthProto),
+			"snmp_priv_proto": strings.TrimSpace(item.SNMPPrivProto),
+			"status":          item.Status,
+			"description":     strings.TrimSpace(item.Description),
+		}
+
+		var existing NetworkDevice
+		err := h.db.Where("device_type = ? AND ip = ?", "firewall", ip).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			device := NetworkDevice{
+				Name:          payload["name"].(string),
+				DeviceType:    "firewall",
+				Vendor:        payload["vendor"].(string),
+				Model:         payload["model"].(string),
+				IP:            ip,
+				ManagePort:    managePort,
+				SNMPVersion:   payload["snmp_version"].(string),
+				SNMPCommunity: payload["snmp_community"].(string),
+				SNMPPort:      snmpPort,
+				SNMPUser:      payload["snmp_user"].(string),
+				SNMPAuthProto: payload["snmp_auth_proto"].(string),
+				SNMPPrivProto: payload["snmp_priv_proto"].(string),
+				Status:        item.Status,
+				Description:   payload["description"].(string),
+			}
+			if err := h.db.Create(&device).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+				return
+			}
+			created++
+			continue
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		if err := h.db.Model(&existing).Updates(payload).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+		updated++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"total":   len(source),
+			"created": created,
+			"updated": updated,
+			"skipped": skipped,
+		},
+		"message": "同步完成",
+	})
+}
+
+func (h *HostHandler) createSNMPClientForNetworkDevice(device *NetworkDevice) (*gosnmp.GoSNMP, error) {
+	if device == nil {
+		return nil, fmt.Errorf("设备不能为空")
+	}
+	port := device.SNMPPort
+	if port == 0 {
+		port = 161
+	}
+
+	client := &gosnmp.GoSNMP{
+		Target:  strings.TrimSpace(device.IP),
+		Port:    uint16(port),
+		Timeout: 5 * time.Second,
+		Retries: 1,
+	}
+	version := strings.ToLower(strings.TrimSpace(device.SNMPVersion))
+	switch version {
+	case "", "v2", "v2c":
+		client.Version = gosnmp.Version2c
+		community := strings.TrimSpace(device.SNMPCommunity)
+		if community == "" {
+			community = "public"
+		}
+		client.Community = community
+	case "v1":
+		client.Version = gosnmp.Version1
+		community := strings.TrimSpace(device.SNMPCommunity)
+		if community == "" {
+			community = "public"
+		}
+		client.Community = community
+	case "v3":
+		if strings.TrimSpace(device.SNMPUser) == "" {
+			return nil, fmt.Errorf("SNMPv3 用户不能为空")
+		}
+		authProto := gosnmp.MD5
+		if strings.EqualFold(strings.TrimSpace(device.SNMPAuthProto), "sha") {
+			authProto = gosnmp.SHA
+		}
+		privProto := gosnmp.DES
+		if strings.EqualFold(strings.TrimSpace(device.SNMPPrivProto), "aes") {
+			privProto = gosnmp.AES
+		}
+		client.Version = gosnmp.Version3
+		client.SecurityModel = gosnmp.UserSecurityModel
+		client.MsgFlags = gosnmp.AuthPriv
+		client.SecurityParameters = &gosnmp.UsmSecurityParameters{
+			UserName:                 strings.TrimSpace(device.SNMPUser),
+			AuthenticationProtocol:   authProto,
+			AuthenticationPassphrase: device.SNMPAuthPass,
+			PrivacyProtocol:          privProto,
+			PrivacyPassphrase:        device.SNMPPrivPass,
+		}
+	default:
+		return nil, fmt.Errorf("不支持的 SNMP 版本: %s", device.SNMPVersion)
+	}
+	if err := client.Connect(); err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 // ListGroups 分组列表
@@ -436,14 +1069,21 @@ func (h *HostHandler) UpdateGroup(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "分组不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&group); err != nil {
+	var req HostGroup
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&group).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"description": req.Description,
+		"parent_id":   req.ParentID,
+	}
+	if err := h.db.Model(&group).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&group, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": group})
 }
 
@@ -999,14 +1639,28 @@ func (h *HostHandler) UpdateCloudResource(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "云资源不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&resource); err != nil {
+	var req CloudResource
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&resource).Error; err != nil {
+	updates := map[string]interface{}{
+		"account_id":  req.AccountID,
+		"resource_id": req.ResourceID,
+		"name":        req.Name,
+		"type":        req.Type,
+		"region":      req.Region,
+		"zone":        req.Zone,
+		"ip":          req.IP,
+		"status":      req.Status,
+		"spec":        req.Spec,
+		"tags":        req.Tags,
+	}
+	if err := h.db.Model(&resource).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&resource, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resource})
 }
 
@@ -1026,6 +1680,17 @@ func (h *HostHandler) sanitizeHostForResponse(host *Host) {
 	}
 	if host.Credential != nil {
 		SanitizeCredentialFields(host.Credential)
+	}
+}
+
+func (h *HostHandler) sanitizeNetworkDeviceForResponse(device *NetworkDevice) {
+	if device == nil {
+		return
+	}
+	device.SNMPAuthPass = ""
+	device.SNMPPrivPass = ""
+	if device.Credential != nil {
+		SanitizeCredentialFields(device.Credential)
 	}
 }
 

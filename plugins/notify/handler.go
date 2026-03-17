@@ -2,6 +2,8 @@ package notify
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -50,14 +52,33 @@ func (h *NotifyHandler) UpdateChannel(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "渠道不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&channel); err != nil {
+	var req NotifyChannel
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&channel).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":         req.Name,
+		"type":         req.Type,
+		"webhook":      req.Webhook,
+		"secret":       req.Secret,
+		"app_id":       req.AppID,
+		"app_secret":   req.AppSecret,
+		"smtp_host":    req.SMTPHost,
+		"smtp_port":    req.SMTPPort,
+		"smtp_user":    req.SMTPUser,
+		"smtp_pass":    req.SMTPPass,
+		"sms_provider": req.SMSProvider,
+		"sms_sign":     req.SMSSign,
+		"sms_template": req.SMSTemplate,
+		"enabled":      req.Enabled,
+		"description":  req.Description,
+	}
+	if err := h.db.Model(&channel).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&channel, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": channel})
 }
 
@@ -83,7 +104,10 @@ func (h *NotifyHandler) TestChannel(c *gin.Context) {
 	var req struct {
 		Receiver string `json:"receiver"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
 
 	title := "Lazy Auto Ops 测试通知"
 	content := "这是一条测试消息，如果您收到此消息，说明通知渠道配置正确。\n\n发送时间: " + time.Now().Format("2006-01-02 15:04:05")
@@ -198,14 +222,22 @@ func (h *NotifyHandler) UpdateGroup(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "通知组不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&group); err != nil {
+	var req NotifyGroup
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&group).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"description": req.Description,
+		"channels":    req.Channels,
+		"users":       req.Users,
+	}
+	if err := h.db.Model(&group).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&group, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": group})
 }
 
@@ -298,14 +330,24 @@ func (h *NotifyHandler) UpdateTemplate(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "模板不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&template); err != nil {
+	var req NotifyTemplate
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&template).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":         req.Name,
+		"type":         req.Type,
+		"title":        req.Title,
+		"content":      req.Content,
+		"channel_type": req.ChannelType,
+		"enabled":      req.Enabled,
+	}
+	if err := h.db.Model(&template).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&template, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": template})
 }
 

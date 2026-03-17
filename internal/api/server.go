@@ -1,8 +1,10 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +18,9 @@ type Server struct {
 	core   *core.Core
 	pm     *plugin.Manager
 	engine *gin.Engine
+
+	workspacePresetInitMu   sync.Mutex
+	workspacePresetInitDone bool
 }
 
 func NewServer(cfg *config.Config, c *core.Core, pm *plugin.Manager) *Server {
@@ -123,6 +128,18 @@ func (s *Server) setupPublicRoutes(g *gin.RouterGroup) {
 }
 
 func (s *Server) setupAuthRoutes(g *gin.RouterGroup) {
+	if s.core != nil && s.core.DB != nil {
+		if err := s.core.DB.AutoMigrate(&workspacePresetRecord{}); err != nil {
+			log.Printf("[WorkspacePreset] auto migrate failed: %v", err)
+		}
+		if err := s.ensureWorkspacePresetUniqueConstraint(); err != nil {
+			log.Printf("[WorkspacePreset] ensure unique constraint failed: %v", err)
+		}
+		if err := s.ensureDefaultTeamWorkspacePresets(); err != nil {
+			log.Printf("[WorkspacePreset] bootstrap defaults failed: %v", err)
+		}
+	}
+
 	// 获取当前用户信息
 	g.GET("/user/info", func(c *gin.Context) {
 		userID := c.GetString("user_id")
@@ -154,6 +171,9 @@ func (s *Server) setupAuthRoutes(g *gin.RouterGroup) {
 			},
 		})
 	})
+
+	// 工作台模板
+	s.setupWorkspacePresetRoutes(g)
 }
 
 func (s *Server) recordLoginLog(c *gin.Context, username string, status int, message string) {

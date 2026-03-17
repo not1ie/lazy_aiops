@@ -16,7 +16,17 @@
     <el-table :fit="true" :data="pipelines" v-loading="loading" stripe>
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="provider" label="Provider" width="120" />
+      <el-table-column label="触发策略" width="130">
+        <template #default="{ row }">
+          <el-tag :type="row.require_approval ? 'warning' : 'success'">{{ row.require_approval ? '审批后执行' : '直接执行' }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="credential_name" label="统一凭据" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="notify_target_id" label="通知目标" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span>{{ notifyTargetLabel(row.notify_target_id) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
           <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '启用' : '禁用' }}</el-tag>
@@ -50,7 +60,7 @@
         </el-select>
       </el-form-item>
       <el-form-item label="统一凭据">
-        <el-select v-model="form.credential_id" clearable filterable placeholder="可选，选择后优先使用凭据中的账号/Token" style="width: 100%">
+        <el-select v-model="form.credential_id" clearable filterable placeholder="可选，选择后优先使用凭据中的账号/Token" style="width: 100%" @change="handleCredentialChange">
           <el-option
             v-for="item in credentialOptions"
             :key="item.id"
@@ -58,6 +68,36 @@
             :value="item.id"
           />
         </el-select>
+        <div class="form-tip">统一凭据在「资产管理 -> 凭据管理」维护，流水线仅做引用。</div>
+      </el-form-item>
+      <el-alert
+        v-if="usingUnifiedCredential"
+        title="已启用统一凭据：Token 将从凭据中心注入，建议不再手填散落 Token。"
+        type="success"
+        :closable="false"
+        show-icon
+      />
+      <el-form-item label="审批触发">
+        <el-switch v-model="form.require_approval" />
+        <div class="form-tip">开启后，触发将先生成工单，审批通过后再执行流水线。</div>
+      </el-form-item>
+      <el-form-item v-if="form.require_approval" label="工单类型">
+        <el-select v-model="form.workorder_type_id" clearable filterable placeholder="不选则默认使用变更申请" style="width: 100%">
+          <el-option v-for="item in workorderTypeOptions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="通知目标">
+        <el-select v-model="form.notify_target_id" clearable filterable placeholder="选择通知组或通知渠道（可选）" style="width: 100%">
+          <el-option-group v-if="notifyGroupOptions.length" label="通知组">
+            <el-option v-for="item in notifyGroupOptions" :key="`group-${item.id}`" :label="item.name" :value="item.id" />
+          </el-option-group>
+          <el-option-group v-if="notifyChannelOptions.length" label="通知渠道">
+            <el-option v-for="item in notifyChannelOptions" :key="`channel-${item.id}`" :label="`${item.name} (${item.type})`" :value="item.id" />
+          </el-option-group>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="通知接收人">
+        <el-input v-model="form.notify_receiver" placeholder="可选：邮箱/手机号/@用户，由渠道决定格式" />
       </el-form-item>
 
       <template v-if="form.provider === 'jenkins'">
@@ -71,7 +111,7 @@
           <el-input v-model="form.jenkins_user" />
         </el-form-item>
         <el-form-item label="Token">
-          <el-input v-model="form.jenkins_token" type="password" show-password />
+          <el-input v-model="form.jenkins_token" type="password" show-password :disabled="usingUnifiedCredential" :placeholder="usingUnifiedCredential ? '由统一凭据提供' : ''" />
         </el-form-item>
       </template>
 
@@ -83,7 +123,7 @@
           <el-input v-model="form.gitlab_project_id" />
         </el-form-item>
         <el-form-item label="Token">
-          <el-input v-model="form.gitlab_token" type="password" show-password />
+          <el-input v-model="form.gitlab_token" type="password" show-password :disabled="usingUnifiedCredential" :placeholder="usingUnifiedCredential ? '由统一凭据提供' : ''" />
         </el-form-item>
         <el-form-item label="Ref">
           <el-input v-model="form.gitlab_ref" placeholder="main" />
@@ -98,7 +138,7 @@
           <el-input v-model="form.argocd_app" />
         </el-form-item>
         <el-form-item label="Token">
-          <el-input v-model="form.argocd_token" type="password" show-password />
+          <el-input v-model="form.argocd_token" type="password" show-password :disabled="usingUnifiedCredential" :placeholder="usingUnifiedCredential ? '由统一凭据提供' : ''" />
         </el-form-item>
       </template>
 
@@ -110,7 +150,7 @@
           <el-input v-model="form.github_workflow" />
         </el-form-item>
         <el-form-item label="Token">
-          <el-input v-model="form.github_token" type="password" show-password />
+          <el-input v-model="form.github_token" type="password" show-password :disabled="usingUnifiedCredential" :placeholder="usingUnifiedCredential ? '由统一凭据提供' : ''" />
         </el-form-item>
       </template>
 
@@ -135,6 +175,9 @@
       <el-form-item label="参数(JSON)">
         <el-input v-model="triggerForm.parameters" type="textarea" :rows="4" placeholder='{"env":"prod"}' />
       </el-form-item>
+      <el-form-item label="触发说明">
+        <el-input v-model="triggerForm.reason" type="textarea" :rows="3" placeholder="可选：本次触发原因（审批场景会写入工单）" />
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="triggerVisible = false">取消</el-button>
@@ -144,12 +187,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const pipelines = ref([])
 const credentialOptions = ref([])
+const workorderTypeOptions = ref([])
+const notifyChannelOptions = ref([])
+const notifyGroupOptions = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
@@ -166,6 +212,10 @@ const form = reactive({
   provider: 'jenkins',
   credential_id: '',
   credential_name: '',
+  require_approval: false,
+  workorder_type_id: '',
+  notify_target_id: '',
+  notify_receiver: '',
   jenkins_url: '',
   jenkins_job: '',
   jenkins_user: '',
@@ -186,8 +236,11 @@ const form = reactive({
 })
 
 const triggerForm = reactive({
-  parameters: ''
+  parameters: '',
+  reason: ''
 })
+
+const usingUnifiedCredential = computed(() => Boolean(form.credential_id))
 
 const resetForm = () => {
   Object.assign(form, {
@@ -196,6 +249,10 @@ const resetForm = () => {
     provider: 'jenkins',
     credential_id: '',
     credential_name: '',
+    require_approval: false,
+    workorder_type_id: '',
+    notify_target_id: '',
+    notify_receiver: '',
     jenkins_url: '',
     jenkins_job: '',
     jenkins_user: '',
@@ -219,6 +276,7 @@ const resetForm = () => {
 const resetTriggerForm = () => {
   triggerPipelineId.value = ''
   triggerForm.parameters = ''
+  triggerForm.reason = ''
 }
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
@@ -245,7 +303,10 @@ const fetchData = async () => {
 
 const fetchCredentialOptions = async () => {
   try {
-    const res = await axios.get('/api/v1/cicd/credentials', { headers: headers() })
+    const res = await axios.get('/api/v1/cicd/credentials', {
+      headers: headers(),
+      params: { provider: form.provider || undefined }
+    })
     if (res.data.code === 0) {
       credentialOptions.value = Array.isArray(res.data.data) ? res.data.data : []
     }
@@ -254,10 +315,41 @@ const fetchCredentialOptions = async () => {
   }
 }
 
+const fetchWorkorderTypes = async () => {
+  try {
+    const res = await axios.get('/api/v1/workorder/types', { headers: headers() })
+    if (res.data.code === 0) {
+      const list = Array.isArray(res.data.data) ? res.data.data : []
+      workorderTypeOptions.value = list.filter((item) => item.enabled !== false)
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载工单类型失败'))
+  }
+}
+
+const fetchNotifyTargets = async () => {
+  try {
+    const [groupsRes, channelsRes] = await Promise.all([
+      axios.get('/api/v1/notify/groups', { headers: headers() }),
+      axios.get('/api/v1/notify/channels', { headers: headers() })
+    ])
+    if (groupsRes.data.code === 0) {
+      notifyGroupOptions.value = Array.isArray(groupsRes.data.data) ? groupsRes.data.data : []
+    }
+    if (channelsRes.data.code === 0) {
+      const channelList = Array.isArray(channelsRes.data.data) ? channelsRes.data.data : []
+      notifyChannelOptions.value = channelList.filter((item) => item.enabled !== false)
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载通知目标失败'))
+  }
+}
+
 const openCreate = () => {
   isEdit.value = false
   currentId.value = ''
   resetForm()
+  Promise.all([fetchCredentialOptions(), fetchWorkorderTypes(), fetchNotifyTargets()])
   dialogVisible.value = true
 }
 
@@ -268,6 +360,7 @@ const openEdit = async (row) => {
     const res = await axios.get(`/api/v1/cicd/pipelines/${row.id}`, { headers: headers() })
     if (res.data.code === 0) {
       Object.assign(form, res.data.data || {})
+      await Promise.all([fetchCredentialOptions(), fetchWorkorderTypes(), fetchNotifyTargets()])
       dialogVisible.value = true
       return
     }
@@ -282,7 +375,32 @@ const openEdit = async (row) => {
 const buildPayload = () => {
   const payload = { ...form }
   delete payload.credential_name
+  if (payload.credential_id) {
+    if (payload.provider === 'gitlab') payload.gitlab_token = ''
+    if (payload.provider === 'argocd') payload.argocd_token = ''
+    if (payload.provider === 'github') payload.github_token = ''
+    if (payload.provider === 'jenkins') payload.jenkins_token = ''
+  }
   return payload
+}
+
+const findCredentialOption = (id) => credentialOptions.value.find((item) => item.id === id)
+
+const notifyTargetLabel = (targetID) => {
+  if (!targetID) return '-'
+  const group = notifyGroupOptions.value.find((item) => item.id === targetID)
+  if (group) return `通知组: ${group.name}`
+  const channel = notifyChannelOptions.value.find((item) => item.id === targetID)
+  if (channel) return `渠道: ${channel.name}`
+  return targetID
+}
+
+const handleCredentialChange = (credentialID) => {
+  if (!credentialID) return
+  const selected = findCredentialOption(credentialID)
+  if (form.provider === 'jenkins' && selected?.username && !form.jenkins_user) {
+    form.jenkins_user = selected.username
+  }
 }
 
 const savePipeline = async () => {
@@ -326,13 +444,18 @@ const handleTriggerDialogClosed = () => {
 const triggerPipeline = async () => {
   triggering.value = true
   try {
-    const payload = { parameters: {} }
+    const payload = { parameters: {}, reason: triggerForm.reason }
     if (triggerForm.parameters) {
       payload.parameters = JSON.parse(triggerForm.parameters)
     }
     const res = await axios.post(`/api/v1/cicd/pipelines/${triggerPipelineId.value}/trigger`, payload, { headers: headers() })
     if (res.data.code === 0) {
-      ElMessage.success('触发成功')
+      if (res.data?.data?.mode === 'approval_required') {
+        const workorderID = res.data.data.workorder_id
+        ElMessage.success(`已提交审批工单：${workorderID}`)
+      } else {
+        ElMessage.success('触发成功')
+      }
       triggerVisible.value = false
     }
   } catch (error) {
@@ -360,7 +483,18 @@ const handleDelete = async (row) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchData(), fetchCredentialOptions()])
+  await Promise.all([fetchData(), fetchCredentialOptions(), fetchWorkorderTypes(), fetchNotifyTargets()])
+})
+
+watch(() => form.provider, async () => {
+  form.credential_id = ''
+  await fetchCredentialOptions()
+})
+
+watch(() => form.require_approval, (enabled) => {
+  if (!enabled) {
+    form.workorder_type_id = ''
+  }
 })
 </script>
 
@@ -370,4 +504,5 @@ onMounted(async () => {
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; margin-top: 4px; }
 .actions { display: flex; gap: 8px; }
+.form-tip { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 6px; }
 </style>

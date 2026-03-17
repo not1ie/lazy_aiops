@@ -24,30 +24,36 @@ func (b *BaseModel) BeforeCreate(tx *gorm.DB) error {
 // CloudAccount 云账号
 type CloudAccount struct {
 	BaseModel
-	Name        string `gorm:"size:128" json:"name"`
-	Provider    string `gorm:"size:32" json:"provider"` // aliyun, tencent, huawei, aws, cloudflare
-	AccessKey   string `gorm:"size:128" json:"access_key"`
-	SecretKey   string `gorm:"size:256" json:"-"`
-	Region      string `gorm:"size:64" json:"region"`
-	Status      int    `gorm:"default:1" json:"status"`
-	DomainCount int    `json:"domain_count"`
+	Name        string     `gorm:"size:128" json:"name"`
+	Provider    string     `gorm:"size:32" json:"provider"` // aliyun, tencent, huawei, aws, cloudflare
+	AccessKey   string     `gorm:"size:128" json:"access_key"`
+	SecretKey   string     `gorm:"size:256" json:"-"`
+	Region      string     `gorm:"size:64" json:"region"`
+	Status      int        `gorm:"default:1" json:"status"`
+	DomainCount int        `json:"domain_count"`
 	LastSyncAt  *time.Time `json:"last_sync_at"`
 }
 
 // CloudDomain 云域名
 type CloudDomain struct {
 	BaseModel
-	AccountID      string     `gorm:"size:36;index" json:"account_id"`
-	Account        *CloudAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
-	Domain         string     `gorm:"size:256;index" json:"domain"`
-	Provider       string     `gorm:"size:32" json:"provider"`
-	RegistrationAt *time.Time `json:"registration_at"`
-	ExpirationAt   *time.Time `json:"expiration_at"`
-	DaysToExpire   int        `json:"days_to_expire"`
-	AutoRenew      bool       `json:"auto_renew"`
-	Status         string     `gorm:"size:32" json:"status"` // normal, expired, transferring
-	DNSStatus      string     `gorm:"size:32" json:"dns_status"`
-	RecordCount    int        `json:"record_count"`
+	AccountID       string        `gorm:"size:36;index" json:"account_id"`
+	Account         *CloudAccount `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	Domain          string        `gorm:"size:256;index" json:"domain"`
+	Provider        string        `gorm:"size:32" json:"provider"`
+	RegistrationAt  *time.Time    `json:"registration_at"`
+	ExpirationAt    *time.Time    `json:"expiration_at"`
+	DaysToExpire    int           `json:"days_to_expire"`
+	AutoRenew       bool          `json:"auto_renew"`
+	Status          string        `gorm:"size:32" json:"status"` // normal, expired, transferring
+	DNSStatus       string        `gorm:"size:32" json:"dns_status"`
+	RecordCount     int           `json:"record_count"`
+	HealthStatus    string        `gorm:"size:32" json:"health_status"` // healthy, warning, critical, unknown
+	DNSResolved     bool          `json:"dns_resolved"`
+	HTTPStatusCode  int           `json:"http_status_code"`
+	ResponseTimeMS  int           `json:"response_time_ms"`
+	SSLDaysToExpire int           `json:"ssl_days_to_expire"`
+	LastCheckAt     *time.Time    `json:"last_check_at"`
 }
 
 // SSLCertificate SSL证书

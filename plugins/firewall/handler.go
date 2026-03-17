@@ -61,11 +61,82 @@ func (h *FirewallHandler) UpdateDevice(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "设备不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&device); err != nil {
+	var req struct {
+		Name          *string `json:"name"`
+		Vendor        *string `json:"vendor"`
+		Model         *string `json:"model"`
+		IP            *string `json:"ip"`
+		ManagePort    *int    `json:"manage_port"`
+		SNMPVersion   *string `json:"snmp_version"`
+		SNMPCommunity *string `json:"snmp_community"`
+		SNMPPort      *int    `json:"snmp_port"`
+		SNMPUser      *string `json:"snmp_user"`
+		SNMPAuthProto *string `json:"snmp_auth_proto"`
+		SNMPAuthPass  *string `json:"snmp_auth_pass"`
+		SNMPPrivProto *string `json:"snmp_priv_proto"`
+		SNMPPrivPass  *string `json:"snmp_priv_pass"`
+		Status        *int    `json:"status"`
+		Description   *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&device).Error; err != nil {
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.Vendor != nil {
+		updates["vendor"] = *req.Vendor
+	}
+	if req.Model != nil {
+		updates["model"] = *req.Model
+	}
+	if req.IP != nil {
+		updates["ip"] = *req.IP
+	}
+	if req.ManagePort != nil {
+		updates["manage_port"] = *req.ManagePort
+	}
+	if req.SNMPVersion != nil {
+		updates["snmp_version"] = *req.SNMPVersion
+	}
+	if req.SNMPCommunity != nil {
+		updates["snmp_community"] = *req.SNMPCommunity
+	}
+	if req.SNMPPort != nil {
+		updates["snmp_port"] = *req.SNMPPort
+	}
+	if req.SNMPUser != nil {
+		updates["snmp_user"] = *req.SNMPUser
+	}
+	if req.SNMPAuthProto != nil {
+		updates["snmp_auth_proto"] = *req.SNMPAuthProto
+	}
+	if req.SNMPAuthPass != nil {
+		updates["snmp_auth_pass"] = *req.SNMPAuthPass
+	}
+	if req.SNMPPrivProto != nil {
+		updates["snmp_priv_proto"] = *req.SNMPPrivProto
+	}
+	if req.SNMPPrivPass != nil {
+		updates["snmp_priv_pass"] = *req.SNMPPrivPass
+	}
+	if req.Status != nil {
+		updates["status"] = *req.Status
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": device})
+		return
+	}
+	if err := h.db.Model(&device).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	if err := h.db.First(&device, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -157,9 +228,9 @@ func (h *FirewallHandler) CollectSNMP(c *gin.Context) {
 
 	// 通用OID
 	oids := map[string]string{
-		"sysUpTime":   "1.3.6.1.2.1.1.3.0",
-		"sysName":     "1.3.6.1.2.1.1.5.0",
-		"ifNumber":    "1.3.6.1.2.1.2.1.0",
+		"sysUpTime": "1.3.6.1.2.1.1.3.0",
+		"sysName":   "1.3.6.1.2.1.1.5.0",
+		"ifNumber":  "1.3.6.1.2.1.2.1.0",
 	}
 
 	// 根据厂商添加特定OID
@@ -298,10 +369,10 @@ func (h *FirewallHandler) DeleteRule(c *gin.Context) {
 
 func (h *FirewallHandler) createSNMPClient(device *Firewall) (*gosnmp.GoSNMP, error) {
 	snmp := &gosnmp.GoSNMP{
-		Target:    device.IP,
-		Port:      uint16(device.SNMPPort),
-		Timeout:   time.Duration(5) * time.Second,
-		Retries:   2,
+		Target:  device.IP,
+		Port:    uint16(device.SNMPPort),
+		Timeout: time.Duration(5) * time.Second,
+		Retries: 2,
 	}
 
 	switch device.SNMPVersion {

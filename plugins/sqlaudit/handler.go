@@ -64,14 +64,29 @@ func (h *SQLAuditHandler) UpdateInstance(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "实例不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&instance); err != nil {
+	var req DBInstance
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&instance).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"type":        req.Type,
+		"host":        req.Host,
+		"port":        req.Port,
+		"username":    req.Username,
+		"password":    req.Password,
+		"database":    req.Database,
+		"charset":     req.Charset,
+		"status":      req.Status,
+		"environment": req.Environment,
+		"description": req.Description,
+	}
+	if err := h.db.Model(&instance).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&instance, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": instance})
 }
 
@@ -145,7 +160,7 @@ func (h *SQLAuditHandler) CreateWorkOrder(c *gin.Context) {
 	// 设置审核结果
 	order.SQLType = analyzeResult.SQLType
 	order.AuditLevel = analyzeResult.Level
-	
+
 	// 格式化审核结果
 	if len(analyzeResult.Issues) > 0 {
 		var results []string
@@ -167,8 +182,8 @@ func (h *SQLAuditHandler) CreateWorkOrder(c *gin.Context) {
 
 	// 返回详细的分析结果
 	c.JSON(http.StatusOK, gin.H{
-		"code": 0,
-		"data": order,
+		"code":     0,
+		"data":     order,
 		"analysis": analyzeResult,
 	})
 }
@@ -342,14 +357,26 @@ func (h *SQLAuditHandler) UpdateRule(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "规则不存在"})
 		return
 	}
-	if err := c.ShouldBindJSON(&rule); err != nil {
+	var req SQLAuditRule
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
 	}
-	if err := h.db.Save(&rule).Error; err != nil {
+	updates := map[string]interface{}{
+		"name":        req.Name,
+		"type":        req.Type,
+		"level":       req.Level,
+		"pattern":     req.Pattern,
+		"message":     req.Message,
+		"suggestion":  req.Suggestion,
+		"enabled":     req.Enabled,
+		"description": req.Description,
+	}
+	if err := h.db.Model(&rule).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_ = h.db.First(&rule, "id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": rule})
 }
 

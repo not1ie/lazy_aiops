@@ -333,10 +333,25 @@ const submitApprove = async () => {
   }
 }
 
+const isCICDWorkOrder = (row) => {
+  if (!row?.form_data) return false
+  try {
+    const data = JSON.parse(row.form_data)
+    return String(data?.source || '').toLowerCase() === 'cicd'
+  } catch (_) {
+    return false
+  }
+}
+
 const executeOrder = async (row) => {
   try {
-    await axios.post(`/api/v1/workorder/orders/${row.id}/execute`, {}, { headers: authHeaders() })
-    ElMessage.success('已开始执行')
+    if (isCICDWorkOrder(row)) {
+      await axios.post(`/api/v1/cicd/orders/${row.id}/execute`, {}, { headers: authHeaders() })
+      ElMessage.success('已触发流水线执行')
+    } else {
+      await axios.post(`/api/v1/workorder/orders/${row.id}/execute`, {}, { headers: authHeaders() })
+      ElMessage.success('已开始执行')
+    }
     await reloadAll()
     if (detailOrderId.value === row.id) await fetchDetail(row.id)
   } catch (err) {

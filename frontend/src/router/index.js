@@ -29,8 +29,44 @@ const routes = [
         component: () => import('@/views/ai/index.vue'),
         meta: { title: 'AI运维助手', icon: 'MagicStick', perm: 'ai' }
       },
+      {
+        path: 'cmdb',
+        redirect: '/asset/overview'
+      },
+      {
+        path: 'k8s',
+        redirect: '/k8s/overview'
+      },
+      {
+        path: 'monitor',
+        redirect: '/monitor/center'
+      },
+      {
+        path: 'domain',
+        redirect: '/domain/center'
+      },
+      {
+        path: 'cicd',
+        redirect: '/delivery/center'
+      },
+      {
+        path: 'delivery',
+        redirect: '/delivery/center'
+      },
 
       // CMDB / Asset
+      {
+        path: 'asset/overview',
+        name: 'AssetOverview',
+        component: () => import('@/views/hub/asset.vue'),
+        meta: { title: '资产总览', icon: 'DataBoard', perm: 'cmdb' }
+      },
+      {
+        path: 'asset/ops',
+        name: 'AssetOps',
+        component: () => import('@/views/hub/asset-ops.vue'),
+        meta: { title: '资产作战台', icon: 'Monitor' }
+      },
       {
         path: 'host',
         name: 'Host',
@@ -62,6 +98,12 @@ const routes = [
         meta: { title: '云资源', icon: 'Cloudy', perm: 'cmdb' }
       },
       {
+        path: 'cmdb/network-devices',
+        name: 'CMDBNetworkDevices',
+        component: () => import('@/views/cmdb/network-device.vue'),
+        meta: { title: '网络设备', icon: 'Switch', perm: 'cmdb' }
+      },
+      {
         path: 'firewall',
         name: 'Firewall',
         component: () => import('@/views/firewall/index.vue'),
@@ -69,6 +111,12 @@ const routes = [
       },
 
       // Container / K8s
+      {
+        path: 'k8s/overview',
+        name: 'K8sOverview',
+        component: () => import('@/views/hub/k8s.vue'),
+        meta: { title: '容器平台总览', icon: 'Connection', perm: 'k8s' }
+      },
       {
         path: 'docker',
         name: 'Docker',
@@ -155,6 +203,12 @@ const routes = [
       },
 
       // Monitoring / Alert
+      {
+        path: 'monitor/center',
+        name: 'MonitorCenter',
+        component: () => import('@/views/hub/monitor.vue'),
+        meta: { title: '监控告警中心', icon: 'Histogram' }
+      },
       {
         path: 'monitor/hosts',
         name: 'MonitorHosts',
@@ -263,6 +317,12 @@ const routes = [
         component: () => import('@/views/domain/ssl.vue'),
         meta: { title: '域名与证书', icon: 'Link', perm: 'domain' }
       },
+      {
+        path: 'domain/center',
+        name: 'DomainCenter',
+        component: () => import('@/views/hub/domain-center.vue'),
+        meta: { title: '域名监控中心', icon: 'Link' }
+      },
 
       // Automation
       {
@@ -297,6 +357,12 @@ const routes = [
       },
 
       // CI/CD
+      {
+        path: 'delivery/center',
+        name: 'DeliveryCenter',
+        component: () => import('@/views/hub/delivery.vue'),
+        meta: { title: '交付中心', icon: 'Connection' }
+      },
       {
         path: 'cicd/pipelines',
         name: 'CICDPipelines',
@@ -375,6 +441,16 @@ const routes = [
       },
 
       // Collaboration
+      {
+        path: 'collab',
+        redirect: '/collab/center'
+      },
+      {
+        path: 'collab/center',
+        name: 'CollabCenter',
+        component: () => import('@/views/hub/collab.vue'),
+        meta: { title: '协作中心', icon: 'User' }
+      },
       {
         path: 'oncall/schedule',
         name: 'OncallSchedule',

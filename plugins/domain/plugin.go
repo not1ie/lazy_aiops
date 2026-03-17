@@ -54,6 +54,7 @@ func (p *DomainPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		domains.GET("", h.ListDomains)
 		domains.GET("/expiring", h.ListExpiringDomains)
 		domains.POST("/check", h.CheckDomain)
+		domains.POST("/check_all", h.CheckAllDomains)
 	}
 
 	// SSL证书
