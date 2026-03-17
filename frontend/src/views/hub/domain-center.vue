@@ -42,7 +42,11 @@
         <el-card><div class="metric-title">证书≤7天</div><div class="metric-value danger">{{ stats.certCriticalSoon }}</div></el-card>
       </el-col>
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
-        <el-card><div class="metric-title">云账号</div><div class="metric-value">{{ stats.accountTotal }}</div></el-card>
+        <el-card>
+          <div class="metric-title">待复检对象</div>
+          <div class="metric-value warning">{{ stats.pendingRecheck }}</div>
+          <div class="metric-sub">云账号 {{ stats.accountTotal }}</div>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -138,6 +142,13 @@
             <el-table-column label="最后体检" min-width="165">
               <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
             </el-table-column>
+            <el-table-column label="检查时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isCheckStale(row.last_check_at) ? 'warning' : 'success'">
+                  {{ isCheckStale(row.last_check_at) ? '待复检' : '及时' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="checkDomainRow(row)">检测</el-button>
@@ -164,6 +175,13 @@
             </el-table-column>
             <el-table-column label="最后检查" min-width="165">
               <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
+            </el-table-column>
+            <el-table-column label="检查时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isCheckStale(row.last_check_at) ? 'warning' : 'success'">
+                  {{ isCheckStale(row.last_check_at) ? '待复检' : '及时' }}
+                </el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
@@ -279,8 +297,11 @@ const stats = reactive({
   certTotal: 0,
   certExpiringSoon: 0,
   certCriticalSoon: 0,
-  accountTotal: 0
+  accountTotal: 0,
+  pendingRecheck: 0
 })
+
+const CHECK_STALE_HOURS = 24
 
 const quickTabs = [
   { label: '域名与证书', path: '/domain/ssl' },
@@ -314,6 +335,25 @@ const calcDaysToExpire = (expireValue, fallback = 0) => {
   const remainMs = expireAt.getTime() - current
   if (remainMs <= 0) return 0
   return Math.ceil(remainMs / (24 * 60 * 60 * 1000))
+}
+
+const calcCheckAgeHours = (checkedAt) => {
+  if (!checkedAt) return Number.POSITIVE_INFINITY
+  const checkTime = new Date(checkedAt)
+  if (Number.isNaN(checkTime.getTime())) return Number.POSITIVE_INFINITY
+  const ageMs = nowTick.value - checkTime.getTime()
+  if (ageMs < 0) return 0
+  return ageMs / (60 * 60 * 1000)
+}
+
+const isCheckStale = (checkedAt) => calcCheckAgeHours(checkedAt) >= CHECK_STALE_HOURS
+
+const formatCheckFreshness = (checkedAt) => {
+  if (!checkedAt) return '从未检查'
+  const hours = calcCheckAgeHours(checkedAt)
+  if (!Number.isFinite(hours)) return '从未检查'
+  if (hours < 1) return '1小时内'
+  return `${Math.floor(hours)}h前`
 }
 
 const certDays = (row) => calcDaysToExpire(row?.not_after, row?.days_to_expire)
@@ -435,6 +475,19 @@ const riskRows = computed(() => {
         path: '/domain/ssl'
       })
     }
+
+    if (isCheckStale(item.last_check_at)) {
+      rows.push({
+        kind: 'domain',
+        domain: item.domain,
+        type: '域名巡检',
+        name: item.domain,
+        reason: '检查过期',
+        detail: `上次检查 ${formatCheckFreshness(item.last_check_at)}`,
+        level: 'warning',
+        path: '/domain/ssl'
+      })
+    }
   })
 
   certs.value.forEach((item) => {
@@ -449,6 +502,20 @@ const riskRows = computed(() => {
         reason: days <= 7 ? '即将过期' : '临近到期',
         detail: `剩余 ${days} 天`,
         level: days <= 7 ? 'danger' : 'warning',
+        path: '/domain/ssl'
+      })
+    }
+
+    if (isCheckStale(item.last_check_at)) {
+      rows.push({
+        kind: 'cert',
+        id: item.id,
+        domain: item.domain,
+        type: '证书巡检',
+        name: item.domain,
+        reason: '检查过期',
+        detail: `上次检查 ${formatCheckFreshness(item.last_check_at)}`,
+        level: 'warning',
         path: '/domain/ssl'
       })
     }
@@ -650,6 +717,9 @@ const refreshAll = async () => {
     stats.certExpiringSoon = certs.value.filter((item) => Number(certDays(item)) <= 30).length
     stats.certCriticalSoon = certs.value.filter((item) => Number(certDays(item)) <= 7).length
     stats.accountTotal = accounts.value.length
+    stats.pendingRecheck =
+      domains.value.filter((item) => isCheckStale(item.last_check_at)).length +
+      certs.value.filter((item) => isCheckStale(item.last_check_at)).length
 
     renderHealthChart()
 
@@ -731,6 +801,7 @@ onBeforeUnmount(() => {
 .metric-value.ok { color: #67c23a; }
 .metric-value.warning { color: #e6a23c; }
 .metric-value.danger { color: #f56c6c; }
+.metric-sub { margin-top: 6px; font-size: 12px; color: var(--muted-text); }
 .chart-box { width: 100%; height: 240px; }
 .health-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .health-row strong { font-size: 15px; }
