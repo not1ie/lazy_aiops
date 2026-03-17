@@ -124,7 +124,27 @@
         </el-tab-pane>
 
         <el-tab-pane label="工单" name="workorder">
-          <el-table :fit="true" :data="filteredOrders" size="small" max-height="360" empty-text="暂无工单数据">
+          <div class="panel-toolbar">
+            <div class="panel-toolbar-left">
+              <el-tag type="warning" effect="light">待审批 {{ workorderPendingCount }}</el-tag>
+              <el-tag type="danger" effect="light">超时 {{ pendingApprovalTimeout }}</el-tag>
+            </div>
+            <div class="panel-toolbar-right">
+              <el-button size="small" type="success" plain :loading="workorderBatching" :disabled="!selectedWorkorderApprovableCount" @click="batchApproveSelectedWorkorders">批量通过已选</el-button>
+              <el-button size="small" type="danger" plain :loading="workorderBatching" :disabled="!selectedWorkorderCancelableCount" @click="batchCancelSelectedWorkorders">批量取消已选</el-button>
+              <el-button size="small" plain :loading="workorderBatching" :disabled="!pendingApprovalTimeout" @click="batchApproveTimeoutWorkorders">处置超时审批</el-button>
+            </div>
+          </div>
+          <el-table
+            ref="workorderTableRef"
+            :fit="true"
+            :data="filteredOrders"
+            size="small"
+            max-height="360"
+            empty-text="暂无工单数据"
+            @selection-change="onWorkorderSelectionChange"
+          >
+            <el-table-column type="selection" width="46" />
             <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
             <el-table-column prop="type_name" label="类型" min-width="120" />
             <el-table-column label="优先级" width="90">
@@ -160,6 +180,18 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="group-tag-list">
+            <el-tag
+              v-for="group in workorderApproveGroups"
+              :key="group.key"
+              type="warning"
+              effect="plain"
+              class="group-tag-item"
+              @click="batchApproveWorkorderGroup(group)"
+            >
+              {{ group.label }} · {{ group.count }}
+            </el-tag>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="流程执行" name="workflow">
@@ -235,7 +267,28 @@
         </el-tab-pane>
 
         <el-tab-pane label="WebTerminal" name="terminal">
-          <el-table :fit="true" :data="filteredTerminalSessions" size="small" max-height="360" empty-text="暂无终端会话">
+          <div class="panel-toolbar">
+            <div class="panel-toolbar-left">
+              <el-tag type="success" effect="light">已连接 {{ terminalActiveCount }}</el-tag>
+              <el-tag type="warning" effect="light">待连接超时 {{ terminalPendingTimeout }}</el-tag>
+              <el-tag type="danger" effect="light">失败 {{ terminalFailedCount }}</el-tag>
+            </div>
+            <div class="panel-toolbar-right">
+              <el-button size="small" type="warning" plain :loading="terminalBatching" :disabled="!selectedTerminalClosableCount" @click="batchCloseSelectedTerminals">批量关闭已选</el-button>
+              <el-button size="small" type="danger" plain :loading="terminalBatching" :disabled="!selectedTerminalPurgeableCount" @click="batchPurgeSelectedTerminals">批量删除已选</el-button>
+              <el-button size="small" plain :loading="terminalBatching" :disabled="!terminalFailedCount" @click="batchPurgeFailedTerminals">清理失败会话</el-button>
+            </div>
+          </div>
+          <el-table
+            ref="terminalTableRef"
+            :fit="true"
+            :data="filteredTerminalSessions"
+            size="small"
+            max-height="360"
+            empty-text="暂无终端会话"
+            @selection-change="onTerminalSelectionChange"
+          >
+            <el-table-column type="selection" width="46" />
             <el-table-column prop="operator" label="操作人" min-width="110" />
             <el-table-column prop="host" label="主机" min-width="150" />
             <el-table-column prop="username" label="登录用户" width="110" />
@@ -267,6 +320,18 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="group-tag-list">
+            <el-tag
+              v-for="group in terminalIssueGroups"
+              :key="group.key"
+              :type="group.level"
+              effect="plain"
+              class="group-tag-item"
+              @click="batchPurgeTerminalGroup(group)"
+            >
+              {{ group.label }} · {{ group.count }}
+            </el-tag>
+          </div>
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -285,7 +350,13 @@ const router = useRouter()
 const loading = ref(false)
 const activePanel = ref('workorder')
 const panelKeyword = ref('')
+const workorderBatching = ref(false)
+const terminalBatching = ref(false)
 const nowTs = ref(Date.now())
+const workorderTableRef = ref(null)
+const terminalTableRef = ref(null)
+const selectedWorkorderRows = ref([])
+const selectedTerminalRows = ref([])
 let minuteTicker = null
 
 const aiSessions = ref([])
@@ -464,9 +535,58 @@ const pendingApprovalTimeout = computed(() => workorders.value.filter((item) => 
 const workflowRunningTimeout = computed(() => workflowExecutions.value.filter((item) => isWorkflowRunningTimeout(item)).length)
 const terminalPendingTimeout = computed(() => terminalSessions.value.filter((item) => isTerminalPendingTimeout(item)).length)
 const terminalFailedCount = computed(() => terminalSessions.value.filter((item) => Number(item.status) === 3).length)
+const workorderPendingCount = computed(() => workorders.value.filter((item) => canApprove(item)).length)
+const terminalActiveCount = computed(() => terminalSessions.value.filter((item) => Number(item.status) === 1).length)
 const pendingBacklog = computed(
   () => pendingApprovalTimeout.value + workflowRunningTimeout.value + terminalPendingTimeout.value + terminalFailedCount.value
 )
+
+const selectedWorkorderApprovableCount = computed(() =>
+  selectedWorkorderRows.value.filter((item) => canApprove(item)).length
+)
+
+const selectedWorkorderCancelableCount = computed(() =>
+  selectedWorkorderRows.value.filter((item) => canCancel(item)).length
+)
+
+const selectedTerminalClosableCount = computed(() =>
+  selectedTerminalRows.value.filter((item) => Number(item?.status) === 1).length
+)
+
+const selectedTerminalPurgeableCount = computed(() =>
+  selectedTerminalRows.value.filter((item) => Number(item?.status) !== 1).length
+)
+
+const workorderApproveGroups = computed(() => {
+  const groups = new Map()
+  filteredOrders.value
+    .filter((item) => canApprove(item))
+    .forEach((item) => {
+      const label = item.type_name || '未分类'
+      const key = String(label)
+      const current = groups.get(key) || { key, label, count: 0, rows: [] }
+      current.count += 1
+      current.rows.push(item)
+      groups.set(key, current)
+    })
+  return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, 8)
+})
+
+const terminalIssueGroups = computed(() => {
+  const groups = new Map()
+  filteredTerminalSessions.value
+    .filter((item) => Number(item.status) !== 1)
+    .forEach((item) => {
+      const label = item.host || item.operator || '未命名主机'
+      const key = String(label)
+      const current = groups.get(key) || { key, label, count: 0, rows: [], level: 'warning' }
+      current.count += 1
+      if (Number(item.status) === 3) current.level = 'danger'
+      current.rows.push(item)
+      groups.set(key, current)
+    })
+  return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, 8)
+})
 
 const activityRows = computed(() => {
   const rows = []
@@ -554,6 +674,161 @@ const openCurrentPanel = () => {
 
 const canApprove = (row) => [0, 1].includes(Number(row?.status))
 const canCancel = (row) => [0, 1, 2, 4].includes(Number(row?.status))
+const onWorkorderSelectionChange = (rows) => {
+  selectedWorkorderRows.value = Array.isArray(rows) ? rows : []
+}
+
+const onTerminalSelectionChange = (rows) => {
+  selectedTerminalRows.value = Array.isArray(rows) ? rows : []
+}
+
+const approveOrderByID = (orderID, comment = '协作中心批量审批通过') =>
+  axios.post(`/api/v1/workorder/orders/${orderID}/approve`, { approved: true, comment }, { headers: authHeaders() })
+
+const cancelOrderByID = (orderID) =>
+  axios.post(`/api/v1/workorder/orders/${orderID}/cancel`, {}, { headers: authHeaders() })
+
+const closeTerminalSessionByID = (sessionID) =>
+  axios.delete(`/api/v1/terminal/sessions/${sessionID}`, { headers: authHeaders() })
+
+const purgeTerminalSessionByID = (sessionID) =>
+  axios.delete(`/api/v1/terminal/sessions/${sessionID}/purge`, { headers: authHeaders() })
+
+const runBatchWorkorderAction = async (rows, options) => {
+  const actionRows = rows.filter((row) => row?.id && (options.filter ? options.filter(row) : true))
+  const orderIDs = [...new Set(actionRows.map((row) => row.id))]
+  if (!orderIDs.length) {
+    ElMessage.info('没有可处置的工单')
+    return
+  }
+  workorderBatching.value = true
+  try {
+    await ElMessageBox.confirm(options.message(orderIDs.length), options.title, { type: 'warning' })
+    const settled = await Promise.allSettled(orderIDs.map((id) => options.action(id)))
+    const success = settled.filter((item) => item.status === 'fulfilled').length
+    const fail = settled.length - success
+    ElMessage.success(`${options.successText}：成功 ${success}，失败 ${fail}`)
+    selectedWorkorderRows.value = []
+    if (workorderTableRef.value?.clearSelection) workorderTableRef.value.clearSelection()
+    await refreshAll()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, options.failText))
+  } finally {
+    workorderBatching.value = false
+  }
+}
+
+const batchApproveSelectedWorkorders = async () => {
+  await runBatchWorkorderAction(selectedWorkorderRows.value, {
+    title: '批量审批通过',
+    message: (count) => `确认批量通过 ${count} 个已选工单吗？`,
+    filter: (row) => canApprove(row),
+    action: (id) => approveOrderByID(id),
+    successText: '批量审批完成',
+    failText: '批量审批失败'
+  })
+}
+
+const batchCancelSelectedWorkorders = async () => {
+  await runBatchWorkorderAction(selectedWorkorderRows.value, {
+    title: '批量取消工单',
+    message: (count) => `确认批量取消 ${count} 个已选工单吗？`,
+    filter: (row) => canCancel(row),
+    action: (id) => cancelOrderByID(id),
+    successText: '批量取消完成',
+    failText: '批量取消失败'
+  })
+}
+
+const batchApproveTimeoutWorkorders = async () => {
+  const rows = filteredOrders.value.filter((row) => canApprove(row) && isWorkorderPendingTimeout(row))
+  await runBatchWorkorderAction(rows, {
+    title: '处置超时审批',
+    message: (count) => `确认批量通过 ${count} 个超时审批工单吗？`,
+    action: (id) => approveOrderByID(id, '协作中心自动处置超时审批'),
+    successText: '超时审批处置完成',
+    failText: '处置超时审批失败'
+  })
+}
+
+const batchApproveWorkorderGroup = async (group) => {
+  const rows = Array.isArray(group?.rows) ? group.rows : []
+  await runBatchWorkorderAction(rows, {
+    title: `按类型处置：${group?.label || '-'}`,
+    message: (count) => `确认批量通过「${group?.label || '-'}」${count} 个工单吗？`,
+    action: (id) => approveOrderByID(id, `按类型(${group?.label || '-'})批量处置`),
+    successText: '分组处置完成',
+    failText: '分组处置失败'
+  })
+}
+
+const runBatchTerminalAction = async (rows, options) => {
+  const actionRows = rows.filter((row) => row?.id && (options.filter ? options.filter(row) : true))
+  const sessionIDs = [...new Set(actionRows.map((row) => row.id))]
+  if (!sessionIDs.length) {
+    ElMessage.info('没有可处置的终端会话')
+    return
+  }
+  terminalBatching.value = true
+  try {
+    await ElMessageBox.confirm(options.message(sessionIDs.length), options.title, { type: 'warning' })
+    const settled = await Promise.allSettled(sessionIDs.map((id) => options.action(id)))
+    const success = settled.filter((item) => item.status === 'fulfilled').length
+    const fail = settled.length - success
+    ElMessage.success(`${options.successText}：成功 ${success}，失败 ${fail}`)
+    selectedTerminalRows.value = []
+    if (terminalTableRef.value?.clearSelection) terminalTableRef.value.clearSelection()
+    await refreshAll()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, options.failText))
+  } finally {
+    terminalBatching.value = false
+  }
+}
+
+const batchCloseSelectedTerminals = async () => {
+  await runBatchTerminalAction(selectedTerminalRows.value, {
+    title: '批量关闭会话',
+    message: (count) => `确认批量关闭 ${count} 个已连接终端会话吗？`,
+    filter: (row) => Number(row.status) === 1,
+    action: (id) => closeTerminalSessionByID(id),
+    successText: '批量关闭完成',
+    failText: '批量关闭失败'
+  })
+}
+
+const batchPurgeSelectedTerminals = async () => {
+  await runBatchTerminalAction(selectedTerminalRows.value, {
+    title: '批量删除会话',
+    message: (count) => `确认批量删除 ${count} 个已选终端会话吗？`,
+    filter: (row) => Number(row.status) !== 1,
+    action: (id) => purgeTerminalSessionByID(id),
+    successText: '批量删除完成',
+    failText: '批量删除失败'
+  })
+}
+
+const batchPurgeFailedTerminals = async () => {
+  const rows = filteredTerminalSessions.value.filter((row) => Number(row.status) === 3)
+  await runBatchTerminalAction(rows, {
+    title: '清理失败会话',
+    message: (count) => `确认删除 ${count} 个连接失败会话吗？`,
+    action: (id) => purgeTerminalSessionByID(id),
+    successText: '失败会话清理完成',
+    failText: '失败会话清理失败'
+  })
+}
+
+const batchPurgeTerminalGroup = async (group) => {
+  const rows = Array.isArray(group?.rows) ? group.rows : []
+  await runBatchTerminalAction(rows, {
+    title: `按主机清理：${group?.label || '-'}`,
+    message: (count) => `确认删除主机「${group?.label || '-'}」${count} 个非活跃会话吗？`,
+    action: (id) => purgeTerminalSessionByID(id),
+    successText: '分组清理完成',
+    failText: '分组清理失败'
+  })
+}
 
 const isCICDWorkOrder = (row) => {
   if (!row?.form_data) return false
@@ -673,7 +948,7 @@ const connectTerminal = (row) => {
 
 const closeTerminalSession = async (row) => {
   try {
-    await axios.delete(`/api/v1/terminal/sessions/${row.id}`, { headers: authHeaders() })
+    await closeTerminalSessionByID(row.id)
     ElMessage.success('会话已关闭')
     await refreshAll()
   } catch (err) {
@@ -684,7 +959,7 @@ const closeTerminalSession = async (row) => {
 const purgeTerminalSession = async (row) => {
   try {
     await ElMessageBox.confirm(`确认删除终端会话 ${row.host || row.id} 吗？`, '提示', { type: 'warning' })
-    await axios.delete(`/api/v1/terminal/sessions/${row.id}/purge`, { headers: authHeaders() })
+    await purgeTerminalSessionByID(row.id)
     ElMessage.success('会话已删除')
     await refreshAll()
   } catch (err) {
@@ -799,6 +1074,34 @@ onUnmounted(() => {
   width: 280px;
 }
 
+.panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.panel-toolbar-left,
+.panel-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.group-tag-list {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.group-tag-item {
+  cursor: pointer;
+}
+
 .inline-actions {
   display: flex;
   align-items: center;
@@ -819,6 +1122,16 @@ onUnmounted(() => {
   .integration-actions {
     width: 100%;
     flex-wrap: wrap;
+  }
+
+  .panel-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .panel-toolbar-left,
+  .panel-toolbar-right {
+    width: 100%;
   }
 
   .panel-search {

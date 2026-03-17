@@ -51,8 +51,28 @@
     <el-row :gutter="12">
       <el-col :span="14">
         <el-card>
-          <template #header>待处理工单（优先）</template>
-          <el-table :fit="true" :data="pendingOrders" size="small" max-height="300" empty-text="暂无待处理工单">
+          <template #header>
+            <div class="order-header">
+              <span>待处理工单（优先）</span>
+              <div class="order-actions">
+                <el-tag type="warning" effect="light">待处理 {{ pendingOrders.length }}</el-tag>
+                <el-tag type="danger" effect="light">超时审批 {{ pendingApprovalTimeout }}</el-tag>
+                <el-button size="small" type="success" plain :loading="orderBatching" :disabled="!selectedApprovableCount" @click="batchApproveSelectedOrders">批量通过已选</el-button>
+                <el-button size="small" type="danger" plain :loading="orderBatching" :disabled="!selectedCancelableCount" @click="batchCancelSelectedOrders">批量取消已选</el-button>
+                <el-button size="small" plain :loading="orderBatching" :disabled="!pendingApprovalTimeout" @click="batchApproveTimeoutOrders">处置超时审批</el-button>
+              </div>
+            </div>
+          </template>
+          <el-table
+            ref="pendingOrderTableRef"
+            :fit="true"
+            :data="pendingOrders"
+            size="small"
+            max-height="300"
+            empty-text="暂无待处理工单"
+            @selection-change="onPendingOrderSelectionChange"
+          >
+            <el-table-column type="selection" width="46" />
             <el-table-column prop="title" label="工单" min-width="170" />
             <el-table-column prop="type_name" label="类型" width="110" />
             <el-table-column label="优先级" width="90">
@@ -88,6 +108,18 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="order-group-list">
+            <el-tag
+              v-for="group in pendingOrderApproveGroups"
+              :key="group.key"
+              type="warning"
+              effect="plain"
+              class="order-group-tag"
+              @click="batchApproveOrderGroup(group)"
+            >
+              {{ group.label }} · 待审批 {{ group.count }}
+            </el-tag>
+          </div>
         </el-card>
 
         <el-card class="mt-12">
@@ -327,7 +359,10 @@ const orders = ref([])
 const orderStats = ref({ total: 0, pending: 0, processing: 0, completed: 0 })
 const activePanel = ref('pipelines')
 const panelKeyword = ref('')
+const orderBatching = ref(false)
 const nowTs = ref(Date.now())
+const pendingOrderTableRef = ref(null)
+const selectedPendingOrders = ref([])
 let minuteTicker = null
 
 const stats = reactive({
@@ -381,6 +416,29 @@ const pendingOrders = computed(() => {
     .filter((item) => Number(item.status) === 0 || Number(item.status) === 1 || Number(item.status) === 4)
     .sort((a, b) => Number(a.priority || 4) - Number(b.priority || 4))
     .slice(0, 12)
+})
+
+const selectedApprovableCount = computed(() =>
+  selectedPendingOrders.value.filter((item) => canApprove(item)).length
+)
+
+const selectedCancelableCount = computed(() =>
+  selectedPendingOrders.value.filter((item) => canCancel(item)).length
+)
+
+const pendingOrderApproveGroups = computed(() => {
+  const groups = new Map()
+  pendingOrders.value
+    .filter((item) => canApprove(item))
+    .forEach((item) => {
+      const label = item.type_name || '未分类'
+      const key = String(label)
+      const current = groups.get(key) || { key, label, count: 0, rows: [] }
+      current.count += 1
+      current.rows.push(item)
+      groups.set(key, current)
+    })
+  return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, 8)
 })
 
 const recentExecutions = computed(() => executions.value.slice(0, 12))
@@ -551,6 +609,83 @@ const openOrder = (row) => {
 
 const canApprove = (row) => [0, 1].includes(Number(row?.status))
 const canCancel = (row) => [0, 1, 2, 4].includes(Number(row?.status))
+const onPendingOrderSelectionChange = (rows) => {
+  selectedPendingOrders.value = Array.isArray(rows) ? rows : []
+}
+
+const approveOrderByID = (orderID, comment = '交付中心批量审批通过') =>
+  axios.post(`/api/v1/workorder/orders/${orderID}/approve`, { approved: true, comment }, { headers: authHeaders() })
+
+const cancelOrderByID = (orderID) =>
+  axios.post(`/api/v1/workorder/orders/${orderID}/cancel`, {}, { headers: authHeaders() })
+
+const runBatchOrderAction = async (rows, options) => {
+  const actionRows = rows.filter((row) => row?.id && (options.filter ? options.filter(row) : true))
+  const orderIDs = [...new Set(actionRows.map((row) => row.id))]
+  if (!orderIDs.length) {
+    ElMessage.info('没有可处置的工单')
+    return
+  }
+  orderBatching.value = true
+  try {
+    await ElMessageBox.confirm(options.message(orderIDs.length), options.title, { type: 'warning' })
+    const settled = await Promise.allSettled(orderIDs.map((id) => options.action(id)))
+    const success = settled.filter((item) => item.status === 'fulfilled').length
+    const fail = settled.length - success
+    ElMessage.success(`${options.successText}：成功 ${success}，失败 ${fail}`)
+    selectedPendingOrders.value = []
+    if (pendingOrderTableRef.value?.clearSelection) pendingOrderTableRef.value.clearSelection()
+    await refreshAll()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, options.failText))
+  } finally {
+    orderBatching.value = false
+  }
+}
+
+const batchApproveSelectedOrders = async () => {
+  await runBatchOrderAction(selectedPendingOrders.value, {
+    title: '批量审批通过',
+    message: (count) => `确认批量通过 ${count} 个已选工单吗？`,
+    filter: (row) => canApprove(row),
+    action: (id) => approveOrderByID(id),
+    successText: '批量审批完成',
+    failText: '批量审批失败'
+  })
+}
+
+const batchCancelSelectedOrders = async () => {
+  await runBatchOrderAction(selectedPendingOrders.value, {
+    title: '批量取消工单',
+    message: (count) => `确认批量取消 ${count} 个已选工单吗？`,
+    filter: (row) => canCancel(row),
+    action: (id) => cancelOrderByID(id),
+    successText: '批量取消完成',
+    failText: '批量取消失败'
+  })
+}
+
+const batchApproveTimeoutOrders = async () => {
+  const rows = pendingOrders.value.filter((row) => isOrderApprovalTimeout(row) && canApprove(row))
+  await runBatchOrderAction(rows, {
+    title: '处置超时审批',
+    message: (count) => `确认批量通过 ${count} 个超时待审批工单吗？`,
+    action: (id) => approveOrderByID(id, '交付中心自动处置超时审批'),
+    successText: '超时审批处置完成',
+    failText: '处置超时审批失败'
+  })
+}
+
+const batchApproveOrderGroup = async (group) => {
+  const rows = Array.isArray(group?.rows) ? group.rows : []
+  await runBatchOrderAction(rows, {
+    title: `按类型处置：${group?.label || '-'}`,
+    message: (count) => `确认批量通过「${group?.label || '-'}」${count} 个工单吗？`,
+    action: (id) => approveOrderByID(id, `按类型(${group?.label || '-'})批量处置通过`),
+    successText: '分组处置完成',
+    failText: '分组处置失败'
+  })
+}
 
 const safeArray = (res) => (Array.isArray(res?.data?.data) ? res.data.data : [])
 const openCurrentPanel = () => go(panelRouteMap[activePanel.value] || '/delivery/center')
@@ -804,6 +939,32 @@ onUnmounted(() => {
 .mtop { margin-top: 12px; }
 .mt-12 { margin-top: 12px; }
 
+.order-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.order-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.order-group-list {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.order-group-tag {
+  cursor: pointer;
+}
+
 .integration-card {
   margin-top: 12px;
 }
@@ -830,6 +991,15 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1100px) {
+  .order-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .order-actions {
+    width: 100%;
+  }
+
   .integration-header {
     align-items: flex-start;
     flex-direction: column;
