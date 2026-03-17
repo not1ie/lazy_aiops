@@ -40,7 +40,11 @@
         <el-card><div class="metric-title">已发布版本</div><div class="metric-value ok">{{ stats.released }}</div></el-card>
       </el-col>
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
-        <el-card><div class="metric-title">启用定时任务</div><div class="metric-value">{{ stats.scheduleEnabled }}</div></el-card>
+        <el-card>
+          <div class="metric-title">待处置积压</div>
+          <div class="metric-value warning">{{ pendingBacklog }}</div>
+          <div class="metric-sub">超时审批 {{ pendingApprovalTimeout }}</div>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -63,6 +67,13 @@
             </el-table-column>
             <el-table-column label="创建时间" min-width="150">
               <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column label="等待时长" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isOrderApprovalTimeout(row) ? 'warning' : 'success'">
+                  {{ formatWaitDuration(row.created_at) }}
+                </el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="操作" min-width="240">
               <template #default="{ row }">
@@ -113,6 +124,9 @@
           <el-divider />
           <div class="health-row"><span>定时任务</span><strong>{{ stats.scheduleTotal }}</strong></div>
           <div class="health-row"><span>待审批工单</span><strong>{{ stats.workorderPending }}</strong></div>
+          <div class="health-row"><span>超时审批工单</span><strong>{{ pendingApprovalTimeout }}</strong></div>
+          <div class="health-row"><span>长时间执行</span><strong>{{ executionLongRunning }}</strong></div>
+          <div class="health-row"><span>异常定时任务</span><strong>{{ scheduleStale }}</strong></div>
           <div class="health-row"><span>已完成工单</span><strong>{{ stats.workorderDone }}</strong></div>
         </el-card>
 
@@ -123,6 +137,13 @@
             <el-table-column prop="cron" label="CRON" min-width="130" />
             <el-table-column label="下次执行" min-width="150">
               <template #default="{ row }">{{ formatTime(row.next_run_at) }}</template>
+            </el-table-column>
+            <el-table-column label="计划时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isScheduleStale(row) ? 'warning' : 'success'">
+                  {{ isScheduleStale(row) ? '待修复' : '正常' }}
+                </el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="操作" width="130">
               <template #default="{ row }">
@@ -212,6 +233,13 @@
             <el-table-column label="下次执行" min-width="170">
               <template #default="{ row }">{{ formatTime(row.next_run_at) }}</template>
             </el-table-column>
+            <el-table-column label="计划时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isScheduleStale(row) ? 'warning' : 'success'">
+                  {{ isScheduleStale(row) ? '待修复' : '正常' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" min-width="180">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="toggleSchedule(row)">{{ row.enabled ? '停用' : '启用' }}</el-button>
@@ -282,7 +310,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -299,6 +327,8 @@ const orders = ref([])
 const orderStats = ref({ total: 0, pending: 0, processing: 0, completed: 0 })
 const activePanel = ref('pipelines')
 const panelKeyword = ref('')
+const nowTs = ref(Date.now())
+let minuteTicker = null
 
 const stats = reactive({
   pipelineTotal: 0,
@@ -392,6 +422,49 @@ const releaseOnPlanRate = computed(() => {
   if (!stats.releaseTotal) return 0
   return Math.round((stats.released / stats.releaseTotal) * 100)
 })
+
+const parseTimestamp = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+
+const elapsedMinutes = (value) => {
+  const ts = parseTimestamp(value)
+  if (!ts) return 0
+  const diff = Math.floor((nowTs.value - ts) / 60000)
+  return diff > 0 ? diff : 0
+}
+
+const formatWaitDuration = (value) => {
+  const minutes = elapsedMinutes(value)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remain = minutes % 60
+  if (hours < 24) return `${hours}h${remain}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d${hours % 24}h`
+}
+
+const isOrderApprovalTimeout = (row) => {
+  const status = Number(row?.status)
+  if (status !== 0 && status !== 1) return false
+  return elapsedMinutes(row?.created_at) >= 120
+}
+
+const isExecutionLongRunning = (row) => Number(row?.status) === 0 && elapsedMinutes(row?.started_at) >= 30
+
+const isScheduleStale = (row) => {
+  if (!row?.enabled) return false
+  const nextTs = parseTimestamp(row?.next_run_at)
+  if (!nextTs) return true
+  return nextTs < (nowTs.value - 5 * 60 * 1000)
+}
+
+const pendingApprovalTimeout = computed(() => orders.value.filter((item) => isOrderApprovalTimeout(item)).length)
+const executionLongRunning = computed(() => executions.value.filter((item) => isExecutionLongRunning(item)).length)
+const scheduleStale = computed(() => schedules.value.filter((item) => isScheduleStale(item)).length)
+const pendingBacklog = computed(() => pendingApprovalTimeout.value + executionLongRunning.value + scheduleStale.value)
 
 const priorityText = (value) => {
   const v = Number(value)
@@ -698,6 +771,17 @@ const refreshAll = async () => {
 }
 
 onMounted(refreshAll)
+onMounted(() => {
+  minuteTicker = window.setInterval(() => {
+    nowTs.value = Date.now()
+  }, 60 * 1000)
+})
+onUnmounted(() => {
+  if (minuteTicker) {
+    window.clearInterval(minuteTicker)
+    minuteTicker = null
+  }
+})
 </script>
 
 <style scoped>
@@ -714,6 +798,7 @@ onMounted(refreshAll)
 .metric-value.ok { color: #67c23a; }
 .metric-value.warning { color: #e6a23c; }
 .metric-value.danger { color: #f56c6c; }
+.metric-sub { margin-top: 4px; color: var(--muted-text); font-size: 12px; }
 .health-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
