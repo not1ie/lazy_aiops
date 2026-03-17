@@ -48,7 +48,11 @@
         <el-card><div class="metric-title">异常工作负载</div><div class="metric-value danger">{{ stats.degradedWorkloads }}</div></el-card>
       </el-col>
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
-        <el-card><div class="metric-title">Warning 事件</div><div class="metric-value danger">{{ stats.warningEvents }}</div></el-card>
+        <el-card>
+          <div class="metric-title">待处置积压</div>
+          <div class="metric-value warning">{{ pendingBacklog }}</div>
+          <div class="metric-sub">Warning {{ stats.warningEvents }}</div>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -70,6 +74,9 @@
           <div class="health-row"><span>Service 数量</span><strong>{{ stats.serviceTotal }}</strong></div>
           <div class="health-row"><span>Ingress 数量</span><strong>{{ stats.ingressTotal }}</strong></div>
           <div class="health-row"><span>Ready Pod（估算）</span><strong>{{ stats.podReadyTotal }}</strong></div>
+          <div class="health-row"><span>NotReady 节点</span><strong>{{ notReadyNodes }}</strong></div>
+          <div class="health-row"><span>超时 Warning 事件</span><strong>{{ warningEventTimeout }}</strong></div>
+          <div class="health-row"><span>待复检集群</span><strong>{{ clusterStaleCount }}</strong></div>
         </el-card>
       </el-col>
       <el-col :span="14">
@@ -135,6 +142,13 @@
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
                 <el-tag :type="clusterStatus(row).type">{{ clusterStatus(row).text }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="检查时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isClusterStale(row) ? 'warning' : 'success'">
+                  {{ isClusterStale(row) ? '待复检' : '及时' }}
+                </el-tag>
               </template>
             </el-table-column>
           </el-table>
@@ -232,6 +246,13 @@
             <el-table-column label="最近时间" min-width="165">
               <template #default="{ row }">{{ formatTime(row.last_seen) }}</template>
             </el-table-column>
+            <el-table-column label="持续时长" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isWarningEventTimeout(row) ? 'warning' : 'success'">
+                  {{ formatDuration(row.last_seen || row.first_seen || row.created_at) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="120">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="openEventTarget(row)">定位</el-button>
@@ -245,7 +266,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -264,6 +285,8 @@ const events = ref([])
 const clusterId = ref('')
 const activePanel = ref('workloads')
 const panelKeyword = ref('')
+const nowTs = ref(Date.now())
+let minuteTicker = null
 
 const stats = reactive({
   clusterTotal: 0,
@@ -355,6 +378,53 @@ const workloadHealthyRate = computed(() => {
   if (!stats.workloadTotal) return 0
   return Math.round((stats.healthyWorkloads / stats.workloadTotal) * 100)
 })
+
+const parseTimestamp = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+
+const elapsedMinutes = (value) => {
+  const ts = parseTimestamp(value)
+  if (!ts) return 0
+  const diff = Math.floor((nowTs.value - ts) / 60000)
+  return diff > 0 ? diff : 0
+}
+
+const formatDuration = (value) => {
+  const minutes = elapsedMinutes(value)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remain = minutes % 60
+  if (hours < 24) return `${hours}h${remain}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d${hours % 24}h`
+}
+
+const clusterFreshnessTs = (row) =>
+  row?.last_sync_at ||
+  row?.last_seen_at ||
+  row?.last_heartbeat_at ||
+  row?.last_checked_at ||
+  row?.updated_at
+
+const isClusterStale = (row) => {
+  if (!isOnlineCluster(row?.status)) return false
+  return elapsedMinutes(clusterFreshnessTs(row)) >= 15
+}
+
+const isWarningEventTimeout = (row) => {
+  if (normalizeText(row?.type) !== 'warning') return false
+  return elapsedMinutes(row?.last_seen || row?.first_seen || row?.created_at) >= 30
+}
+
+const notReadyNodes = computed(() => nodes.value.filter((item) => !nodeReady(item)).length)
+const warningEventTimeout = computed(() => events.value.filter((item) => isWarningEventTimeout(item)).length)
+const clusterStaleCount = computed(() => clusters.value.filter((item) => isClusterStale(item)).length)
+const pendingBacklog = computed(
+  () => stats.degradedWorkloads + notReadyNodes.value + warningEventTimeout.value + clusterStaleCount.value
+)
 
 const degradedRows = computed(() =>
   workloads.value
@@ -576,6 +646,17 @@ const refreshAll = async () => {
 }
 
 onMounted(refreshAll)
+onMounted(() => {
+  minuteTicker = window.setInterval(() => {
+    nowTs.value = Date.now()
+  }, 60 * 1000)
+})
+onUnmounted(() => {
+  if (minuteTicker) {
+    window.clearInterval(minuteTicker)
+    minuteTicker = null
+  }
+})
 </script>
 
 <style scoped>
@@ -592,6 +673,7 @@ onMounted(refreshAll)
 .metric-value.ok { color: #67c23a; }
 .metric-value.warning { color: #e6a23c; }
 .metric-value.danger { color: #f56c6c; }
+.metric-sub { margin-top: 4px; color: var(--muted-text); font-size: 12px; }
 .health-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
