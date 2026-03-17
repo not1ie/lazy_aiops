@@ -96,8 +96,27 @@
 
       <el-col :span="14">
         <el-card>
-          <template #header>高风险操作事件</template>
-          <el-table :fit="true" :data="riskEvents" size="small" max-height="470" empty-text="暂无风险事件">
+          <template #header>
+            <div class="risk-header">
+              <span>高风险操作事件</span>
+              <div class="risk-actions">
+                <el-tag type="danger" effect="light">Critical {{ riskCriticalCount }}</el-tag>
+                <el-tag type="warning" effect="light">可断开 {{ actionableRiskCount }}</el-tag>
+                <el-button size="small" type="warning" plain :loading="riskBatching" :disabled="!selectedRiskCount" @click="batchDisconnectSelectedRisk">批量断开已选</el-button>
+                <el-button size="small" plain :loading="riskBatching" :disabled="!riskCriticalCount" @click="batchDisconnectCriticalRisk">处置高危</el-button>
+              </div>
+            </div>
+          </template>
+          <el-table
+            ref="riskTableRef"
+            :fit="true"
+            :data="riskEvents"
+            size="small"
+            max-height="470"
+            empty-text="暂无风险事件"
+            @selection-change="onRiskSelectionChange"
+          >
+            <el-table-column type="selection" width="46" />
             <el-table-column prop="asset_name" label="资产" min-width="120" />
             <el-table-column prop="username" label="用户" width="100" />
             <el-table-column prop="severity" label="级别" width="90">
@@ -119,6 +138,18 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="risk-group-list">
+            <el-tag
+              v-for="group in riskEventGroups"
+              :key="group.key"
+              :type="group.level"
+              effect="plain"
+              class="risk-group-tag"
+              @click="batchDisconnectRiskGroup(group)"
+            >
+              {{ group.label }} · {{ group.count }}
+            </el-tag>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -308,9 +339,12 @@ const jumpRiskEvents = ref([])
 const jumpAssets = ref([])
 const commandStats = ref({})
 const syncingNetworkFromFirewall = ref(false)
+const riskBatching = ref(false)
 const activePanel = ref('offline')
 const panelKeyword = ref('')
 const nowTick = ref(Date.now())
+const riskTableRef = ref(null)
+const selectedRiskRows = ref([])
 let freshnessTicker = null
 
 const CHECK_STALE_HOURS = 24
@@ -429,6 +463,29 @@ const riskEvents = computed(() =>
     .sort((a, b) => new Date(b.fired_at || 0).getTime() - new Date(a.fired_at || 0).getTime())
     .slice(0, 12)
 )
+
+const riskCriticalCount = computed(() =>
+  riskEvents.value.filter((item) => normalizeText(item.severity) === 'critical').length
+)
+
+const actionableRiskCount = computed(() => riskEvents.value.filter((item) => Boolean(item.session_id)).length)
+
+const selectedRiskCount = computed(() => selectedRiskRows.value.filter((item) => Boolean(item?.session_id)).length)
+
+const riskEventGroups = computed(() => {
+  const groups = new Map()
+  riskEvents.value.forEach((item) => {
+    if (!item.session_id) return
+    const rule = item.rule_name || item.event_type || '未分类风险'
+    const key = `${rule}`
+    const current = groups.get(key) || { key, label: rule, count: 0, level: 'warning', rows: [] }
+    current.count += 1
+    if (normalizeText(item.severity) === 'critical') current.level = 'danger'
+    current.rows.push(item)
+    groups.set(key, current)
+  })
+  return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, 8)
+})
 
 const staleNetworkDevices = computed(() =>
   networkDevices.value.filter((item) => isOnlineStatus(item.status) && isCheckStale(item.last_check_at))
@@ -626,6 +683,14 @@ const disconnectJumpSession = async (row) => {
   }
 }
 
+const onRiskSelectionChange = (rows) => {
+  selectedRiskRows.value = Array.isArray(rows) ? rows : []
+}
+
+const disconnectRiskSessionByID = async (sessionID, reason) => {
+  await axios.post(`/api/v1/jump/sessions/${sessionID}/disconnect`, { reason }, { headers: authHeaders() })
+}
+
 const disconnectRiskSession = async (row) => {
   const sessionID = row?.session_id
   if (!sessionID) {
@@ -634,12 +699,55 @@ const disconnectRiskSession = async (row) => {
   }
   try {
     await ElMessageBox.confirm(`确认断开风险会话 ${sessionID} 吗？`, '提示', { type: 'warning' })
-    await axios.post(`/api/v1/jump/sessions/${sessionID}/disconnect`, { reason: '风险事件触发手动断开' }, { headers: authHeaders() })
+    await disconnectRiskSessionByID(sessionID, '风险事件触发手动断开')
     ElMessage.success('风险会话已断开')
     await refreshAll()
   } catch (err) {
     if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '断开风险会话失败'))
   }
+}
+
+const runBatchRiskDisconnect = async (rows, title, message) => {
+  const sessionIDs = [...new Set(rows.map((item) => item?.session_id).filter(Boolean))]
+  if (!sessionIDs.length) {
+    ElMessage.info('没有可断开的会话')
+    return
+  }
+  riskBatching.value = true
+  try {
+    await ElMessageBox.confirm(message, title, { type: 'warning' })
+    const settled = await Promise.allSettled(
+      sessionIDs.map((id) => disconnectRiskSessionByID(id, '资产作战台批量处置断开'))
+    )
+    const success = settled.filter((item) => item.status === 'fulfilled').length
+    const fail = settled.length - success
+    ElMessage.success(`批量处置完成：成功 ${success}，失败 ${fail}`)
+    selectedRiskRows.value = []
+    if (riskTableRef.value?.clearSelection) riskTableRef.value.clearSelection()
+    await refreshAll()
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '批量处置失败'))
+  } finally {
+    riskBatching.value = false
+  }
+}
+
+const batchDisconnectSelectedRisk = async () => {
+  await runBatchRiskDisconnect(
+    selectedRiskRows.value,
+    '批量断开风险会话',
+    `确认断开已选择的 ${selectedRiskCount.value} 个风险会话吗？`
+  )
+}
+
+const batchDisconnectCriticalRisk = async () => {
+  const rows = riskEvents.value.filter((item) => normalizeText(item.severity) === 'critical' && item.session_id)
+  await runBatchRiskDisconnect(rows, '处置高危风险', `确认断开 ${rows.length} 个 Critical 风险会话吗？`)
+}
+
+const batchDisconnectRiskGroup = async (group) => {
+  const rows = Array.isArray(group?.rows) ? group.rows : []
+  await runBatchRiskDisconnect(rows, `按规则处置：${group?.label || '-'}`, `确认断开「${group?.label || '-'}」共 ${rows.length} 个风险会话吗？`)
 }
 
 const testHostConnectivity = async (id) => {
@@ -816,6 +924,32 @@ onBeforeUnmount(() => {
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
 
+.risk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.risk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.risk-group-list {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.risk-group-tag {
+  cursor: pointer;
+}
+
 .integration-card {
   margin-top: 12px;
 }
@@ -860,6 +994,15 @@ onBeforeUnmount(() => {
   }
 
   .panel-search {
+    width: 100%;
+  }
+
+  .risk-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .risk-actions {
     width: 100%;
   }
 }
