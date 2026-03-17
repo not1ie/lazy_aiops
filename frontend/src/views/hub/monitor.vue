@@ -40,7 +40,11 @@
         <el-card><div class="metric-title">域名风险</div><div class="metric-value warning">{{ stats.domainRisk }}</div></el-card>
       </el-col>
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
-        <el-card><div class="metric-title">证书≤30天</div><div class="metric-value danger">{{ stats.certExpiringSoon }}</div></el-card>
+        <el-card>
+          <div class="metric-title">待处置积压</div>
+          <div class="metric-value warning">{{ pendingBacklog }}</div>
+          <div class="metric-sub">证书≤30天 {{ stats.certExpiringSoon }}</div>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -56,6 +60,9 @@
           <div class="health-row"><span>通知组</span><strong>{{ stats.notifyGroupTotal }}</strong></div>
           <div class="health-row"><span>模板数量</span><strong>{{ stats.templateTotal }}</strong></div>
           <div class="health-row"><span>健康域名</span><strong>{{ stats.domainHealthy }}</strong></div>
+          <div class="health-row"><span>未恢复 Critical</span><strong>{{ stats.alertCriticalOpen }}</strong></div>
+          <div class="health-row"><span>超时未恢复告警</span><strong>{{ pendingAlertTimeout }}</strong></div>
+          <div class="health-row"><span>待复检风险对象</span><strong>{{ riskCheckStale }}</strong></div>
         </el-card>
 
         <el-card class="mt-12">
@@ -126,6 +133,13 @@
             </el-table-column>
             <el-table-column label="时间" min-width="170">
               <template #default="{ row }">{{ formatTime(row.fired_at || row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column label="待响应" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isAlertStale(row) ? 'warning' : 'success'">
+                  {{ formatWaitDuration(row.fired_at || row.created_at) }}
+                </el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="操作" min-width="220">
               <template #default="{ row }">
@@ -230,6 +244,13 @@
             <el-table-column label="检查时间" min-width="170">
               <template #default="{ row }">{{ formatTime(row.checked_at) }}</template>
             </el-table-column>
+            <el-table-column label="检查时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isRiskCheckStale(row.checked_at) ? 'warning' : 'success'">
+                  {{ isRiskCheckStale(row.checked_at) ? '待复检' : '及时' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="140">
               <template #default="{ row }">
                 <el-button size="small" type="primary" link @click="checkRisk(row)">复检</el-button>
@@ -244,7 +265,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -263,12 +284,15 @@ const groups = ref([])
 const templates = ref([])
 const activePanel = ref('alerts')
 const panelKeyword = ref('')
+const nowTs = ref(Date.now())
+let minuteTicker = null
 
 const stats = reactive({
   alertTotal: 0,
   alertOpen: 0,
   alertClosed: 0,
   alertCritical: 0,
+  alertCriticalOpen: 0,
   ruleTotal: 0,
   agentOnline: 0,
   agentTotal: 0,
@@ -355,6 +379,41 @@ const alertStatusTag = (status) => {
   return ''
 }
 
+const parseTimestamp = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+
+const elapsedMinutes = (value) => {
+  const ts = parseTimestamp(value)
+  if (!ts) return 0
+  const diff = Math.floor((nowTs.value - ts) / 60000)
+  return diff > 0 ? diff : 0
+}
+
+const formatWaitDuration = (value) => {
+  const minutes = elapsedMinutes(value)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remain = minutes % 60
+  if (hours < 24) return `${hours}h${remain}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d${hours % 24}h`
+}
+
+const isAlertStale = (row) => {
+  const status = Number(row?.status)
+  if (status !== 0 && status !== 1) return false
+  return elapsedMinutes(row?.fired_at || row?.created_at) >= 60
+}
+
+const isRiskCheckStale = (checkedAt) => {
+  const ts = parseTimestamp(checkedAt)
+  if (!ts) return true
+  return (nowTs.value - ts) > 24 * 60 * 60 * 1000
+}
+
 const alertClosedRate = computed(() => {
   if (!stats.alertTotal) return 0
   return Math.round((stats.alertClosed / stats.alertTotal) * 100)
@@ -417,6 +476,10 @@ const riskRows = computed(() => {
     .sort((a, b) => Number(b.level === 'critical') - Number(a.level === 'critical'))
     .slice(0, 30)
 })
+
+const pendingAlertTimeout = computed(() => alerts.value.filter((item) => isAlertStale(item)).length)
+const riskCheckStale = computed(() => riskRows.value.filter((item) => isRiskCheckStale(item.checked_at)).length)
+const pendingBacklog = computed(() => pendingAlertTimeout.value + stats.alertCriticalOpen + riskCheckStale.value)
 
 const filteredAlerts = computed(() =>
   filterRows(alerts.value, [(row) => row.alert_name, (row) => row.rule_name, (row) => row.target, (row) => row.severity])
@@ -557,6 +620,7 @@ const refreshAll = async () => {
     stats.alertOpen = alerts.value.filter((item) => Number(item.status) === 0).length
     stats.alertClosed = alerts.value.filter((item) => Number(item.status) === 1 || Number(item.status) === 2).length
     stats.alertCritical = alerts.value.filter((item) => normalizeText(item.severity) === 'critical').length
+    stats.alertCriticalOpen = alerts.value.filter((item) => Number(item.status) === 0 && normalizeText(item.severity) === 'critical').length
     stats.ruleTotal = rules.value.length
 
     stats.agentTotal = agents.value.length
@@ -586,6 +650,17 @@ const refreshAll = async () => {
 }
 
 onMounted(refreshAll)
+onMounted(() => {
+  minuteTicker = window.setInterval(() => {
+    nowTs.value = Date.now()
+  }, 60 * 1000)
+})
+onUnmounted(() => {
+  if (minuteTicker) {
+    window.clearInterval(minuteTicker)
+    minuteTicker = null
+  }
+})
 </script>
 
 <style scoped>
@@ -602,6 +677,7 @@ onMounted(refreshAll)
 .metric-value.ok { color: #67c23a; }
 .metric-value.warning { color: #e6a23c; }
 .metric-value.danger { color: #f56c6c; }
+.metric-sub { margin-top: 4px; color: var(--muted-text); font-size: 12px; }
 .health-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
