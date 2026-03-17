@@ -41,7 +41,11 @@
         <el-card><div class="metric-title">活跃会话</div><div class="metric-value ok">{{ stats.jumpActive }}</div></el-card>
       </el-col>
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
-        <el-card><div class="metric-title">高危风控事件</div><div class="metric-value danger">{{ stats.riskCritical }}</div></el-card>
+        <el-card>
+          <div class="metric-title">待处置积压</div>
+          <div class="metric-value warning">{{ stats.pendingBacklog }}</div>
+          <div class="metric-sub">高危风控 {{ stats.riskCritical }}</div>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -55,6 +59,8 @@
           <el-progress :percentage="networkOnlineRate" :stroke-width="14" status="success" />
           <el-divider />
           <div class="health-row"><span>堡垒机资产</span><strong>{{ jumpAssets.length }}</strong></div>
+          <div class="health-row"><span>待复检对象</span><strong>{{ stats.recheckPending }}</strong></div>
+          <div class="health-row"><span>超时待审批会话</span><strong>{{ stats.pendingApprovalTimeout }}</strong></div>
           <div class="health-row"><span>风控阻断命令(7天)</span><strong>{{ commandStats.commands_blocked || 0 }}</strong></div>
           <div class="health-row"><span>风控命令总量(7天)</span><strong>{{ commandStats.commands_window || 0 }}</strong></div>
         </el-card>
@@ -67,6 +73,13 @@
             <el-table-column prop="username" label="用户" width="100" />
             <el-table-column label="开始时间" min-width="150">
               <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
+            </el-table-column>
+            <el-table-column label="等待时长" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isPendingSessionStale(row) ? 'warning' : 'success'">
+                  {{ formatPendingWait(row.started_at) }}
+                </el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="操作" min-width="180">
               <template #default="{ row }">
@@ -158,6 +171,13 @@
             <el-table-column label="开始时间" min-width="150">
               <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
             </el-table-column>
+            <el-table-column label="等待时长" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isPendingSessionStale(row) ? 'warning' : 'success'">
+                  {{ formatPendingWait(row.started_at) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" min-width="210" fixed="right">
               <template #default="{ row }">
                 <div class="inline-actions">
@@ -231,6 +251,13 @@
             <el-table-column label="最近检查" min-width="160">
               <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
             </el-table-column>
+            <el-table-column label="检查时效" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isCheckStale(row.last_check_at) ? 'warning' : 'success'">
+                  {{ isCheckStale(row.last_check_at) ? '待复检' : '及时' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" min-width="180" fixed="right">
               <template #default="{ row }">
                 <div class="inline-actions">
@@ -264,7 +291,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -283,6 +310,11 @@ const commandStats = ref({})
 const syncingNetworkFromFirewall = ref(false)
 const activePanel = ref('offline')
 const panelKeyword = ref('')
+const nowTick = ref(Date.now())
+let freshnessTicker = null
+
+const CHECK_STALE_HOURS = 24
+const PENDING_SESSION_STALE_MINUTES = 30
 
 const stats = reactive({
   hostTotal: 0,
@@ -292,7 +324,10 @@ const stats = reactive({
   firewallAlert: 0,
   jumpPending: 0,
   jumpActive: 0,
-  riskCritical: 0
+  riskCritical: 0,
+  recheckPending: 0,
+  pendingApprovalTimeout: 0,
+  pendingBacklog: 0
 })
 
 const quickTabs = [
@@ -319,6 +354,37 @@ const go = (path) => router.push(path)
 const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('asset', 'hub-asset-ops')
 
 const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
+
+const calcAgeHours = (timeValue) => {
+  if (!timeValue) return Number.POSITIVE_INFINITY
+  const target = new Date(timeValue)
+  if (Number.isNaN(target.getTime())) return Number.POSITIVE_INFINITY
+  const ageMs = nowTick.value - target.getTime()
+  if (ageMs <= 0) return 0
+  return ageMs / (60 * 60 * 1000)
+}
+
+const calcAgeMinutes = (timeValue) => calcAgeHours(timeValue) * 60
+
+const isCheckStale = (checkedAt) => calcAgeHours(checkedAt) >= CHECK_STALE_HOURS
+const isPendingSessionStale = (row) => calcAgeMinutes(row?.started_at) >= PENDING_SESSION_STALE_MINUTES
+
+const formatPendingWait = (startedAt) => {
+  const minutes = calcAgeMinutes(startedAt)
+  if (!Number.isFinite(minutes)) return '未知'
+  if (minutes < 1) return '<1m'
+  if (minutes < 60) return `${Math.floor(minutes)}m`
+  const hours = Math.floor(minutes / 60)
+  const remain = Math.floor(minutes % 60)
+  return remain > 0 ? `${hours}h${remain}m` : `${hours}h`
+}
+
+const formatCheckAge = (checkedAt) => {
+  const hours = calcAgeHours(checkedAt)
+  if (!Number.isFinite(hours)) return '未检查'
+  if (hours < 1) return '1小时内'
+  return `${Math.floor(hours)}h前`
+}
 
 const isOnlineStatus = (status) => {
   if (status === null || status === undefined) return false
@@ -364,6 +430,16 @@ const riskEvents = computed(() =>
     .slice(0, 12)
 )
 
+const staleNetworkDevices = computed(() =>
+  networkDevices.value.filter((item) => isOnlineStatus(item.status) && isCheckStale(item.last_check_at))
+)
+
+const staleFirewalls = computed(() =>
+  firewalls.value.filter((item) => Number(item.status) === 1 && isCheckStale(item.last_check_at))
+)
+
+const stalePendingSessions = computed(() => pendingSessions.value.filter((item) => isPendingSessionStale(item)))
+
 const offlineAssets = computed(() => {
   const rows = []
   hosts.value.forEach((item) => {
@@ -408,6 +484,42 @@ const offlineAssets = computed(() => {
         path: '/firewall'
       })
     }
+  })
+  staleNetworkDevices.value.forEach((item) => {
+    rows.push({
+      type: '网络设备',
+      id: item.id,
+      name: item.name || '-',
+      address: item.ip || item.address || '-',
+      statusText: `待复检（${formatCheckAge(item.last_check_at)}）`,
+      level: 'warning',
+      actionLabel: '设备诊断',
+      path: '/cmdb/network-devices'
+    })
+  })
+  staleFirewalls.value.forEach((item) => {
+    rows.push({
+      type: '防火墙',
+      id: item.id,
+      name: item.name || '-',
+      address: item.ip || '-',
+      statusText: `待复检（${formatCheckAge(item.last_check_at)}）`,
+      level: 'warning',
+      actionLabel: 'SNMP采集',
+      path: '/firewall'
+    })
+  })
+  stalePendingSessions.value.forEach((item) => {
+    rows.push({
+      type: '会话审批',
+      id: item.id,
+      name: item.session_no || item.id || '-',
+      address: item.asset_name || '-',
+      statusText: `超时待审批（${formatPendingWait(item.started_at)}）`,
+      level: 'warning',
+      actionLabel: '进入审批',
+      path: '/jump/sessions'
+    })
   })
   return rows
     .sort((a, b) => (a.level === 'danger' ? -1 : 1) - (b.level === 'danger' ? -1 : 1))
@@ -590,6 +702,10 @@ const offlineAction = (row) => {
     collectFirewall(row)
     return
   }
+  if (row.type === '会话审批') {
+    openJumpSession()
+    return
+  }
   go(row.path)
 }
 
@@ -650,6 +766,9 @@ const refreshAll = async () => {
     stats.jumpPending = jumpSessions.value.filter((item) => String(item.status) === 'pending_approval').length
     stats.jumpActive = jumpSessions.value.filter((item) => String(item.status) === 'active').length
     stats.riskCritical = jumpRiskEvents.value.filter((item) => normalizeText(item.severity) === 'critical').length
+    stats.recheckPending = staleNetworkDevices.value.length + staleFirewalls.value.length
+    stats.pendingApprovalTimeout = stalePendingSessions.value.length
+    stats.pendingBacklog = stats.recheckPending + stats.pendingApprovalTimeout + stats.riskCritical
 
     const failedCount = [hostRes, networkRes, firewallRes, sessionRes, riskRes, jumpAssetRes, commandStatsRes].filter((r) => r.status === 'rejected').length
     if (failedCount > 0) {
@@ -662,7 +781,19 @@ const refreshAll = async () => {
   }
 }
 
-onMounted(refreshAll)
+onMounted(() => {
+  refreshAll()
+  freshnessTicker = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 60 * 1000)
+})
+
+onBeforeUnmount(() => {
+  if (freshnessTicker) {
+    window.clearInterval(freshnessTicker)
+    freshnessTicker = null
+  }
+})
 </script>
 
 <style scoped>
@@ -679,6 +810,7 @@ onMounted(refreshAll)
 .metric-value.ok { color: #67c23a; }
 .metric-value.warning { color: #e6a23c; }
 .metric-value.danger { color: #f56c6c; }
+.metric-sub { margin-top: 6px; font-size: 12px; color: var(--muted-text); }
 .mt-12 { margin-top: 12px; }
 .health-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .health-row strong { font-size: 15px; }
