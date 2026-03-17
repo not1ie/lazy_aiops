@@ -40,7 +40,11 @@
         <el-card><div class="metric-title">活跃终端会话</div><div class="metric-value ok">{{ stats.terminalActive }}</div></el-card>
       </el-col>
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
-        <el-card><div class="metric-title">升级策略</div><div class="metric-value">{{ stats.escalationTotal }}</div></el-card>
+        <el-card>
+          <div class="metric-title">待处置积压</div>
+          <div class="metric-value warning">{{ pendingBacklog }}</div>
+          <div class="metric-sub">待审批 {{ pendingApprovalTimeout }}</div>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -61,6 +65,10 @@
           <el-divider />
           <div class="health-row"><span>排班数量</span><strong>{{ stats.scheduleTotal }}</strong></div>
           <div class="health-row"><span>终端会话总数</span><strong>{{ stats.terminalTotal }}</strong></div>
+          <div class="health-row"><span>超时待审批工单</span><strong>{{ pendingApprovalTimeout }}</strong></div>
+          <div class="health-row"><span>长时间流程执行</span><strong>{{ workflowRunningTimeout }}</strong></div>
+          <div class="health-row"><span>待连接超时会话</span><strong>{{ terminalPendingTimeout }}</strong></div>
+          <div class="health-row"><span>连接失败会话</span><strong>{{ terminalFailedCount }}</strong></div>
           <div class="health-row"><span>AI最近活跃时间</span><strong>{{ latestAISessionTime }}</strong></div>
         </el-card>
       </el-col>
@@ -133,6 +141,13 @@
             <el-table-column label="创建时间" min-width="165">
               <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
             </el-table-column>
+            <el-table-column label="等待时长" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isWorkorderPendingTimeout(row) ? 'warning' : 'success'">
+                  {{ formatDuration(row.created_at) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" min-width="220" fixed="right">
               <template #default="{ row }">
                 <div class="inline-actions">
@@ -178,6 +193,13 @@
             <el-table-column prop="duration" label="耗时(s)" width="100" />
             <el-table-column label="开始时间" min-width="165">
               <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
+            </el-table-column>
+            <el-table-column label="持续时长" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isWorkflowRunningTimeout(row) ? 'warning' : 'success'">
+                  {{ formatDuration(row.started_at) }}
+                </el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="操作" width="130" fixed="right">
               <template #default="{ row }">
@@ -225,6 +247,13 @@
             <el-table-column label="开始时间" min-width="160">
               <template #default="{ row }">{{ formatTime(row.started_at || row.created_at) }}</template>
             </el-table-column>
+            <el-table-column label="持续时长" width="110">
+              <template #default="{ row }">
+                <el-tag :type="isTerminalPendingTimeout(row) ? 'warning' : 'success'">
+                  {{ formatDuration(row.started_at || row.created_at) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="错误信息" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">{{ row.last_error || '-' }}</template>
             </el-table-column>
@@ -245,7 +274,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -256,6 +285,8 @@ const router = useRouter()
 const loading = ref(false)
 const activePanel = ref('workorder')
 const panelKeyword = ref('')
+const nowTs = ref(Date.now())
+let minuteTicker = null
 
 const aiSessions = ref([])
 const workorders = ref([])
@@ -375,6 +406,39 @@ const terminalStatusTag = (value) => {
   return 'info'
 }
 
+const parseTimestamp = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+
+const elapsedMinutes = (value) => {
+  const ts = parseTimestamp(value)
+  if (!ts) return 0
+  const diff = Math.floor((nowTs.value - ts) / 60000)
+  return diff > 0 ? diff : 0
+}
+
+const formatDuration = (value) => {
+  const minutes = elapsedMinutes(value)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remain = minutes % 60
+  if (hours < 24) return `${hours}h${remain}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d${hours % 24}h`
+}
+
+const isWorkorderPendingTimeout = (row) => {
+  const status = Number(row?.status)
+  if (status !== 0 && status !== 1 && status !== 4) return false
+  return elapsedMinutes(row?.created_at) >= 120
+}
+
+const isWorkflowRunningTimeout = (row) => Number(row?.status) === 0 && elapsedMinutes(row?.started_at) >= 15
+
+const isTerminalPendingTimeout = (row) => Number(row?.status) === 0 && elapsedMinutes(row?.started_at || row?.created_at) >= 10
+
 const workorderCloseRate = computed(() => {
   const total = Number(workorderStats.value.total || 0)
   const completed = Number(workorderStats.value.completed || 0)
@@ -395,6 +459,14 @@ const latestAISessionTime = computed(() => {
   if (!aiSessions.value.length) return '-'
   return formatTime(aiSessions.value[0].updated_at)
 })
+
+const pendingApprovalTimeout = computed(() => workorders.value.filter((item) => isWorkorderPendingTimeout(item)).length)
+const workflowRunningTimeout = computed(() => workflowExecutions.value.filter((item) => isWorkflowRunningTimeout(item)).length)
+const terminalPendingTimeout = computed(() => terminalSessions.value.filter((item) => isTerminalPendingTimeout(item)).length)
+const terminalFailedCount = computed(() => terminalSessions.value.filter((item) => Number(item.status) === 3).length)
+const pendingBacklog = computed(
+  () => pendingApprovalTimeout.value + workflowRunningTimeout.value + terminalPendingTimeout.value + terminalFailedCount.value
+)
 
 const activityRows = computed(() => {
   const rows = []
@@ -674,6 +746,17 @@ const refreshAll = async () => {
 }
 
 onMounted(refreshAll)
+onMounted(() => {
+  minuteTicker = window.setInterval(() => {
+    nowTs.value = Date.now()
+  }, 60 * 1000)
+})
+onUnmounted(() => {
+  if (minuteTicker) {
+    window.clearInterval(minuteTicker)
+    minuteTicker = null
+  }
+})
 </script>
 
 <style scoped>
@@ -690,6 +773,7 @@ onMounted(refreshAll)
 .metric-value.ok { color: #67c23a; }
 .metric-value.warning { color: #e6a23c; }
 .metric-value.danger { color: #f56c6c; }
+.metric-sub { margin-top: 4px; color: var(--muted-text); font-size: 12px; }
 .health-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
