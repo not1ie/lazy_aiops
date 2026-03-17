@@ -124,17 +124,12 @@
         </el-tab-pane>
 
         <el-tab-pane label="工单" name="workorder">
-          <div class="panel-toolbar">
-            <div class="panel-toolbar-left">
-              <el-tag type="warning" effect="light">待审批 {{ workorderPendingCount }}</el-tag>
-              <el-tag type="danger" effect="light">超时 {{ pendingApprovalTimeout }}</el-tag>
-            </div>
-            <div class="panel-toolbar-right">
-              <el-button size="small" type="success" plain :loading="workorderBatching" :disabled="!selectedWorkorderApprovableCount" @click="batchApproveSelectedWorkorders">批量通过已选</el-button>
-              <el-button size="small" type="danger" plain :loading="workorderBatching" :disabled="!selectedWorkorderCancelableCount" @click="batchCancelSelectedWorkorders">批量取消已选</el-button>
-              <el-button size="small" plain :loading="workorderBatching" :disabled="!pendingApprovalTimeout" @click="batchApproveTimeoutWorkorders">处置超时审批</el-button>
-            </div>
-          </div>
+          <BatchActionBar
+            title="工单处置"
+            :tags="workorderHeaderTags"
+            :actions="workorderHeaderActions"
+            @action="handleWorkorderHeaderAction"
+          />
           <el-table
             ref="workorderTableRef"
             :fit="true"
@@ -180,18 +175,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="group-tag-list">
-            <el-tag
-              v-for="group in workorderApproveGroups"
-              :key="group.key"
-              type="warning"
-              effect="plain"
-              class="group-tag-item"
-              @click="batchApproveWorkorderGroup(group)"
-            >
-              {{ group.label }} · {{ group.count }}
-            </el-tag>
-          </div>
+          <QuickGroupTags :groups="workorderApproveGroups" default-type="warning" @select="batchApproveWorkorderGroup" />
         </el-tab-pane>
 
         <el-tab-pane label="流程执行" name="workflow">
@@ -267,18 +251,12 @@
         </el-tab-pane>
 
         <el-tab-pane label="WebTerminal" name="terminal">
-          <div class="panel-toolbar">
-            <div class="panel-toolbar-left">
-              <el-tag type="success" effect="light">已连接 {{ terminalActiveCount }}</el-tag>
-              <el-tag type="warning" effect="light">待连接超时 {{ terminalPendingTimeout }}</el-tag>
-              <el-tag type="danger" effect="light">失败 {{ terminalFailedCount }}</el-tag>
-            </div>
-            <div class="panel-toolbar-right">
-              <el-button size="small" type="warning" plain :loading="terminalBatching" :disabled="!selectedTerminalClosableCount" @click="batchCloseSelectedTerminals">批量关闭已选</el-button>
-              <el-button size="small" type="danger" plain :loading="terminalBatching" :disabled="!selectedTerminalPurgeableCount" @click="batchPurgeSelectedTerminals">批量删除已选</el-button>
-              <el-button size="small" plain :loading="terminalBatching" :disabled="!terminalFailedCount" @click="batchPurgeFailedTerminals">清理失败会话</el-button>
-            </div>
-          </div>
+          <BatchActionBar
+            title="终端会话处置"
+            :tags="terminalHeaderTags"
+            :actions="terminalHeaderActions"
+            @action="handleTerminalHeaderAction"
+          />
           <el-table
             ref="terminalTableRef"
             :fit="true"
@@ -320,18 +298,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="group-tag-list">
-            <el-tag
-              v-for="group in terminalIssueGroups"
-              :key="group.key"
-              :type="group.level"
-              effect="plain"
-              class="group-tag-item"
-              @click="batchPurgeTerminalGroup(group)"
-            >
-              {{ group.label }} · {{ group.count }}
-            </el-tag>
-          </div>
+          <QuickGroupTags :groups="terminalIssueGroups" default-type="warning" @select="batchPurgeTerminalGroup" />
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -345,6 +312,8 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import { requestApplyWorkspaceCategory } from '@/utils/workspace'
+import BatchActionBar from '@/components/hub/BatchActionBar.vue'
+import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -557,6 +526,71 @@ const selectedTerminalPurgeableCount = computed(() =>
   selectedTerminalRows.value.filter((item) => Number(item?.status) !== 1).length
 )
 
+const workorderHeaderTags = computed(() => [
+  { label: `待审批 ${workorderPendingCount.value}`, type: 'warning' },
+  { label: `超时 ${pendingApprovalTimeout.value}`, type: 'danger' }
+])
+
+const workorderHeaderActions = computed(() => [
+  {
+    key: 'approve-selected',
+    label: '批量通过已选',
+    type: 'success',
+    plain: true,
+    loading: workorderBatching.value,
+    disabled: !selectedWorkorderApprovableCount.value
+  },
+  {
+    key: 'cancel-selected',
+    label: '批量取消已选',
+    type: 'danger',
+    plain: true,
+    loading: workorderBatching.value,
+    disabled: !selectedWorkorderCancelableCount.value
+  },
+  {
+    key: 'approve-timeout',
+    label: '处置超时审批',
+    type: undefined,
+    plain: true,
+    loading: workorderBatching.value,
+    disabled: !pendingApprovalTimeout.value
+  }
+])
+
+const terminalHeaderTags = computed(() => [
+  { label: `已连接 ${terminalActiveCount.value}`, type: 'success' },
+  { label: `待连接超时 ${terminalPendingTimeout.value}`, type: 'warning' },
+  { label: `失败 ${terminalFailedCount.value}`, type: 'danger' }
+])
+
+const terminalHeaderActions = computed(() => [
+  {
+    key: 'close-selected',
+    label: '批量关闭已选',
+    type: 'warning',
+    plain: true,
+    loading: terminalBatching.value,
+    disabled: !selectedTerminalClosableCount.value
+  },
+  {
+    key: 'purge-selected',
+    label: '批量删除已选',
+    type: 'danger',
+    plain: true,
+    loading: terminalBatching.value,
+    disabled: !selectedTerminalPurgeableCount.value
+  },
+  {
+    key: 'purge-failed',
+    label: '清理失败会话',
+    type: undefined,
+    plain: true,
+    loading: terminalBatching.value,
+    disabled: !terminalFailedCount.value
+  }
+])
+
 const workorderApproveGroups = computed(() => {
   const groups = new Map()
   filteredOrders.value
@@ -680,6 +714,18 @@ const onWorkorderSelectionChange = (rows) => {
 
 const onTerminalSelectionChange = (rows) => {
   selectedTerminalRows.value = Array.isArray(rows) ? rows : []
+}
+
+const handleWorkorderHeaderAction = async (key) => {
+  if (key === 'approve-selected') await batchApproveSelectedWorkorders()
+  if (key === 'cancel-selected') await batchCancelSelectedWorkorders()
+  if (key === 'approve-timeout') await batchApproveTimeoutWorkorders()
+}
+
+const handleTerminalHeaderAction = async (key) => {
+  if (key === 'close-selected') await batchCloseSelectedTerminals()
+  if (key === 'purge-selected') await batchPurgeSelectedTerminals()
+  if (key === 'purge-failed') await batchPurgeFailedTerminals()
 }
 
 const approveOrderByID = (orderID, comment = '协作中心批量审批通过') =>
@@ -1074,34 +1120,6 @@ onUnmounted(() => {
   width: 280px;
 }
 
-.panel-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.panel-toolbar-left,
-.panel-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.group-tag-list {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.group-tag-item {
-  cursor: pointer;
-}
-
 .inline-actions {
   display: flex;
   align-items: center;
@@ -1122,16 +1140,6 @@ onUnmounted(() => {
   .integration-actions {
     width: 100%;
     flex-wrap: wrap;
-  }
-
-  .panel-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .panel-toolbar-left,
-  .panel-toolbar-right {
-    width: 100%;
   }
 
   .panel-search {

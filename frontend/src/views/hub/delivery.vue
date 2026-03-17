@@ -51,18 +51,12 @@
     <el-row :gutter="12">
       <el-col :span="14">
         <el-card>
-          <template #header>
-            <div class="order-header">
-              <span>待处理工单（优先）</span>
-              <div class="order-actions">
-                <el-tag type="warning" effect="light">待处理 {{ pendingOrders.length }}</el-tag>
-                <el-tag type="danger" effect="light">超时审批 {{ pendingApprovalTimeout }}</el-tag>
-                <el-button size="small" type="success" plain :loading="orderBatching" :disabled="!selectedApprovableCount" @click="batchApproveSelectedOrders">批量通过已选</el-button>
-                <el-button size="small" type="danger" plain :loading="orderBatching" :disabled="!selectedCancelableCount" @click="batchCancelSelectedOrders">批量取消已选</el-button>
-                <el-button size="small" plain :loading="orderBatching" :disabled="!pendingApprovalTimeout" @click="batchApproveTimeoutOrders">处置超时审批</el-button>
-              </div>
-            </div>
-          </template>
+          <BatchActionBar
+            title="待处理工单（优先）"
+            :tags="orderHeaderTags"
+            :actions="orderHeaderActions"
+            @action="handleOrderHeaderAction"
+          />
           <el-table
             ref="pendingOrderTableRef"
             :fit="true"
@@ -108,18 +102,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="order-group-list">
-            <el-tag
-              v-for="group in pendingOrderApproveGroups"
-              :key="group.key"
-              type="warning"
-              effect="plain"
-              class="order-group-tag"
-              @click="batchApproveOrderGroup(group)"
-            >
-              {{ group.label }} · 待审批 {{ group.count }}
-            </el-tag>
-          </div>
+          <QuickGroupTags :groups="pendingOrderApproveGroups" default-type="warning" @select="batchApproveOrderGroup" />
         </el-card>
 
         <el-card class="mt-12">
@@ -348,6 +331,8 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import BatchActionBar from '@/components/hub/BatchActionBar.vue'
+import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -425,6 +410,38 @@ const selectedApprovableCount = computed(() =>
 const selectedCancelableCount = computed(() =>
   selectedPendingOrders.value.filter((item) => canCancel(item)).length
 )
+
+const orderHeaderTags = computed(() => [
+  { label: `待处理 ${pendingOrders.value.length}`, type: 'warning' },
+  { label: `超时审批 ${pendingApprovalTimeout.value}`, type: 'danger' }
+])
+
+const orderHeaderActions = computed(() => [
+  {
+    key: 'approve-selected',
+    label: '批量通过已选',
+    type: 'success',
+    plain: true,
+    loading: orderBatching.value,
+    disabled: !selectedApprovableCount.value
+  },
+  {
+    key: 'cancel-selected',
+    label: '批量取消已选',
+    type: 'danger',
+    plain: true,
+    loading: orderBatching.value,
+    disabled: !selectedCancelableCount.value
+  },
+  {
+    key: 'approve-timeout',
+    label: '处置超时审批',
+    type: undefined,
+    plain: true,
+    loading: orderBatching.value,
+    disabled: !pendingApprovalTimeout.value
+  }
+])
 
 const pendingOrderApproveGroups = computed(() => {
   const groups = new Map()
@@ -611,6 +628,12 @@ const canApprove = (row) => [0, 1].includes(Number(row?.status))
 const canCancel = (row) => [0, 1, 2, 4].includes(Number(row?.status))
 const onPendingOrderSelectionChange = (rows) => {
   selectedPendingOrders.value = Array.isArray(rows) ? rows : []
+}
+
+const handleOrderHeaderAction = async (key) => {
+  if (key === 'approve-selected') await batchApproveSelectedOrders()
+  if (key === 'cancel-selected') await batchCancelSelectedOrders()
+  if (key === 'approve-timeout') await batchApproveTimeoutOrders()
 }
 
 const approveOrderByID = (orderID, comment = '交付中心批量审批通过') =>
@@ -939,32 +962,6 @@ onUnmounted(() => {
 .mtop { margin-top: 12px; }
 .mt-12 { margin-top: 12px; }
 
-.order-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.order-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.order-group-list {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.order-group-tag {
-  cursor: pointer;
-}
-
 .integration-card {
   margin-top: 12px;
 }
@@ -991,15 +988,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1100px) {
-  .order-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .order-actions {
-    width: 100%;
-  }
-
   .integration-header {
     align-items: flex-start;
     flex-direction: column;

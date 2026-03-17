@@ -96,17 +96,12 @@
 
       <el-col :span="14">
         <el-card>
-          <template #header>
-            <div class="risk-header">
-              <span>高风险操作事件</span>
-              <div class="risk-actions">
-                <el-tag type="danger" effect="light">Critical {{ riskCriticalCount }}</el-tag>
-                <el-tag type="warning" effect="light">可断开 {{ actionableRiskCount }}</el-tag>
-                <el-button size="small" type="warning" plain :loading="riskBatching" :disabled="!selectedRiskCount" @click="batchDisconnectSelectedRisk">批量断开已选</el-button>
-                <el-button size="small" plain :loading="riskBatching" :disabled="!riskCriticalCount" @click="batchDisconnectCriticalRisk">处置高危</el-button>
-              </div>
-            </div>
-          </template>
+          <BatchActionBar
+            title="高风险操作事件"
+            :tags="riskHeaderTags"
+            :actions="riskHeaderActions"
+            @action="handleRiskHeaderAction"
+          />
           <el-table
             ref="riskTableRef"
             :fit="true"
@@ -138,18 +133,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="risk-group-list">
-            <el-tag
-              v-for="group in riskEventGroups"
-              :key="group.key"
-              :type="group.level"
-              effect="plain"
-              class="risk-group-tag"
-              @click="batchDisconnectRiskGroup(group)"
-            >
-              {{ group.label }} · {{ group.count }}
-            </el-tag>
-          </div>
+          <QuickGroupTags :groups="riskEventGroups" default-type="warning" @select="batchDisconnectRiskGroup" />
         </el-card>
       </el-col>
     </el-row>
@@ -328,6 +312,8 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import { requestApplyWorkspaceCategory } from '@/utils/workspace'
+import BatchActionBar from '@/components/hub/BatchActionBar.vue'
+import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -471,6 +457,30 @@ const riskCriticalCount = computed(() =>
 const actionableRiskCount = computed(() => riskEvents.value.filter((item) => Boolean(item.session_id)).length)
 
 const selectedRiskCount = computed(() => selectedRiskRows.value.filter((item) => Boolean(item?.session_id)).length)
+
+const riskHeaderTags = computed(() => [
+  { label: `Critical ${riskCriticalCount.value}`, type: 'danger' },
+  { label: `可断开 ${actionableRiskCount.value}`, type: 'warning' }
+])
+
+const riskHeaderActions = computed(() => [
+  {
+    key: 'disconnect-selected',
+    label: '批量断开已选',
+    type: 'warning',
+    plain: true,
+    loading: riskBatching.value,
+    disabled: !selectedRiskCount.value
+  },
+  {
+    key: 'disconnect-critical',
+    label: '处置高危',
+    type: undefined,
+    plain: true,
+    loading: riskBatching.value,
+    disabled: !riskCriticalCount.value
+  }
+])
 
 const riskEventGroups = computed(() => {
   const groups = new Map()
@@ -685,6 +695,11 @@ const disconnectJumpSession = async (row) => {
 
 const onRiskSelectionChange = (rows) => {
   selectedRiskRows.value = Array.isArray(rows) ? rows : []
+}
+
+const handleRiskHeaderAction = async (key) => {
+  if (key === 'disconnect-selected') await batchDisconnectSelectedRisk()
+  if (key === 'disconnect-critical') await batchDisconnectCriticalRisk()
 }
 
 const disconnectRiskSessionByID = async (sessionID, reason) => {
@@ -924,32 +939,6 @@ onBeforeUnmount(() => {
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
 
-.risk-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.risk-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.risk-group-list {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.risk-group-tag {
-  cursor: pointer;
-}
-
 .integration-card {
   margin-top: 12px;
 }
@@ -997,13 +986,5 @@ onBeforeUnmount(() => {
     width: 100%;
   }
 
-  .risk-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .risk-actions {
-    width: 100%;
-  }
 }
 </style>
