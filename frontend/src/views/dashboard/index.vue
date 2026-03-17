@@ -79,7 +79,18 @@
               </div>
               <div class="backlog-value">{{ item.value }}</div>
               <div class="backlog-desc">{{ item.desc }}</div>
-              <el-button link type="primary" @click="go(item.path)">进入处置</el-button>
+              <div class="backlog-actions">
+                <el-button
+                  link
+                  type="warning"
+                  :disabled="item.value <= 0"
+                  :loading="backlogActionLoading[item.key]"
+                  @click="runBacklogAction(item.key)"
+                >
+                  一键处置
+                </el-button>
+                <el-button link type="primary" @click="go(item.path)">进入处置</el-button>
+              </div>
             </div>
           </div>
         </el-card>
@@ -225,8 +236,8 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import * as echarts from 'echarts'
-import { ElMessage } from 'element-plus'
-import { getErrorMessage } from '@/utils/error'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const router = useRouter()
 const loading = ref(false)
@@ -274,6 +285,24 @@ const backlog = reactive({
   k8sOverdue: 0,
   deliveryOverdue: 0,
   collabOverdue: 0
+})
+const backlogActionLoading = reactive({
+  asset: false,
+  monitor: false,
+  k8s: false,
+  delivery: false,
+  collab: false
+})
+const backlogSource = reactive({
+  offlineHostIds: [],
+  offlineNetworkDeviceIds: [],
+  staleDomainNames: [],
+  staleCertIds: [],
+  degradedClusterIds: [],
+  staleClusterIds: [],
+  longRunningExecutionIds: [],
+  longRunningWorkflowIds: [],
+  failedTerminalSessionIds: []
 })
 
 const moduleStatus = reactive({
@@ -383,6 +412,105 @@ const clusterFreshnessTs = (row) =>
   row?.last_heartbeat_at ||
   row?.last_checked_at ||
   row?.updated_at
+
+const summarizeSettled = (results) => {
+  const ok = results.filter((item) => item.status === 'fulfilled').length
+  return { ok, fail: results.length - ok }
+}
+
+const runBacklogAction = async (key) => {
+  if (!Object.prototype.hasOwnProperty.call(backlogActionLoading, key)) return
+  if (backlogActionLoading[key]) return
+  backlogActionLoading[key] = true
+  try {
+    if (key === 'asset') {
+      const hostIds = backlogSource.offlineHostIds.slice(0, 3)
+      const networkIds = backlogSource.offlineNetworkDeviceIds.slice(0, 3)
+      await ElMessageBox.confirm(
+        `将同步防火墙资产，并巡检离线主机(${hostIds.length})/网络设备(${networkIds.length})，确认执行吗？`,
+        '资产一键处置',
+        { type: 'warning' }
+      )
+      const jobs = [
+        axios.post('/api/v1/cmdb/network-devices/sync/firewalls', {}, { headers: authHeaders() }),
+        ...hostIds.map((id) => axios.post(`/api/v1/cmdb/hosts/${id}/test`, {}, { headers: authHeaders() })),
+        ...networkIds.map((id) => axios.post(`/api/v1/cmdb/network-devices/${id}/test`, {}, { headers: authHeaders() }))
+      ]
+      const summary = summarizeSettled(await Promise.allSettled(jobs))
+      ElMessage.success(`资产处置完成：成功 ${summary.ok}，失败 ${summary.fail}`)
+    } else if (key === 'monitor') {
+      const domains = backlogSource.staleDomainNames.slice(0, 5)
+      const certs = backlogSource.staleCertIds.slice(0, 5)
+      if (!domains.length && !certs.length) {
+        ElMessage.info('当前没有待复检的域名/证书项')
+        return
+      }
+      await ElMessageBox.confirm(
+        `将复检域名(${domains.length})和证书(${certs.length})，确认执行吗？`,
+        '监控中心一键处置',
+        { type: 'warning' }
+      )
+      const jobs = [
+        ...domains.map((domain) => axios.post('/api/v1/domain/domains/check', { domain }, { headers: authHeaders() })),
+        ...certs.map((id) => axios.post(`/api/v1/domain/certs/${id}/check`, {}, { headers: authHeaders() }))
+      ]
+      const summary = summarizeSettled(await Promise.allSettled(jobs))
+      ElMessage.success(`监控复检完成：成功 ${summary.ok}，失败 ${summary.fail}`)
+    } else if (key === 'k8s') {
+      const clusterIds = [...new Set([...backlogSource.degradedClusterIds, ...backlogSource.staleClusterIds])].slice(0, 5)
+      if (!clusterIds.length) {
+        ElMessage.info('当前没有需要巡检的集群')
+        return
+      }
+      await ElMessageBox.confirm(
+        `将对 ${clusterIds.length} 个异常/超时集群执行连接测试，确认执行吗？`,
+        'K8s一键处置',
+        { type: 'warning' }
+      )
+      const jobs = clusterIds.map((id) => axios.post(`/api/v1/k8s/clusters/${id}/test`, {}, { headers: authHeaders() }))
+      const summary = summarizeSettled(await Promise.allSettled(jobs))
+      ElMessage.success(`K8s巡检完成：成功 ${summary.ok}，失败 ${summary.fail}`)
+    } else if (key === 'delivery') {
+      const executionIds = backlogSource.longRunningExecutionIds.slice(0, 3)
+      if (!executionIds.length) {
+        ElMessage.info('当前没有运行超时的执行记录')
+        return
+      }
+      await ElMessageBox.confirm(
+        `将取消 ${executionIds.length} 条运行超时(>=120m)的执行记录，确认执行吗？`,
+        '交付中心一键处置',
+        { type: 'warning' }
+      )
+      const jobs = executionIds.map((id) => axios.post(`/api/v1/cicd/executions/${id}/cancel`, {}, { headers: authHeaders() }))
+      const summary = summarizeSettled(await Promise.allSettled(jobs))
+      ElMessage.success(`交付处置完成：成功 ${summary.ok}，失败 ${summary.fail}`)
+    } else if (key === 'collab') {
+      const workflowIds = backlogSource.longRunningWorkflowIds.slice(0, 3)
+      const failedSessions = backlogSource.failedTerminalSessionIds.slice(0, 10)
+      if (!workflowIds.length && !failedSessions.length) {
+        ElMessage.info('当前没有可自动收敛的协同积压')
+        return
+      }
+      await ElMessageBox.confirm(
+        `将取消超时流程(${workflowIds.length})并清理失败终端会话(${failedSessions.length})，确认执行吗？`,
+        '协同中心一键处置',
+        { type: 'warning' }
+      )
+      const jobs = [
+        ...workflowIds.map((id) => axios.post(`/api/v1/workflow/executions/${id}/cancel`, {}, { headers: authHeaders() })),
+        ...failedSessions.map((id) => axios.delete(`/api/v1/terminal/sessions/${id}/purge`, { headers: authHeaders() }))
+      ]
+      const summary = summarizeSettled(await Promise.allSettled(jobs))
+      ElMessage.success(`协同处置完成：成功 ${summary.ok}，失败 ${summary.fail}`)
+    }
+    await refreshDashboard()
+  } catch (err) {
+    if (isCancelError(err)) return
+    ElMessage.error(getErrorMessage(err, '执行一键处置失败'))
+  } finally {
+    backlogActionLoading[key] = false
+  }
+}
 
 const safePercent = (v) => Math.max(0, Math.min(100, toNumber(v)))
 const formatPercent = (v) => `${toNumber(v).toFixed(1)}%`
@@ -654,8 +782,10 @@ const refreshDashboard = async () => {
   const workflowExecutions = toArray(extractData(calls[17]))
   const terminalSessions = toArray(extractData(calls[18]))
 
-  const hostOffline = hosts.filter((item) => !isOnlineStatus(item.status)).length
-  const networkOffline = networkDevices.filter((item) => !isOnlineStatus(item.status)).length
+  const offlineHosts = hosts.filter((item) => !isOnlineStatus(item.status))
+  const offlineNetworks = networkDevices.filter((item) => !isOnlineStatus(item.status))
+  const hostOffline = offlineHosts.length
+  const networkOffline = offlineNetworks.length
   const firewallAlert = firewalls.filter((item) => Number(item.status) === 2).length
   const jumpPendingTimeout = jumpSessions.filter(
     (item) => normalizeText(item.status) === 'pending_approval' && elapsedMinutes(item.started_at) >= 30
@@ -671,15 +801,27 @@ const refreshDashboard = async () => {
     (item) => isAlertOpen(item.status) && normalizeText(item.severity) === 'critical'
   ).length
   const domainRiskRows = []
+  const staleDomainNames = []
+  const staleCertIds = []
   domains.forEach((item) => {
     const health = normalizeText(item.health_status)
     if (health === 'warning' || health === 'critical') {
-      domainRiskRows.push({ checkedAt: item.last_checked_at || item.updated_at })
+      const checkedAt = item.last_checked_at || item.updated_at
+      domainRiskRows.push({ checkedAt })
+      const ts = parseTimestamp(checkedAt)
+      if (!ts || Date.now() - ts > 24 * 60 * 60 * 1000) {
+        if (item.domain) staleDomainNames.push(item.domain)
+      }
     }
   })
   certs.forEach((item) => {
     if (toNumber(item.days_to_expire, 0) <= 30) {
-      domainRiskRows.push({ checkedAt: item.last_check_at || item.updated_at })
+      const checkedAt = item.last_check_at || item.updated_at
+      domainRiskRows.push({ checkedAt })
+      const ts = parseTimestamp(checkedAt)
+      if (!ts || Date.now() - ts > 24 * 60 * 60 * 1000) {
+        if (item.id) staleCertIds.push(item.id)
+      }
     }
   })
   const monitorRiskStale = domainRiskRows.filter((item) => {
@@ -689,21 +831,22 @@ const refreshDashboard = async () => {
   backlog.monitor = monitorAlertTimeout + monitorCriticalOpen + monitorRiskStale
   backlog.monitorOverdue = monitorAlertTimeout + monitorRiskStale
 
-  const k8sClusterDegraded = clusters.filter(
+  const degradedClusters = clusters.filter(
     (item) => !isOnlineStatus(item.status) && !isMaintenanceStatus(item.status)
-  ).length
-  const k8sClusterStale = clusters.filter(
+  )
+  const staleClusters = clusters.filter(
     (item) => isOnlineStatus(item.status) && elapsedMinutes(clusterFreshnessTs(item)) >= 15
-  ).length
+  )
+  const k8sClusterDegraded = degradedClusters.length
+  const k8sClusterStale = staleClusters.length
   backlog.k8s = k8sClusterDegraded + k8sClusterStale
   backlog.k8sOverdue = k8sClusterStale
 
   const deliveryOrderTimeout = workorders.filter(
     (item) => isWorkorderApprovalPending(item.status) && elapsedMinutes(item.created_at) >= 120
   ).length
-  const deliveryExecutionLong = deliveryExecutions.filter(
-    (item) => Number(item.status) === 0 && elapsedMinutes(item.started_at) >= 30
-  ).length
+  const deliveryLongExecutions = deliveryExecutions.filter((item) => Number(item.status) === 0 && elapsedMinutes(item.started_at) >= 30)
+  const deliveryExecutionLong = deliveryLongExecutions.length
   const deliveryScheduleStale = deliverySchedules.filter((item) => {
     if (!isScheduleEnabled(item)) return false
     const nextTs = parseTimestamp(item.next_run_at)
@@ -717,14 +860,16 @@ const refreshDashboard = async () => {
     const status = Number(item.status)
     return (status === 0 || status === 1 || status === 4) && elapsedMinutes(item.created_at) >= 120
   }).length
-  const collabWorkflowLong = workflowExecutions.filter(
+  const longWorkflowExecutions = workflowExecutions.filter(
     (item) => Number(item.status) === 0 && elapsedMinutes(item.started_at) >= 15
-  ).length
+  )
+  const collabWorkflowLong = longWorkflowExecutions.length
   const collabTerminalPending = terminalSessions.filter((item) => {
     if (Number(item.status) !== 0) return false
     return elapsedMinutes(item.started_at || item.created_at) >= 10
   }).length
-  const collabTerminalFailed = terminalSessions.filter((item) => Number(item.status) === 3).length
+  const failedTerminalSessions = terminalSessions.filter((item) => Number(item.status) === 3)
+  const collabTerminalFailed = failedTerminalSessions.length
   backlog.collab = collabOrderTimeout + collabWorkflowLong + collabTerminalPending + collabTerminalFailed
   backlog.collabOverdue = collabOrderTimeout + collabWorkflowLong + collabTerminalPending
 
@@ -735,6 +880,22 @@ const refreshDashboard = async () => {
     backlog.k8sOverdue +
     backlog.deliveryOverdue +
     backlog.collabOverdue
+
+  backlogSource.offlineHostIds = offlineHosts.map((item) => item.id).filter(Boolean)
+  backlogSource.offlineNetworkDeviceIds = offlineNetworks.map((item) => item.id).filter(Boolean)
+  backlogSource.staleDomainNames = staleDomainNames
+  backlogSource.staleCertIds = staleCertIds
+  backlogSource.degradedClusterIds = degradedClusters.map((item) => item.id).filter(Boolean)
+  backlogSource.staleClusterIds = staleClusters.map((item) => item.id).filter(Boolean)
+  backlogSource.longRunningExecutionIds = deliveryLongExecutions
+    .filter((item) => elapsedMinutes(item.started_at) >= 120)
+    .map((item) => item.id)
+    .filter(Boolean)
+  backlogSource.longRunningWorkflowIds = longWorkflowExecutions
+    .filter((item) => elapsedMinutes(item.started_at) >= 120)
+    .map((item) => item.id)
+    .filter(Boolean)
+  backlogSource.failedTerminalSessionIds = failedTerminalSessions.map((item) => item.id).filter(Boolean)
 
   lastUpdated.value = new Date().toLocaleString()
   renderTrend()
@@ -946,6 +1107,13 @@ onBeforeUnmount(() => {
   margin-top: 6px;
   font-size: 12px;
   color: #9ca3af;
+}
+
+.backlog-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .resource-row {
