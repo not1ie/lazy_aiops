@@ -302,6 +302,13 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <BatchResultDrawer
+      v-model="batchResultVisible"
+      :title="batchResultTitle"
+      :summary="batchResultSummary"
+      :records="batchResultRecords"
+    />
   </el-card>
 </template>
 
@@ -314,6 +321,7 @@ import { getErrorMessage, isCancelError } from '@/utils/error'
 import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
+import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -331,6 +339,10 @@ const panelKeyword = ref('')
 const nowTick = ref(Date.now())
 const riskTableRef = ref(null)
 const selectedRiskRows = ref([])
+const batchResultVisible = ref(false)
+const batchResultTitle = ref('')
+const batchResultSummary = ref({ total: 0, success: 0, failed: 0 })
+const batchResultRecords = ref([])
 let freshnessTicker = null
 
 const CHECK_STALE_HOURS = 24
@@ -702,6 +714,27 @@ const handleRiskHeaderAction = async (key) => {
   if (key === 'disconnect-critical') await batchDisconnectCriticalRisk()
 }
 
+const showBatchResult = (title, targets, settled, successMessage) => {
+  const records = targets.map((target, index) => {
+    const result = settled[index]
+    if (result?.status === 'fulfilled') {
+      return { id: target.id, target: target.name, status: 'success', message: successMessage }
+    }
+    return {
+      id: target.id,
+      target: target.name,
+      status: 'failed',
+      message: getErrorMessage(result?.reason, '执行失败')
+    }
+  })
+  const success = records.filter((item) => item.status === 'success').length
+  const failed = records.length - success
+  batchResultTitle.value = title
+  batchResultSummary.value = { total: records.length, success, failed }
+  batchResultRecords.value = records
+  batchResultVisible.value = true
+}
+
 const disconnectRiskSessionByID = async (sessionID, reason) => {
   await axios.post(`/api/v1/jump/sessions/${sessionID}/disconnect`, { reason }, { headers: authHeaders() })
 }
@@ -724,6 +757,10 @@ const disconnectRiskSession = async (row) => {
 
 const runBatchRiskDisconnect = async (rows, title, message) => {
   const sessionIDs = [...new Set(rows.map((item) => item?.session_id).filter(Boolean))]
+  const targets = sessionIDs.map((id) => {
+    const row = rows.find((item) => item?.session_id === id)
+    return { id, name: row?.asset_name || row?.username || `会话-${id}` }
+  })
   if (!sessionIDs.length) {
     ElMessage.info('没有可断开的会话')
     return
@@ -737,6 +774,7 @@ const runBatchRiskDisconnect = async (rows, title, message) => {
     const success = settled.filter((item) => item.status === 'fulfilled').length
     const fail = settled.length - success
     ElMessage.success(`批量处置完成：成功 ${success}，失败 ${fail}`)
+    showBatchResult(title, targets, settled, '会话已断开')
     selectedRiskRows.value = []
     if (riskTableRef.value?.clearSelection) riskTableRef.value.clearSelection()
     await refreshAll()

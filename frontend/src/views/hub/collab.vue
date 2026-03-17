@@ -302,6 +302,13 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <BatchResultDrawer
+      v-model="batchResultVisible"
+      :title="batchResultTitle"
+      :summary="batchResultSummary"
+      :records="batchResultRecords"
+    />
   </el-card>
 </template>
 
@@ -314,6 +321,7 @@ import { getErrorMessage, isCancelError } from '@/utils/error'
 import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
+import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -326,6 +334,10 @@ const workorderTableRef = ref(null)
 const terminalTableRef = ref(null)
 const selectedWorkorderRows = ref([])
 const selectedTerminalRows = ref([])
+const batchResultVisible = ref(false)
+const batchResultTitle = ref('')
+const batchResultSummary = ref({ total: 0, success: 0, failed: 0 })
+const batchResultRecords = ref([])
 let minuteTicker = null
 
 const aiSessions = ref([])
@@ -728,6 +740,27 @@ const handleTerminalHeaderAction = async (key) => {
   if (key === 'purge-failed') await batchPurgeFailedTerminals()
 }
 
+const showBatchResult = (title, targets, settled, successMessage) => {
+  const records = targets.map((target, index) => {
+    const result = settled[index]
+    if (result?.status === 'fulfilled') {
+      return { id: target.id, target: target.name, status: 'success', message: successMessage }
+    }
+    return {
+      id: target.id,
+      target: target.name,
+      status: 'failed',
+      message: getErrorMessage(result?.reason, '执行失败')
+    }
+  })
+  const success = records.filter((item) => item.status === 'success').length
+  const failed = records.length - success
+  batchResultTitle.value = title
+  batchResultSummary.value = { total: records.length, success, failed }
+  batchResultRecords.value = records
+  batchResultVisible.value = true
+}
+
 const approveOrderByID = (orderID, comment = '协作中心批量审批通过') =>
   axios.post(`/api/v1/workorder/orders/${orderID}/approve`, { approved: true, comment }, { headers: authHeaders() })
 
@@ -743,6 +776,10 @@ const purgeTerminalSessionByID = (sessionID) =>
 const runBatchWorkorderAction = async (rows, options) => {
   const actionRows = rows.filter((row) => row?.id && (options.filter ? options.filter(row) : true))
   const orderIDs = [...new Set(actionRows.map((row) => row.id))]
+  const targets = orderIDs.map((id) => {
+    const row = actionRows.find((item) => item.id === id)
+    return { id, name: row?.title || row?.type_name || `工单-${id}` }
+  })
   if (!orderIDs.length) {
     ElMessage.info('没有可处置的工单')
     return
@@ -754,6 +791,7 @@ const runBatchWorkorderAction = async (rows, options) => {
     const success = settled.filter((item) => item.status === 'fulfilled').length
     const fail = settled.length - success
     ElMessage.success(`${options.successText}：成功 ${success}，失败 ${fail}`)
+    showBatchResult(options.resultTitle || options.title, targets, settled, options.successMessage || '执行成功')
     selectedWorkorderRows.value = []
     if (workorderTableRef.value?.clearSelection) workorderTableRef.value.clearSelection()
     await refreshAll()
@@ -771,7 +809,9 @@ const batchApproveSelectedWorkorders = async () => {
     filter: (row) => canApprove(row),
     action: (id) => approveOrderByID(id),
     successText: '批量审批完成',
-    failText: '批量审批失败'
+    failText: '批量审批失败',
+    resultTitle: '工单批量审批结果',
+    successMessage: '审批通过'
   })
 }
 
@@ -782,7 +822,9 @@ const batchCancelSelectedWorkorders = async () => {
     filter: (row) => canCancel(row),
     action: (id) => cancelOrderByID(id),
     successText: '批量取消完成',
-    failText: '批量取消失败'
+    failText: '批量取消失败',
+    resultTitle: '工单批量取消结果',
+    successMessage: '已取消'
   })
 }
 
@@ -793,7 +835,9 @@ const batchApproveTimeoutWorkorders = async () => {
     message: (count) => `确认批量通过 ${count} 个超时审批工单吗？`,
     action: (id) => approveOrderByID(id, '协作中心自动处置超时审批'),
     successText: '超时审批处置完成',
-    failText: '处置超时审批失败'
+    failText: '处置超时审批失败',
+    resultTitle: '超时审批处置结果',
+    successMessage: '审批通过'
   })
 }
 
@@ -804,13 +848,19 @@ const batchApproveWorkorderGroup = async (group) => {
     message: (count) => `确认批量通过「${group?.label || '-'}」${count} 个工单吗？`,
     action: (id) => approveOrderByID(id, `按类型(${group?.label || '-'})批量处置`),
     successText: '分组处置完成',
-    failText: '分组处置失败'
+    failText: '分组处置失败',
+    resultTitle: `工单分组处置结果：${group?.label || '-'}`,
+    successMessage: '审批通过'
   })
 }
 
 const runBatchTerminalAction = async (rows, options) => {
   const actionRows = rows.filter((row) => row?.id && (options.filter ? options.filter(row) : true))
   const sessionIDs = [...new Set(actionRows.map((row) => row.id))]
+  const targets = sessionIDs.map((id) => {
+    const row = actionRows.find((item) => item.id === id)
+    return { id, name: row?.host || row?.username || `会话-${id}` }
+  })
   if (!sessionIDs.length) {
     ElMessage.info('没有可处置的终端会话')
     return
@@ -822,6 +872,7 @@ const runBatchTerminalAction = async (rows, options) => {
     const success = settled.filter((item) => item.status === 'fulfilled').length
     const fail = settled.length - success
     ElMessage.success(`${options.successText}：成功 ${success}，失败 ${fail}`)
+    showBatchResult(options.resultTitle || options.title, targets, settled, options.successMessage || '执行成功')
     selectedTerminalRows.value = []
     if (terminalTableRef.value?.clearSelection) terminalTableRef.value.clearSelection()
     await refreshAll()
@@ -839,7 +890,9 @@ const batchCloseSelectedTerminals = async () => {
     filter: (row) => Number(row.status) === 1,
     action: (id) => closeTerminalSessionByID(id),
     successText: '批量关闭完成',
-    failText: '批量关闭失败'
+    failText: '批量关闭失败',
+    resultTitle: '终端会话批量关闭结果',
+    successMessage: '会话已关闭'
   })
 }
 
@@ -850,7 +903,9 @@ const batchPurgeSelectedTerminals = async () => {
     filter: (row) => Number(row.status) !== 1,
     action: (id) => purgeTerminalSessionByID(id),
     successText: '批量删除完成',
-    failText: '批量删除失败'
+    failText: '批量删除失败',
+    resultTitle: '终端会话批量删除结果',
+    successMessage: '会话已删除'
   })
 }
 
@@ -861,7 +916,9 @@ const batchPurgeFailedTerminals = async () => {
     message: (count) => `确认删除 ${count} 个连接失败会话吗？`,
     action: (id) => purgeTerminalSessionByID(id),
     successText: '失败会话清理完成',
-    failText: '失败会话清理失败'
+    failText: '失败会话清理失败',
+    resultTitle: '失败终端会话清理结果',
+    successMessage: '会话已删除'
   })
 }
 
@@ -872,7 +929,9 @@ const batchPurgeTerminalGroup = async (group) => {
     message: (count) => `确认删除主机「${group?.label || '-'}」${count} 个非活跃会话吗？`,
     action: (id) => purgeTerminalSessionByID(id),
     successText: '分组清理完成',
-    failText: '分组清理失败'
+    failText: '分组清理失败',
+    resultTitle: `终端会话分组清理结果：${group?.label || '-'}`,
+    successMessage: '会话已删除'
   })
 }
 

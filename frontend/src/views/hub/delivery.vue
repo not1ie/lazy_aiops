@@ -321,6 +321,13 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <BatchResultDrawer
+      v-model="batchResultVisible"
+      :title="batchResultTitle"
+      :summary="batchResultSummary"
+      :records="batchResultRecords"
+    />
   </el-card>
 </template>
 
@@ -333,6 +340,7 @@ import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
+import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -348,6 +356,10 @@ const orderBatching = ref(false)
 const nowTs = ref(Date.now())
 const pendingOrderTableRef = ref(null)
 const selectedPendingOrders = ref([])
+const batchResultVisible = ref(false)
+const batchResultTitle = ref('')
+const batchResultSummary = ref({ total: 0, success: 0, failed: 0 })
+const batchResultRecords = ref([])
 let minuteTicker = null
 
 const stats = reactive({
@@ -630,6 +642,27 @@ const onPendingOrderSelectionChange = (rows) => {
   selectedPendingOrders.value = Array.isArray(rows) ? rows : []
 }
 
+const showBatchResult = (title, targets, settled, successMessage) => {
+  const records = targets.map((target, index) => {
+    const result = settled[index]
+    if (result?.status === 'fulfilled') {
+      return { id: target.id, target: target.name, status: 'success', message: successMessage }
+    }
+    return {
+      id: target.id,
+      target: target.name,
+      status: 'failed',
+      message: getErrorMessage(result?.reason, '执行失败')
+    }
+  })
+  const success = records.filter((item) => item.status === 'success').length
+  const failed = records.length - success
+  batchResultTitle.value = title
+  batchResultSummary.value = { total: records.length, success, failed }
+  batchResultRecords.value = records
+  batchResultVisible.value = true
+}
+
 const handleOrderHeaderAction = async (key) => {
   if (key === 'approve-selected') await batchApproveSelectedOrders()
   if (key === 'cancel-selected') await batchCancelSelectedOrders()
@@ -645,6 +678,10 @@ const cancelOrderByID = (orderID) =>
 const runBatchOrderAction = async (rows, options) => {
   const actionRows = rows.filter((row) => row?.id && (options.filter ? options.filter(row) : true))
   const orderIDs = [...new Set(actionRows.map((row) => row.id))]
+  const targets = orderIDs.map((id) => {
+    const row = actionRows.find((item) => item.id === id)
+    return { id, name: row?.title || row?.type_name || `工单-${id}` }
+  })
   if (!orderIDs.length) {
     ElMessage.info('没有可处置的工单')
     return
@@ -656,6 +693,7 @@ const runBatchOrderAction = async (rows, options) => {
     const success = settled.filter((item) => item.status === 'fulfilled').length
     const fail = settled.length - success
     ElMessage.success(`${options.successText}：成功 ${success}，失败 ${fail}`)
+    showBatchResult(options.resultTitle || options.title, targets, settled, options.successMessage || '执行成功')
     selectedPendingOrders.value = []
     if (pendingOrderTableRef.value?.clearSelection) pendingOrderTableRef.value.clearSelection()
     await refreshAll()
@@ -673,7 +711,9 @@ const batchApproveSelectedOrders = async () => {
     filter: (row) => canApprove(row),
     action: (id) => approveOrderByID(id),
     successText: '批量审批完成',
-    failText: '批量审批失败'
+    failText: '批量审批失败',
+    resultTitle: '工单批量审批结果',
+    successMessage: '审批通过'
   })
 }
 
@@ -684,7 +724,9 @@ const batchCancelSelectedOrders = async () => {
     filter: (row) => canCancel(row),
     action: (id) => cancelOrderByID(id),
     successText: '批量取消完成',
-    failText: '批量取消失败'
+    failText: '批量取消失败',
+    resultTitle: '工单批量取消结果',
+    successMessage: '已取消'
   })
 }
 
@@ -695,7 +737,9 @@ const batchApproveTimeoutOrders = async () => {
     message: (count) => `确认批量通过 ${count} 个超时待审批工单吗？`,
     action: (id) => approveOrderByID(id, '交付中心自动处置超时审批'),
     successText: '超时审批处置完成',
-    failText: '处置超时审批失败'
+    failText: '处置超时审批失败',
+    resultTitle: '超时审批处置结果',
+    successMessage: '审批通过'
   })
 }
 
@@ -706,7 +750,9 @@ const batchApproveOrderGroup = async (group) => {
     message: (count) => `确认批量通过「${group?.label || '-'}」${count} 个工单吗？`,
     action: (id) => approveOrderByID(id, `按类型(${group?.label || '-'})批量处置通过`),
     successText: '分组处置完成',
-    failText: '分组处置失败'
+    failText: '分组处置失败',
+    resultTitle: `工单分组处置结果：${group?.label || '-'}`,
+    successMessage: '审批通过'
   })
 }
 
