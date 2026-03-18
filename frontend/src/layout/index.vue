@@ -37,7 +37,7 @@
             <span>AI运维助手</span>
           </el-menu-item>
 
-          <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:asset','jump:policy','jump:rule','jump:session'])" index="/cmdb">
+          <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:asset','jump:policy','jump:rule','jump:session','terminal'])" index="/cmdb">
             <template #title>
               <el-icon><Monitor /></el-icon>
               <span>资产管理</span>
@@ -51,6 +51,7 @@
             <el-menu-item v-if="can('cmdb')" index="/cmdb/cloud">云资源</el-menu-item>
             <el-menu-item v-if="can('cmdb')" index="/cmdb/network-devices">网络设备</el-menu-item>
             <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
+            <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
             <el-menu-item v-if="can('jump:asset')" index="/jump/assets">堡垒机资产</el-menu-item>
             <el-menu-item v-if="can('jump:policy')" index="/jump/policies">授权策略</el-menu-item>
             <el-menu-item v-if="can('jump:rule')" index="/jump/command-rules">命令风控</el-menu-item>
@@ -101,7 +102,7 @@
             <el-menu-item v-if="can('domain')" index="/domain/ssl">域名与证书</el-menu-item>
           </el-sub-menu>
 
-          <el-sub-menu v-if="canAny(['workflow','executor','task','ansible'])" index="/automation">
+          <el-sub-menu v-if="canAny(['workflow','executor','task','ansible','oncall'])" index="/automation">
             <template #title>
               <el-icon><Operation /></el-icon>
               <span>自动化</span>
@@ -111,6 +112,8 @@
             <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
             <el-menu-item v-if="can('ansible')" index="/ansible/playbooks">Ansible Playbook</el-menu-item>
             <el-menu-item v-if="can('ansible')" index="/ansible/inventories">Ansible Inventory</el-menu-item>
+            <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
+            <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['cicd','application','workorder'])" index="/cicd">
@@ -146,17 +149,6 @@
             <el-menu-item v-if="can('sqlaudit')" index="/sqlaudit/rules">SQL审核规则</el-menu-item>
             <el-menu-item v-if="can('gitops')" index="/gitops/repos">GitOps仓库</el-menu-item>
             <el-menu-item v-if="can('gitops')" index="/gitops/sync">同步记录</el-menu-item>
-          </el-sub-menu>
-
-          <el-sub-menu v-if="canAny(['oncall','terminal','ai','workflow','workorder'])" index="/collab">
-            <template #title>
-              <el-icon><User /></el-icon>
-              <span>协作</span>
-            </template>
-            <el-menu-item v-if="canAny(['oncall','terminal','ai','workflow','workorder'])" index="/collab/center">协作中心</el-menu-item>
-            <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
-            <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
-            <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu v-if="can('topology')" index="/visual">
@@ -203,7 +195,7 @@
               <span>AI运维助手</span>
             </el-menu-item>
 
-            <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:session'])" index="/cmdb">
+            <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:session','terminal'])" index="/cmdb">
               <template #title>
                 <el-icon><Monitor /></el-icon>
                 <span>资产管理</span>
@@ -212,6 +204,7 @@
               <el-menu-item v-if="can('cmdb')" index="/asset/overview">资产总览</el-menu-item>
               <el-menu-item v-if="can('cmdb')" index="/host">主机管理</el-menu-item>
               <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
+              <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
               <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
             </el-sub-menu>
 
@@ -236,7 +229,7 @@
               <el-menu-item v-if="can('domain')" index="/domain/ssl">域名与证书</el-menu-item>
             </el-sub-menu>
 
-            <el-sub-menu v-if="canAny(['workflow','executor','task'])" index="/automation">
+            <el-sub-menu v-if="canAny(['workflow','executor','task','oncall'])" index="/automation">
               <template #title>
                 <el-icon><Operation /></el-icon>
                 <span>自动化</span>
@@ -244,6 +237,7 @@
               <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
               <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
               <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
+              <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['cicd','workorder'])" index="/cicd">
@@ -253,16 +247,6 @@
               </template>
               <el-menu-item index="/delivery/center">交付中心</el-menu-item>
               <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
-            </el-sub-menu>
-
-            <el-sub-menu v-if="canAny(['oncall','terminal','ai','workflow','workorder'])" index="/collab">
-              <template #title>
-                <el-icon><User /></el-icon>
-                <span>协作</span>
-              </template>
-              <el-menu-item index="/collab/center">协作中心</el-menu-item>
-              <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
-              <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['system:user','system:role','system:permission'])" index="/system">
@@ -500,7 +484,7 @@
             { 'is-compact': moduleLinksCompact }
           ]"
         >
-          <div class="module-context-label">模块联动</div>
+          <div class="module-context-label">模块页签</div>
           <el-scrollbar>
             <div class="module-context-links">
               <template v-if="activeModuleLinks.length">
@@ -542,7 +526,7 @@
             </div>
           </el-scrollbar>
           <el-dropdown trigger="click" @command="handleModuleLinksCommand">
-            <el-button class="module-context-action" link>联动管理</el-button>
+            <el-button class="module-context-action" link>页签管理</el-button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="openAll">打开当前模块全部</el-dropdown-item>
@@ -1006,24 +990,24 @@ const WORKSPACE_CATEGORY_LABELS = {
   k8s: '容器与K8s',
   monitor: '监控告警',
   delivery: '交付发布',
-  collab: '协作',
+  automation: '自动化协同',
   other: '其他'
 }
-const WORKSPACE_CATEGORY_ORDER = ['asset', 'k8s', 'monitor', 'delivery', 'collab']
+const WORKSPACE_CATEGORY_ORDER = ['asset', 'k8s', 'monitor', 'delivery', 'automation']
 const WORKSPACE_CATEGORY_ICONS = {
   asset: 'Monitor',
   k8s: 'Platform',
   monitor: 'Histogram',
   delivery: 'Connection',
-  collab: 'User',
+  automation: 'Operation',
   other: 'Grid'
 }
 const WORKSPACE_CATEGORY_PREFIXES = {
-  asset: ['/asset', '/host', '/cmdb', '/jump', '/firewall'],
+  asset: ['/asset', '/host', '/cmdb', '/jump', '/firewall', '/terminal'],
   k8s: ['/k8s', '/docker'],
   monitor: ['/monitor', '/alert', '/notify', '/domain'],
   delivery: ['/delivery', '/cicd', '/workorder', '/application', '/sqlaudit', '/gitops'],
-  collab: ['/collab', '/oncall', '/terminal', '/ai', '/workflow']
+  automation: ['/workflow', '/executor', '/task', '/oncall', '/ai', '/collab']
 }
 const formatDateTime = (value) => {
   if (!value) return '-'
@@ -1037,7 +1021,7 @@ const workspacePresets = [
     key: 'asset-ops',
     label: '资产排障视图',
     category: 'asset',
-    paths: ['/asset/ops', '/host', '/jump/sessions', '/firewall']
+    paths: ['/asset/ops', '/host', '/jump/sessions', '/firewall', '/terminal']
   },
   {
     key: 'k8s-oncall',
@@ -1058,10 +1042,10 @@ const workspacePresets = [
     paths: ['/delivery/center', '/cicd/pipelines', '/cicd/executions', '/workorder/tickets']
   },
   {
-    key: 'collab-warroom',
-    label: '协同处置视图',
-    category: 'collab',
-    paths: ['/collab/center', '/ai', '/terminal', '/workorder/tickets']
+    key: 'automation-warroom',
+    label: '自动化协同视图',
+    category: 'automation',
+    paths: ['/ai', '/workflow/designer', '/task/schedules', '/oncall/schedule']
   }
 ]
 
@@ -1135,7 +1119,7 @@ const builtinPresetCategoryMap = computed(() => {
 })
 
 const workspaceSceneActions = computed(() =>
-  ['asset', 'k8s', 'monitor', 'delivery', 'collab']
+  ['asset', 'k8s', 'monitor', 'delivery', 'automation']
     .filter((key) =>
       availableTeamWorkspacePresets.value.some((item) => classifyWorkspaceTabs(item.tabs).key === key) ||
       Boolean(builtinPresetCategoryMap.value[key])
@@ -1939,13 +1923,14 @@ const handleApplyWorkspaceCategoryEvent = async (event) => {
 const moduleQuickLinks = [
   {
     key: 'asset',
-    prefixes: ['/asset', '/host', '/cmdb', '/firewall', '/jump'],
+    prefixes: ['/asset', '/host', '/cmdb', '/firewall', '/jump', '/terminal'],
     links: [
       { label: '资产总览', path: '/asset/overview', permAny: ['cmdb'] },
       { label: '资产作战台', path: '/asset/ops', permAny: ['cmdb', 'firewall', 'jump'] },
       { label: '主机管理', path: '/host', permAny: ['cmdb'] },
       { label: '网络设备', path: '/cmdb/network-devices', permAny: ['cmdb'] },
       { label: '防火墙管理', path: '/firewall', permAny: ['cmdb', 'firewall'] },
+      { label: 'WebTerminal', path: '/terminal', permAny: ['terminal'] },
       { label: '堡垒机会话', path: '/jump/sessions', permAny: ['jump', 'jump:session'] }
     ]
   },
@@ -1986,16 +1971,15 @@ const moduleQuickLinks = [
     ]
   },
   {
-    key: 'collab',
-    prefixes: ['/collab', '/oncall', '/terminal', '/ai', '/workflow', '/workorder'],
+    key: 'automation',
+    prefixes: ['/ai', '/workflow', '/executor', '/task', '/oncall', '/collab'],
     links: [
-      { label: '协作中心', path: '/collab/center', permAny: ['oncall', 'terminal', 'ai', 'workflow', 'workorder'] },
       { label: 'AI运维助手', path: '/ai', permAny: ['ai'] },
-      { label: '工单管理', path: '/workorder/tickets', permAny: ['workorder'] },
       { label: '工作流编排', path: '/workflow/designer', permAny: ['workflow'] },
+      { label: '批量执行', path: '/executor', permAny: ['executor'] },
+      { label: '任务调度', path: '/task/schedules', permAny: ['task'] },
       { label: '值班排班', path: '/oncall/schedule', permAny: ['oncall'] },
-      { label: '升级策略', path: '/oncall/escalation', permAny: ['oncall'] },
-      { label: 'WebTerminal', path: '/terminal', permAny: ['terminal'] }
+      { label: '升级策略', path: '/oncall/escalation', permAny: ['oncall'] }
     ]
   }
 ]
@@ -2509,10 +2493,10 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   margin: 0 0 12px;
-  padding: 9px 12px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.54);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.66) 0%, rgba(248, 250, 252, 0.58) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.24);
   backdrop-filter: blur(12px);
   --module-accent-rgb: 37, 99, 235;
 }
@@ -2538,8 +2522,12 @@ onBeforeUnmount(() => {
   --module-accent-rgb: 245, 158, 11;
 }
 
+.module-context-automation {
+  --module-accent-rgb: 99, 102, 241;
+}
+
 .module-context-wrap.is-compact {
-  padding: 6px 9px;
+  padding: 6px 8px;
   gap: 8px;
 }
 
@@ -2559,46 +2547,53 @@ onBeforeUnmount(() => {
 .module-context-label {
   flex-shrink: 0;
   color: rgba(var(--module-accent-rgb), 0.78);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  padding: 0 6px;
 }
 
 .module-context-links {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0;
+  gap: 2px;
+  padding: 1px 0;
 }
 
 .module-context-tag {
   position: relative;
   cursor: pointer;
   user-select: none;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(255, 255, 255, 0.45);
+  border-radius: 10px 10px 0 0;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-bottom-color: transparent;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(241, 245, 249, 0.6) 100%);
   --el-tag-bg-color: transparent;
   --el-tag-border-color: transparent;
   --el-tag-text-color: var(--el-text-color-secondary);
-  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 :global(html[data-theme='dark'] .module-context-tag) {
-  border-color: rgba(100, 116, 139, 0.32);
-  background: rgba(15, 23, 42, 0.48);
+  border-color: rgba(100, 116, 139, 0.4);
+  border-bottom-color: transparent;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.74) 0%, rgba(15, 23, 42, 0.64) 100%);
 }
 
 .module-context-tag:hover {
   transform: translateY(-1px);
-  border-color: rgba(var(--module-accent-rgb), 0.28);
+  border-color: rgba(var(--module-accent-rgb), 0.4);
+  border-bottom-color: transparent;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
 }
 
 .module-context-tag.is-active {
-  border-color: rgba(var(--module-accent-rgb), 0.4);
-  background: rgba(var(--module-accent-rgb), 0.1);
+  border-color: rgba(var(--module-accent-rgb), 0.48);
+  border-bottom-color: rgba(var(--module-accent-rgb), 0.22);
+  background: linear-gradient(180deg, rgba(var(--module-accent-rgb), 0.18) 0%, rgba(var(--module-accent-rgb), 0.09) 100%);
   --el-tag-text-color: rgb(var(--module-accent-rgb));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .module-context-tag.is-pinned::before {
@@ -2617,11 +2612,11 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 10px;
+  padding: 4px 10px;
 }
 
 .module-context-wrap.is-compact .module-context-tag-inner {
-  padding: 2px 8px;
+  padding: 3px 8px;
 }
 
 .module-context-tag-title {

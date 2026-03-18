@@ -115,6 +115,7 @@
             <el-table-column label="操作" min-width="150">
               <template #default="{ row }">
                 <el-button link type="primary" @click="handleRiskAction(row)">复检</el-button>
+                <el-button link type="warning" @click="openDispositionDrawer(row)">处置</el-button>
                 <el-button link @click="go(row.path)">去处理</el-button>
               </template>
             </el-table-column>
@@ -189,6 +190,7 @@
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="checkDomainRow(row)">检测</el-button>
+                <el-button size="small" link type="warning" @click="openDispositionDrawer({ kind: 'domain', domain: row.domain, name: row.domain, source: row })">处置</el-button>
                 <el-button size="small" link @click="go('/domain/ssl')">详情</el-button>
               </template>
             </el-table-column>
@@ -223,6 +225,7 @@
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="checkCertRow(row)">检查</el-button>
+                <el-button size="small" link type="warning" @click="openDispositionDrawer({ kind: 'cert', id: row.id, domain: row.domain, name: row.domain, source: row })">处置</el-button>
                 <el-button size="small" link @click="go('/domain/ssl')">详情</el-button>
               </template>
             </el-table-column>
@@ -246,6 +249,7 @@
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="syncAccount(row)">同步</el-button>
+                <el-button size="small" link type="warning" @click="openDispositionDrawer({ kind: 'account', id: row.id, name: row.name, source: row })">处置</el-button>
                 <el-button size="small" link @click="go('/domain/ssl')">详情</el-button>
               </template>
             </el-table-column>
@@ -292,6 +296,7 @@
                     恢复
                   </el-button>
                   <el-button size="small" link type="warning" @click="silenceAlert(row)">静默1h</el-button>
+                  <el-button size="small" link type="warning" @click="openDispositionDrawer({ kind: 'alert', id: row.id, name: row.rule_name || row.target || row.id, source: row })">处置</el-button>
                   <el-button size="small" link @click="go('/alert/events')">详情</el-button>
                 </el-space>
               </template>
@@ -300,6 +305,39 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <el-drawer
+      v-model="dispositionDrawerVisible"
+      title="域名监控处置台"
+      size="460px"
+      :destroy-on-close="false"
+    >
+      <template v-if="dispositionTarget">
+        <el-descriptions :column="1" border size="small" class="disposition-desc">
+          <el-descriptions-item label="对象类型">{{ dispositionTypeText }}</el-descriptions-item>
+          <el-descriptions-item label="对象">{{ dispositionTarget.name || dispositionTarget.domain || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="风险说明">{{ dispositionReasonText }}</el-descriptions-item>
+          <el-descriptions-item label="建议动作">{{ dispositionSuggestionText }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="disposition-actions">
+          <el-button type="primary" :loading="dispositionExecuting" @click="runDispositionPrimaryAction">
+            {{ dispositionPrimaryLabel }}
+          </el-button>
+          <el-button :loading="dispositionExecuting" @click="openDispositionDetail">进入详情页</el-button>
+          <el-button
+            v-if="dispositionTarget.kind === 'alert'"
+            type="warning"
+            plain
+            :loading="dispositionExecuting"
+            @click="runDispositionSecondaryAction"
+          >
+            一键静默1h
+          </el-button>
+        </div>
+      </template>
+      <el-empty v-else description="请选择需要处置的对象" />
+    </el-drawer>
   </el-card>
 </template>
 
@@ -324,6 +362,9 @@ const alerts = ref([])
 const nowTick = ref(Date.now())
 const riskTableRef = ref(null)
 const selectedRiskRows = ref([])
+const dispositionDrawerVisible = ref(false)
+const dispositionTarget = ref(null)
+const dispositionExecuting = ref(false)
 let dayTicker = null
 
 const activePanel = ref('domains')
@@ -356,6 +397,44 @@ const panelRouteMap = {
   accounts: '/domain/ssl',
   alerts: '/alert/events'
 }
+
+const dispositionTypeText = computed(() => {
+  const kind = dispositionTarget.value?.kind
+  if (kind === 'domain') return '域名'
+  if (kind === 'cert') return '证书'
+  if (kind === 'account') return '云账号'
+  if (kind === 'alert') return '告警'
+  return '未知'
+})
+
+const dispositionReasonText = computed(() => {
+  const target = dispositionTarget.value
+  if (!target) return '-'
+  return target.reason || target.detail || target.source?.rule_name || target.source?.metric || '待人工确认'
+})
+
+const dispositionSuggestionText = computed(() => {
+  const kind = dispositionTarget.value?.kind
+  if (kind === 'domain') return '先执行域名体检，确认 HTTP/DNS 状态后转到证书详情处置'
+  if (kind === 'cert') return '立即执行证书检查，确认到期时间并安排续期计划'
+  if (kind === 'account') return '先同步账号状态，检查 API 可用性与权限是否正常'
+  if (kind === 'alert') return '先确认告警，再按需恢复或静默，避免重复噪声'
+  return '建议先执行检测，再进入详情页处理'
+})
+
+const dispositionPrimaryLabel = computed(() => {
+  const target = dispositionTarget.value
+  if (!target) return '执行处置'
+  if (target.kind === 'domain') return '执行域名体检'
+  if (target.kind === 'cert') return '执行证书检查'
+  if (target.kind === 'account') return '同步云账号'
+  if (target.kind === 'alert') {
+    const status = Number(target.source?.status)
+    if (status === 0) return '确认告警'
+    return '恢复告警'
+  }
+  return '执行处置'
+})
 
 const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('monitor', 'hub-domain-center')
 
@@ -680,6 +759,22 @@ const openCurrentPanel = () => {
   go(panelRouteMap[activePanel.value] || '/domain/ssl')
 }
 
+const resolveDispositionPath = (target) => {
+  if (!target) return '/domain/ssl'
+  if (target.kind === 'alert') return '/alert/events'
+  if (target.path) return target.path
+  return '/domain/ssl'
+}
+
+const openDispositionDrawer = (target) => {
+  dispositionTarget.value = target ? { ...target } : null
+  dispositionDrawerVisible.value = Boolean(target)
+}
+
+const openDispositionDetail = () => {
+  go(resolveDispositionPath(dispositionTarget.value))
+}
+
 const onRiskSelectionChange = (rows) => {
   selectedRiskRows.value = Array.isArray(rows) ? rows : []
 }
@@ -842,6 +937,38 @@ const handleRiskAction = async (row) => {
   await checkDomainRow({ domain: row.domain || row.name })
 }
 
+const runDispositionPrimaryAction = async () => {
+  const target = dispositionTarget.value
+  if (!target) return
+  dispositionExecuting.value = true
+  try {
+    if (target.kind === 'cert') {
+      await checkCertRow({ id: target.id, domain: target.domain || target.name })
+    } else if (target.kind === 'domain') {
+      await checkDomainRow({ domain: target.domain || target.name })
+    } else if (target.kind === 'account') {
+      await syncAccount(target.source || { id: target.id, name: target.name })
+    } else if (target.kind === 'alert') {
+      const status = Number(target.source?.status)
+      if (status === 0) await ackAlert(target.source)
+      else await resolveAlert(target.source)
+    }
+  } finally {
+    dispositionExecuting.value = false
+  }
+}
+
+const runDispositionSecondaryAction = async () => {
+  const target = dispositionTarget.value
+  if (!target || target.kind !== 'alert') return
+  dispositionExecuting.value = true
+  try {
+    await silenceAlert(target.source)
+  } finally {
+    dispositionExecuting.value = false
+  }
+}
+
 const refreshAll = async () => {
   loading.value = true
   try {
@@ -979,6 +1106,16 @@ onBeforeUnmount(() => {
 
 .risk-group-tag {
   cursor: pointer;
+}
+
+.disposition-desc {
+  margin-bottom: 14px;
+}
+
+.disposition-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .integration-card {
