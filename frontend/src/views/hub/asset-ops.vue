@@ -18,6 +18,50 @@
       </el-tag>
     </div>
 
+    <div class="workbench-layout">
+      <aside class="asset-tree-panel">
+        <div class="asset-tree-head">
+          <div class="asset-tree-title">资产分组</div>
+          <el-tag size="small" type="info" effect="plain">{{ selectedTreeNodeMeta.label || '全部资产' }}</el-tag>
+        </div>
+        <el-input
+          v-model="treeKeyword"
+          clearable
+          size="small"
+          placeholder="搜索分组或焦点"
+          class="asset-tree-search"
+        />
+        <el-scrollbar class="asset-tree-scroll">
+          <el-tree
+            ref="assetTreeRef"
+            :data="assetTreeData"
+            node-key="id"
+            :current-node-key="selectedTreeNode"
+            :expand-on-click-node="false"
+            :props="{ label: 'label', children: 'children' }"
+            :default-expanded-keys="['all', 'group-root', 'type-root', 'focus-root']"
+            :filter-node-method="filterAssetTreeNode"
+            highlight-current
+            @node-click="handleAssetTreeNodeClick"
+          >
+            <template #default="{ data }">
+              <div class="asset-tree-node">
+                <span class="asset-tree-node-label">{{ data.label }}</span>
+                <el-tag
+                  v-if="typeof data.count === 'number'"
+                  size="small"
+                  effect="plain"
+                  type="info"
+                >
+                  {{ data.count }}
+                </el-tag>
+              </div>
+            </template>
+          </el-tree>
+        </el-scrollbar>
+      </aside>
+
+      <div class="workbench-main">
     <el-row :gutter="12" class="summary-row">
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
         <el-card><div class="metric-title">主机总数</div><div class="metric-value">{{ stats.hostTotal }}</div></el-card>
@@ -86,7 +130,7 @@
                 <div class="inline-actions">
                   <el-button link type="primary" @click="approveJumpSession(row)">通过</el-button>
                   <el-button link type="warning" @click="rejectJumpSession(row)">拒绝</el-button>
-                  <el-button link @click="openJumpSession(row)">详情</el-button>
+                  <el-button link @click="openAssetDetail('pendingSession', row)">详情</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -128,7 +172,7 @@
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-button v-if="row.session_id" link type="danger" @click="disconnectRiskSession(row)">断开会话</el-button>
-                  <el-button link type="primary" @click="openJumpSessionByID(row.session_id)">详情</el-button>
+                  <el-button link type="primary" @click="openAssetDetail('riskEvent', row)">详情</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -170,6 +214,7 @@
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-button link type="primary" @click="offlineAction(row)">{{ row.actionLabel || '诊断' }}</el-button>
+                  <el-button link @click="openOfflineDetail(row)">详情</el-button>
                   <el-button link @click="go(row.path)">管理页</el-button>
                 </div>
               </template>
@@ -198,7 +243,7 @@
                 <div class="inline-actions">
                   <el-button link type="primary" @click="approveJumpSession(row)">通过</el-button>
                   <el-button link type="warning" @click="rejectJumpSession(row)">拒绝</el-button>
-                  <el-button link @click="openJumpSession(row)">详情</el-button>
+                  <el-button link @click="openAssetDetail('pendingSession', row)">详情</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -222,6 +267,7 @@
                 <div class="inline-actions">
                   <el-button link type="primary" @click="connectJumpSession(row)">连接</el-button>
                   <el-button link type="danger" @click="disconnectJumpSession(row)">断开</el-button>
+                  <el-button link @click="openAssetDetail('activeSession', row)">详情</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -246,7 +292,7 @@
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-button v-if="row.session_id" link type="danger" @click="disconnectRiskSession(row)">断开会话</el-button>
-                  <el-button link @click="openJumpSessionByID(row.session_id)">详情</el-button>
+                  <el-button link @click="openAssetDetail('riskEvent', row)">详情</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -278,6 +324,7 @@
                 <div class="inline-actions">
                   <el-button link type="primary" @click="collectFirewall(row)">采集</el-button>
                   <el-button link @click="testFirewallSNMP(row)">SNMP测试</el-button>
+                  <el-button link @click="openAssetDetail('firewall', row)">详情</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -298,10 +345,42 @@
                 <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '是' : '否' }}</el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="操作" min-width="120" fixed="right">
+              <template #default="{ row }">
+                <div class="inline-actions">
+                  <el-button link type="primary" @click="openAssetDetail('jumpAsset', row)">详情</el-button>
+                  <el-button link @click="go('/jump/assets')">管理页</el-button>
+                </div>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
     </el-card>
+      </div>
+    </div>
+
+    <el-drawer
+      v-model="assetDetailVisible"
+      :title="assetDetailTitle"
+      size="460px"
+      :destroy-on-close="false"
+    >
+      <el-skeleton v-if="assetDetailLoading" :rows="6" animated />
+      <template v-else-if="assetDetailData">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item v-for="item in assetDetailRows" :key="item.label" :label="item.label">
+            {{ item.value }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div class="asset-detail-actions">
+          <el-button type="primary" @click="go(assetDetailPath)">进入管理页</el-button>
+          <el-button v-if="assetDetailSessionID" @click="openJumpSessionByID(assetDetailSessionID)">会话详情</el-button>
+        </div>
+      </template>
+      <el-empty v-else description="暂无详情数据" />
+    </el-drawer>
 
     <BatchResultDrawer
       v-model="batchResultVisible"
@@ -313,7 +392,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -326,6 +405,7 @@ import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
 const router = useRouter()
 const loading = ref(false)
 const hosts = ref([])
+const groups = ref([])
 const networkDevices = ref([])
 const firewalls = ref([])
 const jumpSessions = ref([])
@@ -338,11 +418,18 @@ const activePanel = ref('offline')
 const panelKeyword = ref('')
 const nowTick = ref(Date.now())
 const riskTableRef = ref(null)
+const assetTreeRef = ref(null)
 const selectedRiskRows = ref([])
+const selectedTreeNode = ref('all')
+const treeKeyword = ref('')
 const batchResultVisible = ref(false)
 const batchResultTitle = ref('')
 const batchResultSummary = ref({ total: 0, success: 0, failed: 0 })
 const batchResultRecords = ref([])
+const assetDetailVisible = ref(false)
+const assetDetailLoading = ref(false)
+const assetDetailType = ref('')
+const assetDetailData = ref(null)
 let freshnessTicker = null
 
 const CHECK_STALE_HOURS = 24
@@ -379,6 +466,16 @@ const panelRouteMap = {
   risk: '/jump/sessions',
   firewall: '/firewall',
   jumpAssets: '/jump/assets'
+}
+
+const assetDetailRouteMap = {
+  host: '/host',
+  network: '/cmdb/network-devices',
+  firewall: '/firewall',
+  jumpAsset: '/jump/assets',
+  pendingSession: '/jump/sessions',
+  activeSession: '/jump/sessions',
+  riskEvent: '/jump/sessions'
 }
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
@@ -439,6 +536,170 @@ const severityTag = (value) => {
   return 'info'
 }
 
+const hostGroupMeta = computed(() => {
+  const countMap = new Map()
+  const labelMap = new Map()
+  groups.value.forEach((item) => {
+    labelMap.set(item.id, item.name || item.id)
+  })
+  hosts.value.forEach((item) => {
+    const key = item.group_id || 'ungrouped'
+    countMap.set(key, (countMap.get(key) || 0) + 1)
+    if (item.group_id && item.group?.name && !labelMap.has(item.group_id)) {
+      labelMap.set(item.group_id, item.group.name)
+    }
+  })
+  return { countMap, labelMap }
+})
+
+const hostGroupNodes = computed(() => {
+  const { countMap, labelMap } = hostGroupMeta.value
+  const nodes = []
+  labelMap.forEach((label, id) => {
+    nodes.push({
+      id: `group:${id}`,
+      label,
+      count: countMap.get(id) || 0,
+      nodeType: 'hostGroup',
+      groupId: id
+    })
+  })
+  nodes.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  const ungroupedCount = countMap.get('ungrouped') || 0
+  if (ungroupedCount > 0) {
+    nodes.push({
+      id: 'group:ungrouped',
+      label: '未分组主机',
+      count: ungroupedCount,
+      nodeType: 'hostUngrouped'
+    })
+  }
+  return nodes
+})
+
+const assetTreeData = computed(() => {
+  const hostCount = hosts.value.length
+  const networkCount = networkDevices.value.length
+  const firewallCount = firewalls.value.length
+  const firewallOfflineCount = firewalls.value.filter((item) => Number(item.status) !== 1).length
+  const jumpAssetCount = jumpAssets.value.length
+  const sessionCount = jumpSessions.value.length
+  const total = hostCount + networkCount + firewallCount + jumpAssetCount + sessionCount
+
+  return [
+    { id: 'all', label: '全部资产', count: total, nodeType: 'all' },
+    {
+      id: 'group-root',
+      label: '主机分组',
+      count: hostCount,
+      nodeType: 'groupRoot',
+      children: hostGroupNodes.value
+    },
+    {
+      id: 'type-root',
+      label: '资产类型',
+      count: total,
+      nodeType: 'typeRoot',
+      children: [
+        { id: 'type:host', label: '主机', count: hostCount, nodeType: 'assetType', assetType: 'host' },
+        { id: 'type:network', label: '网络设备', count: networkCount, nodeType: 'assetType', assetType: 'network' },
+        { id: 'type:firewall', label: '防火墙', count: firewallCount, nodeType: 'assetType', assetType: 'firewall' },
+        { id: 'type:jumpAsset', label: '堡垒机资产', count: jumpAssetCount, nodeType: 'assetType', assetType: 'jumpAsset' },
+        { id: 'type:jumpSession', label: '堡垒机会话', count: sessionCount, nodeType: 'assetType', assetType: 'jumpSession' }
+      ]
+    },
+    {
+      id: 'focus-root',
+      label: '处置焦点',
+      count: stats.pendingBacklog,
+      nodeType: 'focusRoot',
+      children: [
+        { id: 'focus:offline', label: '离线资产', count: stats.hostOffline + stats.networkOffline + firewallOfflineCount, nodeType: 'focus', focusKey: 'offline' },
+        { id: 'focus:pending', label: '待审批会话', count: stats.jumpPending, nodeType: 'focus', focusKey: 'pending' },
+        { id: 'focus:riskCritical', label: '高危风险', count: stats.riskCritical, nodeType: 'focus', focusKey: 'riskCritical' }
+      ]
+    }
+  ]
+})
+
+const assetTreeNodeMap = computed(() => {
+  const map = {}
+  const walk = (nodes) => {
+    nodes.forEach((node) => {
+      map[node.id] = node
+      if (Array.isArray(node.children) && node.children.length) walk(node.children)
+    })
+  }
+  walk(assetTreeData.value)
+  return map
+})
+
+const selectedTreeNodeMeta = computed(() => assetTreeNodeMap.value[selectedTreeNode.value] || assetTreeNodeMap.value.all || { nodeType: 'all', label: '全部资产' })
+
+const filterAssetTreeNode = (value, data) => {
+  const keyword = normalizeText(value)
+  if (!keyword) return true
+  return normalizeText(data?.label).includes(keyword)
+}
+
+const handleAssetTreeNodeClick = (node) => {
+  if (!node?.id) return
+  selectedTreeNode.value = node.id
+}
+
+const scopeMatcher = (kind, row) => {
+  const scope = selectedTreeNodeMeta.value
+  if (!scope || scope.nodeType === 'all' || scope.nodeType === 'typeRoot' || scope.nodeType === 'focusRoot') return true
+  if (scope.nodeType === 'groupRoot') return kind === 'host' || kind === 'offlineAsset'
+  if (scope.nodeType === 'hostGroup') {
+    if (kind === 'host') return row?.group_id === scope.groupId
+    if (kind === 'offlineAsset') return row?.scopeType === 'host' && row?.group_id === scope.groupId
+    return false
+  }
+  if (scope.nodeType === 'hostUngrouped') {
+    if (kind === 'host') return !row?.group_id
+    if (kind === 'offlineAsset') return row?.scopeType === 'host' && !row?.group_id
+    return false
+  }
+  if (scope.nodeType === 'assetType') {
+    const matchTypeMap = {
+      host: ['host', 'offlineHost'],
+      network: ['network', 'offlineNetwork'],
+      firewall: ['firewall', 'offlineFirewall'],
+      jumpAsset: ['jumpAsset'],
+      jumpSession: ['pendingSession', 'activeSession', 'riskEvent', 'offlineSession']
+    }
+    const matched = matchTypeMap[scope.assetType] || []
+    return matched.includes(kind)
+  }
+  if (scope.nodeType === 'focus') {
+    if (scope.focusKey === 'offline') return kind.startsWith('offline')
+    if (scope.focusKey === 'pending') return kind === 'pendingSession'
+    if (scope.focusKey === 'riskCritical') return kind === 'riskEvent' && normalizeText(row?.severity) === 'critical'
+  }
+  return true
+}
+
+const scopedHosts = computed(() => hosts.value.filter((item) => scopeMatcher('host', item)))
+const scopedNetworkDevices = computed(() => networkDevices.value.filter((item) => scopeMatcher('network', item)))
+const scopedFirewalls = computed(() => firewalls.value.filter((item) => scopeMatcher('firewall', item)))
+const scopedJumpAssets = computed(() => jumpAssets.value.filter((item) => scopeMatcher('jumpAsset', item)))
+const scopedPendingSessionsRaw = computed(() =>
+  jumpSessions.value
+    .filter((item) => String(item.status) === 'pending_approval' && scopeMatcher('pendingSession', item))
+    .sort((a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime())
+)
+const scopedActiveSessionsRaw = computed(() =>
+  jumpSessions.value
+    .filter((item) => String(item.status) === 'active' && scopeMatcher('activeSession', item))
+    .sort((a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime())
+)
+const scopedRiskEventsRaw = computed(() =>
+  jumpRiskEvents.value
+    .filter((item) => scopeMatcher('riskEvent', item))
+    .sort((a, b) => new Date(b.fired_at || 0).getTime() - new Date(a.fired_at || 0).getTime())
+)
+
 const hostOnlineRate = computed(() => {
   if (!stats.hostTotal) return 0
   return Math.round(((stats.hostTotal - stats.hostOffline) / stats.hostTotal) * 100)
@@ -449,18 +710,9 @@ const networkOnlineRate = computed(() => {
   return Math.round(((stats.networkTotal - stats.networkOffline) / stats.networkTotal) * 100)
 })
 
-const pendingSessions = computed(() =>
-  jumpSessions.value
-    .filter((item) => String(item.status) === 'pending_approval')
-    .sort((a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime())
-    .slice(0, 12)
-)
+const pendingSessions = computed(() => scopedPendingSessionsRaw.value.slice(0, 12))
 
-const riskEvents = computed(() =>
-  jumpRiskEvents.value
-    .sort((a, b) => new Date(b.fired_at || 0).getTime() - new Date(a.fired_at || 0).getTime())
-    .slice(0, 12)
-)
+const riskEvents = computed(() => scopedRiskEventsRaw.value.slice(0, 12))
 
 const riskCriticalCount = computed(() =>
   riskEvents.value.filter((item) => normalizeText(item.severity) === 'critical').length
@@ -517,17 +769,30 @@ const staleFirewalls = computed(() =>
   firewalls.value.filter((item) => Number(item.status) === 1 && isCheckStale(item.last_check_at))
 )
 
-const stalePendingSessions = computed(() => pendingSessions.value.filter((item) => isPendingSessionStale(item)))
+const scopedStaleNetworkDevices = computed(() =>
+  scopedNetworkDevices.value.filter((item) => isOnlineStatus(item.status) && isCheckStale(item.last_check_at))
+)
+
+const scopedStaleFirewalls = computed(() =>
+  scopedFirewalls.value.filter((item) => Number(item.status) === 1 && isCheckStale(item.last_check_at))
+)
+
+const stalePendingSessions = computed(() =>
+  jumpSessions.value.filter((item) => String(item.status) === 'pending_approval' && isPendingSessionStale(item))
+)
 
 const offlineAssets = computed(() => {
   const rows = []
-  hosts.value.forEach((item) => {
+  scopedHosts.value.forEach((item) => {
     if (!isOnlineStatus(item.status)) {
       rows.push({
         type: '主机',
         id: item.id,
         name: item.name || '-',
         address: item.ip || '-',
+        group_id: item.group_id,
+        scopeType: 'host',
+        source: item,
         statusText: '离线',
         level: 'danger',
         actionLabel: '连通测试',
@@ -535,13 +800,15 @@ const offlineAssets = computed(() => {
       })
     }
   })
-  networkDevices.value.forEach((item) => {
+  scopedNetworkDevices.value.forEach((item) => {
     if (!isOnlineStatus(item.status)) {
       rows.push({
         type: '网络设备',
         id: item.id,
         name: item.name || '-',
         address: item.ip || item.address || '-',
+        scopeType: 'network',
+        source: item,
         statusText: '离线',
         level: 'warning',
         actionLabel: '设备诊断',
@@ -549,7 +816,7 @@ const offlineAssets = computed(() => {
       })
     }
   })
-  firewalls.value.forEach((item) => {
+  scopedFirewalls.value.forEach((item) => {
     const status = Number(item.status)
     if (status !== 1) {
       rows.push({
@@ -557,6 +824,8 @@ const offlineAssets = computed(() => {
         id: item.id,
         name: item.name || '-',
         address: item.ip || '-',
+        scopeType: 'firewall',
+        source: item,
         statusText: status === 2 ? '告警' : '离线',
         level: status === 2 ? 'danger' : 'warning',
         actionLabel: 'SNMP采集',
@@ -564,36 +833,42 @@ const offlineAssets = computed(() => {
       })
     }
   })
-  staleNetworkDevices.value.forEach((item) => {
+  scopedStaleNetworkDevices.value.forEach((item) => {
     rows.push({
       type: '网络设备',
       id: item.id,
       name: item.name || '-',
       address: item.ip || item.address || '-',
+      scopeType: 'network',
+      source: item,
       statusText: `待复检（${formatCheckAge(item.last_check_at)}）`,
       level: 'warning',
       actionLabel: '设备诊断',
       path: '/cmdb/network-devices'
     })
   })
-  staleFirewalls.value.forEach((item) => {
+  scopedStaleFirewalls.value.forEach((item) => {
     rows.push({
       type: '防火墙',
       id: item.id,
       name: item.name || '-',
       address: item.ip || '-',
+      scopeType: 'firewall',
+      source: item,
       statusText: `待复检（${formatCheckAge(item.last_check_at)}）`,
       level: 'warning',
       actionLabel: 'SNMP采集',
       path: '/firewall'
     })
   })
-  stalePendingSessions.value.forEach((item) => {
+  scopedPendingSessionsRaw.value.filter((item) => isPendingSessionStale(item)).forEach((item) => {
     rows.push({
       type: '会话审批',
       id: item.id,
       name: item.session_no || item.id || '-',
       address: item.asset_name || '-',
+      scopeType: 'session',
+      source: item,
       statusText: `超时待审批（${formatPendingWait(item.started_at)}）`,
       level: 'warning',
       actionLabel: '进入审批',
@@ -617,27 +892,175 @@ const filteredOfflineAssets = computed(() =>
 )
 
 const filteredPendingSessions = computed(() =>
-  filterRows(pendingSessions.value, [(row) => row.session_no, (row) => row.asset_name, (row) => row.username, (row) => row.protocol, (row) => row.source_ip])
+  filterRows(scopedPendingSessionsRaw.value, [(row) => row.session_no, (row) => row.asset_name, (row) => row.username, (row) => row.protocol, (row) => row.source_ip])
 )
 
 const filteredActiveSessions = computed(() =>
   filterRows(
-    jumpSessions.value.filter((item) => String(item.status) === 'active'),
+    scopedActiveSessionsRaw.value,
     [(row) => row.session_no, (row) => row.asset_name, (row) => row.username, (row) => row.protocol, (row) => row.source_ip]
   )
 )
 
 const filteredRiskEvents = computed(() =>
-  filterRows(jumpRiskEvents.value, [(row) => row.asset_name, (row) => row.username, (row) => row.severity, (row) => row.rule_name, (row) => row.description, (row) => row.command])
+  filterRows(scopedRiskEventsRaw.value, [(row) => row.asset_name, (row) => row.username, (row) => row.severity, (row) => row.rule_name, (row) => row.description, (row) => row.command])
 )
 
 const filteredFirewalls = computed(() =>
-  filterRows(firewalls.value, [(row) => row.name, (row) => row.vendor, (row) => row.ip, (row) => firewallStatus(row.status).text])
+  filterRows(scopedFirewalls.value, [(row) => row.name, (row) => row.vendor, (row) => row.ip, (row) => firewallStatus(row.status).text])
 )
 
 const filteredJumpAssets = computed(() =>
-  filterRows(jumpAssets.value, [(row) => row.name, (row) => row.asset_type, (row) => row.protocol, (row) => row.address, (row) => row.source])
+  filterRows(scopedJumpAssets.value, [(row) => row.name, (row) => row.asset_type, (row) => row.protocol, (row) => row.address, (row) => row.source])
 )
+
+const assetDetailTitleMap = {
+  host: '主机详情',
+  network: '网络设备详情',
+  firewall: '防火墙详情',
+  jumpAsset: '堡垒机资产详情',
+  pendingSession: '待审批会话详情',
+  activeSession: '活跃会话详情',
+  riskEvent: '风险事件详情'
+}
+
+const assetDetailTitle = computed(() => assetDetailTitleMap[assetDetailType.value] || '资产详情')
+const assetDetailPath = computed(() => assetDetailRouteMap[assetDetailType.value] || '/asset/ops')
+const assetDetailSessionID = computed(() => {
+  if (!assetDetailData.value) return ''
+  if (assetDetailType.value === 'riskEvent') return assetDetailData.value.session_id || ''
+  if (assetDetailType.value === 'pendingSession' || assetDetailType.value === 'activeSession') return assetDetailData.value.id || ''
+  return ''
+})
+
+const assetDetailRows = computed(() => {
+  const item = assetDetailData.value
+  if (!item) return []
+  if (assetDetailType.value === 'host') {
+    return [
+      { label: '主机名', value: item.name || '-' },
+      { label: 'IP', value: item.ip || '-' },
+      { label: '端口', value: item.port || '-' },
+      { label: '状态', value: isOnlineStatus(item.status) ? '在线' : '离线/维护' },
+      { label: '操作系统', value: item.os || '-' },
+      { label: '分组', value: item.group?.name || item.group_name || '-' },
+      { label: 'CPU', value: item.cpu || '-' },
+      { label: '内存', value: item.memory || '-' },
+      { label: '磁盘', value: item.disk || '-' },
+      { label: '更新时间', value: formatTime(item.updated_at) }
+    ]
+  }
+  if (assetDetailType.value === 'network') {
+    return [
+      { label: '设备名', value: item.name || '-' },
+      { label: '类型', value: item.device_type || '-' },
+      { label: '厂商/型号', value: `${item.vendor || '-'} / ${item.model || '-'}` },
+      { label: '管理IP', value: item.ip || '-' },
+      { label: '管理端口', value: item.manage_port || '-' },
+      { label: '状态', value: isOnlineStatus(item.status) ? '在线' : '离线/告警' },
+      { label: 'SNMP版本', value: item.snmp_version || '-' },
+      { label: '位置', value: item.location || '-' },
+      { label: '最近检查', value: formatTime(item.last_check_at) },
+      { label: '更新时间', value: formatTime(item.updated_at) }
+    ]
+  }
+  if (assetDetailType.value === 'firewall') {
+    return [
+      { label: '设备名', value: item.name || '-' },
+      { label: '厂商/型号', value: `${item.vendor || '-'} / ${item.model || '-'}` },
+      { label: '管理IP', value: item.ip || '-' },
+      { label: '状态', value: firewallStatus(item.status).text },
+      { label: 'CPU使用率', value: item.cpu_usage !== undefined ? `${item.cpu_usage}%` : '-' },
+      { label: '内存使用率', value: item.memory_usage !== undefined ? `${item.memory_usage}%` : '-' },
+      { label: '会话数', value: item.session_count ?? '-' },
+      { label: '吞吐量', value: item.throughput ?? '-' },
+      { label: '最近检查', value: formatTime(item.last_check_at) },
+      { label: '更新时间', value: formatTime(item.updated_at) }
+    ]
+  }
+  if (assetDetailType.value === 'jumpAsset') {
+    return [
+      { label: '资产名', value: item.name || '-' },
+      { label: '资产类型', value: item.asset_type || '-' },
+      { label: '协议', value: item.protocol || '-' },
+      { label: '地址', value: `${item.address || '-'}:${item.port || '-'}` },
+      { label: '来源', value: item.source || '-' },
+      { label: '标签', value: item.tags || '-' },
+      { label: '启用', value: item.enabled ? '是' : '否' },
+      { label: '更新时间', value: formatTime(item.updated_at) }
+    ]
+  }
+  if (assetDetailType.value === 'pendingSession' || assetDetailType.value === 'activeSession') {
+    return [
+      { label: '会话号', value: item.session_no || '-' },
+      { label: '资产', value: item.asset_name || '-' },
+      { label: '用户', value: item.username || '-' },
+      { label: '协议', value: item.protocol || '-' },
+      { label: '来源IP', value: item.source_ip || '-' },
+      { label: '状态', value: item.status || '-' },
+      { label: '命令数', value: item.command_count ?? '-' },
+      { label: '开始时间', value: formatTime(item.started_at) },
+      { label: '最后命令', value: formatTime(item.last_command_at) }
+    ]
+  }
+  if (assetDetailType.value === 'riskEvent') {
+    return [
+      { label: '风险级别', value: String(item.severity || '-').toUpperCase() },
+      { label: '资产', value: item.asset_name || '-' },
+      { label: '用户', value: item.username || '-' },
+      { label: '事件类型', value: item.event_type || '-' },
+      { label: '命中规则', value: item.rule_name || '-' },
+      { label: '命令', value: item.command || '-' },
+      { label: '描述', value: item.description || '-' },
+      { label: '触发时间', value: formatTime(item.fired_at) },
+      { label: '关联会话', value: item.session_id || '-' }
+    ]
+  }
+  return []
+})
+
+const openOfflineDetail = (row) => {
+  if (!row) return
+  if (row.scopeType === 'host') openAssetDetail('host', row.source || row)
+  else if (row.scopeType === 'network') openAssetDetail('network', row.source || row)
+  else if (row.scopeType === 'firewall') openAssetDetail('firewall', row.source || row)
+  else if (row.scopeType === 'session') openAssetDetail('pendingSession', row.source || row)
+}
+
+const openAssetDetail = async (type, row) => {
+  if (!row) return
+  assetDetailType.value = type
+  assetDetailData.value = row
+  assetDetailVisible.value = true
+  assetDetailLoading.value = false
+
+  const id = row.id || row.session_id
+  let api = ''
+  if (type === 'host' && row.id) api = `/api/v1/cmdb/hosts/${row.id}`
+  if (type === 'network' && row.id) api = `/api/v1/cmdb/network-devices/${row.id}`
+  if (type === 'firewall' && row.id) api = `/api/v1/firewall/devices/${row.id}`
+  if (type === 'jumpAsset' && row.id) api = `/api/v1/jump/assets/${row.id}`
+  if ((type === 'pendingSession' || type === 'activeSession') && row.id) api = `/api/v1/jump/sessions/${row.id}`
+  if (type === 'riskEvent' && id) api = `/api/v1/jump/sessions/${id}`
+
+  if (!api) return
+
+  assetDetailLoading.value = true
+  try {
+    const res = await axios.get(api, { headers: authHeaders() })
+    if (res?.data?.code === 0 && res.data.data) {
+      if (type === 'riskEvent') {
+        assetDetailData.value = { ...row, ...(res.data.data || {}) }
+      } else {
+        assetDetailData.value = res.data.data
+      }
+    }
+  } catch (err) {
+    ElMessage.warning(getErrorMessage(err, '详情加载失败，已展示缓存数据'))
+  } finally {
+    assetDetailLoading.value = false
+  }
+}
 
 const openJumpSession = () => {
   router.push('/jump/sessions')
@@ -898,11 +1321,21 @@ const formatTime = (value) => {
 const safeArray = (res) => (Array.isArray(res?.data?.data) ? res.data.data : [])
 const safeObject = (res) => (res?.data?.data && typeof res.data.data === 'object' ? res.data.data : {})
 
+watch(treeKeyword, (value) => {
+  if (assetTreeRef.value?.filter) assetTreeRef.value.filter(value)
+})
+
+watch(assetTreeData, (nodes) => {
+  const exists = nodes.some((item) => item.id === selectedTreeNode.value) || Boolean(assetTreeNodeMap.value[selectedTreeNode.value])
+  if (!exists) selectedTreeNode.value = 'all'
+})
+
 const refreshAll = async () => {
   loading.value = true
   try {
-    const [hostRes, networkRes, firewallRes, sessionRes, riskRes, jumpAssetRes, commandStatsRes] = await Promise.allSettled([
+    const [hostRes, groupRes, networkRes, firewallRes, sessionRes, riskRes, jumpAssetRes, commandStatsRes] = await Promise.allSettled([
       axios.get('/api/v1/cmdb/hosts', { headers: authHeaders() }),
+      axios.get('/api/v1/cmdb/groups', { headers: authHeaders() }),
       axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders() }),
       axios.get('/api/v1/firewall/devices', { headers: authHeaders() }),
       axios.get('/api/v1/jump/sessions', { headers: authHeaders() }),
@@ -912,6 +1345,7 @@ const refreshAll = async () => {
     ])
 
     hosts.value = hostRes.status === 'fulfilled' ? safeArray(hostRes.value) : []
+    groups.value = groupRes.status === 'fulfilled' ? safeArray(groupRes.value) : []
     networkDevices.value = networkRes.status === 'fulfilled' ? safeArray(networkRes.value) : []
     firewalls.value = firewallRes.status === 'fulfilled' ? safeArray(firewallRes.value) : []
     jumpSessions.value = sessionRes.status === 'fulfilled' ? safeArray(sessionRes.value) : []
@@ -931,7 +1365,7 @@ const refreshAll = async () => {
     stats.pendingApprovalTimeout = stalePendingSessions.value.length
     stats.pendingBacklog = stats.recheckPending + stats.pendingApprovalTimeout + stats.riskCritical
 
-    const failedCount = [hostRes, networkRes, firewallRes, sessionRes, riskRes, jumpAssetRes, commandStatsRes].filter((r) => r.status === 'rejected').length
+    const failedCount = [hostRes, groupRes, networkRes, firewallRes, sessionRes, riskRes, jumpAssetRes, commandStatsRes].filter((r) => r.status === 'rejected').length
     if (failedCount > 0) {
       ElMessage.warning(`部分作战台数据加载失败(${failedCount}项)，已展示可用数据`)
     }
@@ -964,6 +1398,63 @@ onBeforeUnmount(() => {
 .page-actions { display: flex; gap: 8px; }
 .module-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .tab-item { cursor: pointer; user-select: none; }
+
+.workbench-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.workbench-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.asset-tree-panel {
+  width: 280px;
+  flex: 0 0 280px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--el-border-color-light);
+  background: color-mix(in srgb, var(--card-bg) 86%, #ffffff 14%);
+}
+
+.asset-tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.asset-tree-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.asset-tree-search {
+  margin-top: 10px;
+}
+
+.asset-tree-scroll {
+  max-height: 760px;
+  margin-top: 10px;
+}
+
+.asset-tree-node {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.asset-tree-node-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }
@@ -1005,11 +1496,30 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.asset-detail-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
 .integration-tabs :deep(.el-tabs__header) {
   margin-bottom: 10px;
 }
 
 @media (max-width: 1100px) {
+  .workbench-layout {
+    flex-direction: column;
+  }
+
+  .asset-tree-panel {
+    width: 100%;
+    flex: 1 1 auto;
+  }
+
+  .asset-tree-scroll {
+    max-height: 280px;
+  }
+
   .integration-header {
     align-items: flex-start;
     flex-direction: column;
