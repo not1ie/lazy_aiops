@@ -15,6 +15,37 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
   - 都不设置时，系统会自动生成随机临时密码并打印到启动日志
   - 以上逻辑只在首次初始化 `admin` 账号时生效；如果数据目录里已有库文件，不会覆盖已有密码
 
+## 框架与脚手架说明
+
+- 前端使用了脚手架：`Vite + Vue3` 初始化工程，UI 组件库是 `Element Plus`
+- 后端没有使用重型现成脚手架：基于 `Gin + Gorm` 自建了插件化框架
+- 插件加载方式：在 `cmd/server/main.go` 通过空白导入注册插件，再由插件管理器按配置启用
+- 默认开发体验：单机 SQLite 开箱即用，避免首次部署依赖过多外部组件
+
+## 技术架构
+
+### 技术栈
+
+- 后端：Go 1.21、Gin、Gorm、Viper、JWT、WebSocket、Cron
+- 运维能力：Kubernetes client-go、SNMP（gosnmp）、Ansible（运行时）
+- 前端：Vue 3、Vite、Element Plus、Pinia、Vue Router、Axios、ECharts、xterm
+- 部署：Docker / Docker Swarm / Kubernetes / systemd
+
+### 分层结构
+
+- 接入层：`internal/api`（鉴权、RBAC、审计中间件、统一 API）
+- 核心层：`internal/core`（配置、数据库、认证、AI 客户端初始化）
+- 插件层：`plugins/*`（CMDB、K8s、Docker、Jump、Domain、CI/CD 等独立模块）
+- 前端层：`frontend/src`（布局、路由、业务视图、融合工作台）
+- 部署层：`deploy/*`（Docker、Swarm、K8s、脚本化发布）
+
+### 关键设计
+
+- 插件化：功能模块按插件独立演进，降低核心代码耦合
+- 融合工作台：将高频运维场景收敛到 Hub 页面，减少多模块跳转
+- 安全基线：RBAC、操作审计、默认密码初始化策略、可强制改密
+- 渐进部署：本地可轻量启动，生产可切换到镜像仓库与编排平台
+
 ## 功能介绍
 
 ### 资产与环境管理
@@ -233,7 +264,7 @@ REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.16 deploy/scripts/deploy.sh 
 ## 版本信息
 
 - 当前推荐版本：`v1.0.16`
-- 对应代码提交：`7e5dc0046964`
+- 对应代码提交：请以 `git rev-list -n 1 v1.0.16` 的结果为准
 - ACR 镜像示例：
   - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.16`
   - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:latest`
