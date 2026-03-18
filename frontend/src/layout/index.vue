@@ -7,6 +7,15 @@
           <div class="logo-subtitle">Ops Control Center</div>
         </div>
       </div>
+      <div class="nav-mode-switch">
+        <span>导航模式</span>
+        <el-switch
+          v-model="menuSimpleMode"
+          inline-prompt
+          active-text="简"
+          inactive-text="全"
+        />
+      </div>
 
       <el-scrollbar class="sider-scroll">
         <el-menu
@@ -15,8 +24,9 @@
           background-color="transparent"
           text-color="var(--sider-text)"
           active-text-color="var(--sider-active)"
-          class="el-menu-vertical"
+          :class="['el-menu-vertical', { 'is-simple': menuSimpleMode }]"
         >
+          <template v-if="!menuSimpleMode">
           <el-menu-item v-if="can('dashboard')" index="/dashboard">
             <el-icon><Odometer /></el-icon>
             <span>仪表盘</span>
@@ -180,6 +190,91 @@
             <el-menu-item v-if="can('system:log')" index="/system/audit-logs">操作日志</el-menu-item>
             <el-menu-item v-if="can('system:captcha')" index="/system/captcha">验证码配置</el-menu-item>
           </el-sub-menu>
+          </template>
+
+          <template v-else>
+            <el-menu-item v-if="can('dashboard')" index="/dashboard">
+              <el-icon><Odometer /></el-icon>
+              <span>仪表盘</span>
+            </el-menu-item>
+
+            <el-menu-item v-if="can('ai')" index="/ai">
+              <el-icon><MagicStick /></el-icon>
+              <span>AI运维助手</span>
+            </el-menu-item>
+
+            <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:session'])" index="/cmdb">
+              <template #title>
+                <el-icon><Monitor /></el-icon>
+                <span>资产管理</span>
+              </template>
+              <el-menu-item v-if="canAny(['cmdb','firewall','jump'])" index="/asset/ops">资产作战台</el-menu-item>
+              <el-menu-item v-if="can('cmdb')" index="/asset/overview">资产总览</el-menu-item>
+              <el-menu-item v-if="can('cmdb')" index="/host">主机管理</el-menu-item>
+              <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
+              <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
+            </el-sub-menu>
+
+            <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
+              <template #title>
+                <el-icon><Platform /></el-icon>
+                <span>容器与K8s</span>
+              </template>
+              <el-menu-item v-if="can('k8s')" index="/k8s/overview">平台总览</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/workloads">工作负载</el-menu-item>
+              <el-menu-item v-if="can('docker')" index="/docker">Docker管理</el-menu-item>
+            </el-sub-menu>
+
+            <el-sub-menu v-if="canAny(['monitor','alert','domain'])" index="/monitor">
+              <template #title>
+                <el-icon><Histogram /></el-icon>
+                <span>监控告警</span>
+              </template>
+              <el-menu-item index="/monitor/center">监控告警中心</el-menu-item>
+              <el-menu-item v-if="can('domain')" index="/domain/center">域名监控中心</el-menu-item>
+              <el-menu-item v-if="can('alert')" index="/alert/events">告警事件</el-menu-item>
+              <el-menu-item v-if="can('domain')" index="/domain/ssl">域名与证书</el-menu-item>
+            </el-sub-menu>
+
+            <el-sub-menu v-if="canAny(['workflow','executor','task'])" index="/automation">
+              <template #title>
+                <el-icon><Operation /></el-icon>
+                <span>自动化</span>
+              </template>
+              <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
+              <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
+              <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
+            </el-sub-menu>
+
+            <el-sub-menu v-if="canAny(['cicd','workorder'])" index="/cicd">
+              <template #title>
+                <el-icon><Connection /></el-icon>
+                <span>CI/CD</span>
+              </template>
+              <el-menu-item index="/delivery/center">交付中心</el-menu-item>
+              <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
+            </el-sub-menu>
+
+            <el-sub-menu v-if="canAny(['oncall','terminal','ai','workflow','workorder'])" index="/collab">
+              <template #title>
+                <el-icon><User /></el-icon>
+                <span>协作</span>
+              </template>
+              <el-menu-item index="/collab/center">协作中心</el-menu-item>
+              <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
+              <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
+            </el-sub-menu>
+
+            <el-sub-menu v-if="canAny(['system:user','system:role','system:permission'])" index="/system">
+              <template #title>
+                <el-icon><Setting /></el-icon>
+                <span>系统管理</span>
+              </template>
+              <el-menu-item v-if="can('system:user')" index="/system/users">用户管理</el-menu-item>
+              <el-menu-item v-if="can('system:role')" index="/system/roles">角色管理</el-menu-item>
+              <el-menu-item v-if="can('system:permission')" index="/system/menus">权限管理</el-menu-item>
+            </el-sub-menu>
+          </template>
         </el-menu>
       </el-scrollbar>
     </el-aside>
@@ -661,6 +756,7 @@ const permissions = ref(new Set(JSON.parse(localStorage.getItem('permissions') |
 const TABS_STORAGE_KEY = 'layout_view_tabs'
 const MODULE_LINKS_STORAGE_KEY = 'layout_module_links_state_v1'
 const MODULE_LINKS_COMPACT_STORAGE_KEY = 'layout_module_links_compact_v1'
+const MENU_SIMPLE_MODE_STORAGE_KEY = 'layout_menu_simple_mode_v1'
 const CUSTOM_WORKSPACE_PRESETS_KEY = 'layout_custom_workspace_presets_v1'
 const LAST_WORKSPACE_PRESET_KEY = 'layout_last_workspace_preset_v1'
 const WORKSPACE_SHARE_QUERY_KEY = 'workspace'
@@ -670,6 +766,7 @@ const draggingViewTabPath = ref('')
 const moduleLinkState = ref({})
 const draggingModuleLinkPath = ref('')
 const moduleLinksCompact = ref(false)
+const menuSimpleMode = ref(true)
 const moduleContextMenu = ref({ visible: false, x: 0, y: 0, path: '' })
 const customWorkspacePresets = ref([])
 const teamWorkspacePresets = ref([])
@@ -731,6 +828,20 @@ const readModuleLinksCompact = () => {
 
 const persistModuleLinksCompact = () => {
   localStorage.setItem(MODULE_LINKS_COMPACT_STORAGE_KEY, moduleLinksCompact.value ? '1' : '0')
+}
+
+const readMenuSimpleMode = () => {
+  try {
+    const raw = localStorage.getItem(MENU_SIMPLE_MODE_STORAGE_KEY)
+    if (raw === null) return true
+    return raw === '1'
+  } catch {
+    return true
+  }
+}
+
+const persistMenuSimpleMode = () => {
+  localStorage.setItem(MENU_SIMPLE_MODE_STORAGE_KEY, menuSimpleMode.value ? '1' : '0')
 }
 
 const ensureTab = (targetRoute) => {
@@ -2108,6 +2219,7 @@ onMounted(async () => {
   await listTeamWorkspacePresets()
   moduleLinkState.value = readModuleLinkState()
   moduleLinksCompact.value = readModuleLinksCompact()
+  menuSimpleMode.value = readMenuSimpleMode()
   customWorkspacePresets.value = readCustomWorkspacePresets()
   lastWorkspacePresetKey.value = readLastWorkspacePresetKey()
   const cached = readTabsFromStorage()
@@ -2138,6 +2250,10 @@ watch(
   },
   { immediate: true }
 )
+
+watch(menuSimpleMode, () => {
+  persistMenuSimpleMode()
+})
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', closeModuleContextMenu)
@@ -2176,6 +2292,19 @@ onBeforeUnmount(() => {
   padding: 24px 20px 18px;
 }
 
+.nav-mode-switch {
+  margin: 0 20px 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgba(226, 232, 240, 0.86);
+  font-size: 12px;
+}
+
 .logo-title {
   color: #f8fafc;
   font-size: 26px;
@@ -2200,6 +2329,10 @@ onBeforeUnmount(() => {
 .el-menu-vertical {
   border-right: none;
   padding: 0 10px 12px;
+}
+
+.el-menu-vertical.is-simple {
+  padding-bottom: 24px;
 }
 
 .header {
