@@ -82,7 +82,7 @@
       <el-col :span="14">
         <el-card>
           <template #header>重点异常工作负载</template>
-          <el-table :fit="true" :data="degradedRows" size="small" max-height="300" empty-text="暂无异常工作负载">
+            <el-table :fit="true" :data="degradedRows" size="small" max-height="300" empty-text="暂无异常工作负载">
             <el-table-column prop="namespace" label="命名空间" min-width="130" />
             <el-table-column prop="name" label="名称" min-width="170" />
             <el-table-column prop="kind" label="类型" width="130" />
@@ -97,6 +97,7 @@
             <el-table-column label="操作" min-width="190">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openWorkload(row)">详情</el-button>
+                <el-button link @click="goToWorkloadDetail(row)">页面</el-button>
                 <el-button link type="success" @click="restartWorkload(row)">重启</el-button>
                 <el-button
                   v-if="normalizeText(row.kind) !== 'daemonset'"
@@ -173,6 +174,7 @@
             <el-table-column label="操作" min-width="190">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="openWorkload(row)">详情</el-button>
+                <el-button size="small" link @click="goToWorkloadDetail(row)">页面</el-button>
                 <el-button size="small" link type="success" @click="restartWorkload(row)">重启</el-button>
                 <el-button
                   v-if="normalizeText(row.kind) !== 'daemonset'"
@@ -262,6 +264,143 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+    <el-drawer
+      v-model="workloadCockpitVisible"
+      title="工作负载驾驶舱"
+      size="68%"
+      append-to-body
+      destroy-on-close
+    >
+      <template #header>
+        <div class="cockpit-header">
+          <div>
+            <div class="cockpit-title">
+              {{ workloadCockpit?.kind || '-' }}/{{ workloadCockpit?.name || '-' }}
+            </div>
+            <div class="cockpit-subtitle">
+              {{ workloadCockpit?.namespace || '-' }} · {{ clusterName }}
+            </div>
+          </div>
+          <div class="cockpit-header-actions">
+            <el-button size="small" @click="goToWorkloadDetail(workloadCockpit)">进入详情页</el-button>
+            <el-button size="small" type="success" plain @click="restartWorkload(workloadCockpit)">重启</el-button>
+            <el-button
+              v-if="normalizeText(workloadCockpit?.kind) !== 'daemonset'"
+              size="small"
+              type="warning"
+              plain
+              @click="scaleWorkload(workloadCockpit)"
+            >
+              扩缩容
+            </el-button>
+          </div>
+        </div>
+      </template>
+
+      <div v-loading="workloadCockpitLoading">
+        <el-tabs v-model="workloadCockpitTab">
+          <el-tab-pane label="概览" name="overview">
+            <el-row :gutter="12" class="summary-row">
+              <el-col :span="6"><el-card><div class="metric-title">副本</div><div class="metric-value">{{ workloadCockpit?.replicas || 0 }}</div></el-card></el-col>
+              <el-col :span="6"><el-card><div class="metric-title">就绪</div><div class="metric-value">{{ workloadCockpit?.ready || 0 }}</div></el-card></el-col>
+              <el-col :span="6"><el-card><div class="metric-title">状态</div><div class="metric-value">{{ workloadStatus(workloadCockpit).text }}</div></el-card></el-col>
+              <el-col :span="6"><el-card><div class="metric-title">关联域名</div><div class="metric-value">{{ relatedIngressHosts.length }}</div></el-card></el-col>
+            </el-row>
+
+            <el-descriptions :column="2" border>
+              <el-descriptions-item label="工作负载">{{ workloadCockpit?.kind || '-' }}/{{ workloadCockpit?.name || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="命名空间">{{ workloadCockpit?.namespace || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="镜像">{{ (workloadCockpit?.images || []).join(', ') || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="最近更新时间">{{ formatTime(workloadCockpit?.updated_at || workloadCockpit?.created_at) }}</el-descriptions-item>
+              <el-descriptions-item label="关联域名">
+                <span v-if="!relatedIngressHosts.length" class="muted-inline">-</span>
+                <el-link
+                  v-for="host in relatedIngressHosts"
+                  :key="host"
+                  :href="`http://${host}`"
+                  type="primary"
+                  target="_blank"
+                  class="mr-2"
+                >
+                  {{ host }}
+                </el-link>
+              </el-descriptions-item>
+              <el-descriptions-item label="关联 Ingress">{{ relatedIngressNames.join(', ') || '-' }}</el-descriptions-item>
+            </el-descriptions>
+          </el-tab-pane>
+
+          <el-tab-pane :label="`Pods (${workloadCockpitPods.length})`" name="pods">
+            <el-table :fit="true" :data="workloadCockpitPods" size="small" max-height="380" empty-text="暂无关联 Pod">
+              <el-table-column prop="name" label="Pod" min-width="180" />
+              <el-table-column prop="status" label="状态" width="110" />
+              <el-table-column prop="node" label="节点" min-width="150" />
+              <el-table-column prop="ip" label="IP" min-width="130" />
+              <el-table-column prop="restarts" label="重启" width="70" />
+              <el-table-column label="创建时间" min-width="160">
+                <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="110">
+                <template #default="{ row }">
+                  <el-button
+                    size="small"
+                    link
+                    @click="go('/k8s/pods')"
+                  >
+                    打开 Pods
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane :label="`事件 (${workloadCockpitEvents.length})`" name="events">
+            <el-table :fit="true" :data="workloadCockpitEvents" size="small" max-height="380" empty-text="暂无关联事件">
+              <el-table-column prop="type" label="类型" width="90">
+                <template #default="{ row }">
+                  <el-tag :type="eventTag(row.type)">{{ row.type || '-' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="reason" label="原因" min-width="130" />
+              <el-table-column prop="message" label="消息" min-width="220" show-overflow-tooltip />
+              <el-table-column prop="count" label="次数" width="80" />
+              <el-table-column label="最近时间" min-width="165">
+                <template #default="{ row }">{{ formatTime(row.last_seen || row.created_at) }}</template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="快捷操作" name="actions">
+            <div class="cockpit-action-grid">
+              <el-card shadow="never">
+                <div class="action-title">工作负载操作</div>
+                <div class="inline-actions">
+                  <el-button type="primary" plain @click="goToWorkloadDetail(workloadCockpit)">进入详情页</el-button>
+                  <el-button type="success" plain @click="restartWorkload(workloadCockpit)">滚动重启</el-button>
+                  <el-button
+                    v-if="normalizeText(workloadCockpit?.kind) !== 'daemonset'"
+                    type="warning"
+                    plain
+                    @click="scaleWorkload(workloadCockpit)"
+                  >
+                    扩缩容
+                  </el-button>
+                </div>
+              </el-card>
+              <el-card shadow="never">
+                <div class="action-title">关联排障入口</div>
+                <div class="inline-actions">
+                  <el-button plain @click="go('/k8s/deployments')">Deployment 运维台</el-button>
+                  <el-button plain @click="go('/k8s/pods')">Pod 列表</el-button>
+                  <el-button plain @click="go('/k8s/events')">事件诊断</el-button>
+                  <el-button plain @click="go('/k8s/services')">服务与 Ingress</el-button>
+                </div>
+              </el-card>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </el-drawer>
   </el-card>
 </template>
 
@@ -286,6 +425,11 @@ const clusterId = ref('')
 const activePanel = ref('workloads')
 const panelKeyword = ref('')
 const nowTs = ref(Date.now())
+const workloadCockpitVisible = ref(false)
+const workloadCockpitLoading = ref(false)
+const workloadCockpitTab = ref('overview')
+const workloadCockpit = ref(null)
+const workloadCockpitPods = ref([])
 let minuteTicker = null
 
 const stats = reactive({
@@ -379,6 +523,11 @@ const workloadHealthyRate = computed(() => {
   return Math.round((stats.healthyWorkloads / stats.workloadTotal) * 100)
 })
 
+const clusterName = computed(() => {
+  const current = clusters.value.find((item) => item.id === clusterId.value)
+  return current?.display_name || current?.name || '-'
+})
+
 const parseTimestamp = (value) => {
   if (!value) return null
   const ts = new Date(value).getTime()
@@ -464,6 +613,92 @@ const filteredEvents = computed(() =>
   filterRows(events.value, [(row) => row.type, (row) => row.reason, (row) => row.message, (row) => row.involved_object || row.involved, (row) => row.namespace])
 )
 
+const eventMatchesWorkload = (event, row) => {
+  if (!event || !row) return false
+  if (normalizeText(event.namespace) !== normalizeText(row.namespace)) return false
+  const involved = normalizeText(event.involved_object || event.involved)
+  const expect = `${normalizeText(row.kind)}/${normalizeText(row.name)}`
+  if (involved === expect) return true
+  if (!involved) return false
+  if (normalizeText(row.kind) === 'deployment' && involved.startsWith('replicaset/')) {
+    const rsName = involved.split('/')[1] || ''
+    return rsName.startsWith(`${normalizeText(row.name)}-`)
+  }
+  return false
+}
+
+const workloadCockpitEvents = computed(() =>
+  events.value
+    .filter((item) => eventMatchesWorkload(item, workloadCockpit.value))
+    .sort(
+      (a, b) =>
+        (parseTimestamp(b?.last_seen || b?.created_at) || 0) -
+        (parseTimestamp(a?.last_seen || a?.created_at) || 0)
+    )
+)
+
+const relatedIngresses = computed(() => {
+  if (!workloadCockpit.value) return []
+  const ns = normalizeText(workloadCockpit.value.namespace)
+  const wkName = normalizeText(workloadCockpit.value.name)
+  return ingresses.value.filter((item) => {
+    if (normalizeText(item.namespace) !== ns) return false
+    const nameMatched = normalizeText(item.name).includes(wkName)
+    if (nameMatched) return true
+    try {
+      return JSON.stringify(item).toLowerCase().includes(wkName)
+    } catch (err) {
+      return false
+    }
+  })
+})
+
+const relatedIngressHosts = computed(() =>
+  Array.from(
+    new Set(
+      relatedIngresses.value
+        .flatMap((item) => (Array.isArray(item.hosts) ? item.hosts : []))
+        .filter((item) => String(item || '').trim() !== '')
+    )
+  )
+)
+
+const relatedIngressNames = computed(() =>
+  relatedIngresses.value.map((item) => item.name).filter((item) => String(item || '').trim() !== '')
+)
+
+const podOwnedByWorkload = (pod, row) => {
+  if (!pod || !row) return false
+  if (normalizeText(pod.namespace) !== normalizeText(row.namespace)) return false
+  const ownerKind = normalizeText(pod.owner_kind)
+  const ownerName = normalizeText(pod.owner_name)
+  const kind = normalizeText(row.kind)
+  const name = normalizeText(row.name)
+  if (ownerKind === kind && ownerName === name) return true
+  if (kind === 'deployment' && ownerKind === 'replicaset') return ownerName.startsWith(`${name}-`)
+  if (kind === 'cronjob' && ownerKind === 'job') return ownerName.startsWith(`${name}-`)
+  const labels = pod.labels || {}
+  const appLabel = normalizeText(labels.app || labels['app.kubernetes.io/name'])
+  return appLabel !== '' && appLabel === name
+}
+
+const loadWorkloadPods = async (row) => {
+  if (!row || !clusterId.value || !row.namespace) {
+    workloadCockpitPods.value = []
+    return
+  }
+  workloadCockpitLoading.value = true
+  try {
+    const list = await fetchList(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${row.namespace}/pods`)
+    workloadCockpitPods.value = list.filter((item) => podOwnedByWorkload(item, row))
+  } catch (err) {
+    workloadCockpitPods.value = []
+    ElMessage.warning(getErrorMessage(err, '获取关联 Pod 失败'))
+  } finally {
+    workloadCockpitLoading.value = false
+  }
+}
+
 const fetchList = async (url, params = undefined) => {
   const res = await axios.get(url, { headers: authHeaders(), params })
   return Array.isArray(res.data?.data) ? res.data.data : []
@@ -536,7 +771,7 @@ const refreshClusterData = async () => {
   }
 }
 
-const openWorkload = (row) => {
+const goToWorkloadDetail = (row) => {
   if (!row) return
   router.push({
     path: '/k8s/workloads/detail',
@@ -547,6 +782,14 @@ const openWorkload = (row) => {
       name: row.name
     }
   })
+}
+
+const openWorkload = async (row) => {
+  if (!row) return
+  workloadCockpit.value = { ...row }
+  workloadCockpitVisible.value = true
+  workloadCockpitTab.value = 'overview'
+  await loadWorkloadPods(row)
 }
 
 const openCurrentPanel = () => {
@@ -704,6 +947,53 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 
+.cockpit-header {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cockpit-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.cockpit-subtitle {
+  margin-top: 4px;
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.cockpit-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cockpit-action-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.action-title {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.muted-inline {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
 @media (max-width: 1100px) {
   .page-actions {
     width: 100%;
@@ -725,6 +1015,10 @@ onUnmounted(() => {
 
   .panel-search {
     width: 100%;
+  }
+
+  .cockpit-header {
+    flex-direction: column;
   }
 }
 </style>

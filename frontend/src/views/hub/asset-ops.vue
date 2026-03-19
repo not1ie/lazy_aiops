@@ -363,21 +363,76 @@
     <el-drawer
       v-model="assetDetailVisible"
       :title="assetDetailTitle"
-      size="460px"
+      size="720px"
       :destroy-on-close="false"
     >
-      <el-skeleton v-if="assetDetailLoading" :rows="6" animated />
+      <el-skeleton v-if="assetDetailLoading" :rows="8" animated />
       <template v-else-if="assetDetailData">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item v-for="item in assetDetailRows" :key="item.label" :label="item.label">
-            {{ item.value }}
-          </el-descriptions-item>
-        </el-descriptions>
+        <el-tabs v-model="assetDetailTab">
+          <el-tab-pane label="概览" name="overview">
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item v-for="item in assetDetailRows" :key="item.label" :label="item.label">
+                {{ item.value }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </el-tab-pane>
 
-        <div class="asset-detail-actions">
-          <el-button type="primary" @click="go(assetDetailPath)">进入管理页</el-button>
-          <el-button v-if="assetDetailSessionID" @click="openJumpSessionByID(assetDetailSessionID)">会话详情</el-button>
-        </div>
+          <el-tab-pane :label="`关联会话 (${assetRelatedSessions.length})`" name="sessions">
+            <el-table :fit="true" :data="assetRelatedSessions" size="small" max-height="300" empty-text="暂无关联会话">
+              <el-table-column prop="session_no" label="会话号" min-width="140" />
+              <el-table-column prop="asset_name" label="资产" min-width="130" />
+              <el-table-column prop="username" label="用户" width="90" />
+              <el-table-column prop="status" label="状态" width="100" />
+              <el-table-column label="开始时间" min-width="150">
+                <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="130">
+                <template #default="{ row }">
+                  <el-button size="small" link type="primary" @click="openJumpSessionByID(row.id)">会话详情</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane :label="`关联风险 (${assetRelatedRisks.length})`" name="risks">
+            <el-table :fit="true" :data="assetRelatedRisks" size="small" max-height="300" empty-text="暂无关联风险">
+              <el-table-column prop="severity" label="级别" width="90">
+                <template #default="{ row }">
+                  <el-tag :type="severityTag(row.severity)">{{ String(row.severity || '').toUpperCase() || '-' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="rule_name" label="命中规则" min-width="160" />
+              <el-table-column prop="description" label="描述" min-width="190" show-overflow-tooltip />
+              <el-table-column label="触发时间" min-width="150">
+                <template #default="{ row }">{{ formatTime(row.fired_at) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="130">
+                <template #default="{ row }">
+                  <el-button size="small" link type="warning" @click="openAssetDetail('riskEvent', row)">查看详情</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="快捷操作" name="actions">
+            <div class="asset-action-grid">
+              <el-card shadow="never">
+                <div class="asset-action-title">常用操作</div>
+                <div class="asset-detail-actions">
+                  <el-button
+                    v-for="action in assetDetailActions"
+                    :key="action.key"
+                    :type="action.type || 'default'"
+                    :plain="action.plain !== false"
+                    @click="runAssetDetailQuickAction(action.key)"
+                  >
+                    {{ action.label }}
+                  </el-button>
+                </div>
+              </el-card>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </template>
       <el-empty v-else description="暂无详情数据" />
     </el-drawer>
@@ -430,6 +485,7 @@ const assetDetailVisible = ref(false)
 const assetDetailLoading = ref(false)
 const assetDetailType = ref('')
 const assetDetailData = ref(null)
+const assetDetailTab = ref('overview')
 let freshnessTicker = null
 
 const CHECK_STALE_HOURS = 24
@@ -1019,6 +1075,88 @@ const assetDetailRows = computed(() => {
   return []
 })
 
+const assetIdentityKeywords = computed(() => {
+  const item = assetDetailData.value || {}
+  const pool = [
+    item.name,
+    item.asset_name,
+    item.ip,
+    item.address,
+    item.session_no
+  ]
+  return Array.from(
+    new Set(
+      pool
+        .map((one) => normalizeText(one))
+        .filter((one) => one && one !== '-')
+    )
+  )
+})
+
+const assetRelatedSessions = computed(() => {
+  const type = assetDetailType.value
+  const item = assetDetailData.value || {}
+  if (type === 'pendingSession' || type === 'activeSession') {
+    return item.id ? jumpSessions.value.filter((row) => row.id === item.id) : []
+  }
+  if (type === 'riskEvent') {
+    return item.session_id ? jumpSessions.value.filter((row) => row.id === item.session_id) : []
+  }
+  const keys = assetIdentityKeywords.value
+  if (!keys.length) return []
+  return jumpSessions.value
+    .filter((row) => {
+      const content = normalizeText([row.asset_name, row.session_no, row.source_ip].filter(Boolean).join(' '))
+      return keys.some((key) => content.includes(key))
+    })
+    .slice(0, 30)
+})
+
+const assetRelatedRisks = computed(() => {
+  const type = assetDetailType.value
+  const item = assetDetailData.value || {}
+  if (type === 'riskEvent') {
+    return item.id ? jumpRiskEvents.value.filter((row) => row.id === item.id) : [item].filter(Boolean)
+  }
+  if (type === 'pendingSession' || type === 'activeSession') {
+    if (!item.id) return []
+    return jumpRiskEvents.value.filter((row) => row.session_id === item.id).slice(0, 30)
+  }
+  const keys = assetIdentityKeywords.value
+  if (!keys.length) return []
+  return jumpRiskEvents.value
+    .filter((row) => {
+      const content = normalizeText([row.asset_name, row.description, row.command].filter(Boolean).join(' '))
+      return keys.some((key) => content.includes(key))
+    })
+    .slice(0, 30)
+})
+
+const assetDetailActions = computed(() => {
+  const type = assetDetailType.value
+  const actions = [{ key: 'goManage', label: '进入管理页', type: 'primary', plain: false }]
+  if (type === 'host') actions.push({ key: 'testHost', label: '连通测试' })
+  if (type === 'network') actions.push({ key: 'testNetwork', label: '设备诊断' })
+  if (type === 'firewall') {
+    actions.push({ key: 'collectFirewall', label: 'SNMP采集', type: 'success' })
+    actions.push({ key: 'testFirewall', label: 'SNMP测试', type: 'warning' })
+  }
+  if (type === 'pendingSession') {
+    actions.push({ key: 'approveSession', label: '审批通过', type: 'success' })
+    actions.push({ key: 'rejectSession', label: '拒绝会话', type: 'warning' })
+  }
+  if (type === 'activeSession') {
+    actions.push({ key: 'connectSession', label: '连接会话', type: 'primary' })
+    actions.push({ key: 'disconnectSession', label: '断开会话', type: 'danger' })
+  }
+  if (type === 'riskEvent') {
+    actions.push({ key: 'disconnectRisk', label: '断开风险会话', type: 'danger' })
+  }
+  if (assetDetailSessionID.value) actions.push({ key: 'sessionDetail', label: '会话详情' })
+  actions.push({ key: 'openJump', label: '打开会话中心' })
+  return actions
+})
+
 const openOfflineDetail = (row) => {
   if (!row) return
   if (row.scopeType === 'host') openAssetDetail('host', row.source || row)
@@ -1031,6 +1169,7 @@ const openAssetDetail = async (type, row) => {
   if (!row) return
   assetDetailType.value = type
   assetDetailData.value = row
+  assetDetailTab.value = 'overview'
   assetDetailVisible.value = true
   assetDetailLoading.value = false
 
@@ -1059,6 +1198,58 @@ const openAssetDetail = async (type, row) => {
     ElMessage.warning(getErrorMessage(err, '详情加载失败，已展示缓存数据'))
   } finally {
     assetDetailLoading.value = false
+  }
+}
+
+const runAssetDetailQuickAction = async (key) => {
+  const row = assetDetailData.value
+  if (!row) return
+  if (key === 'goManage') {
+    go(assetDetailPath.value)
+    return
+  }
+  if (key === 'sessionDetail') {
+    openJumpSessionByID(assetDetailSessionID.value)
+    return
+  }
+  if (key === 'openJump') {
+    go('/jump/sessions')
+    return
+  }
+  if (key === 'testHost') {
+    await testHostConnectivity(row.id)
+    return
+  }
+  if (key === 'testNetwork') {
+    await testNetworkDevice(row.id)
+    return
+  }
+  if (key === 'collectFirewall') {
+    await collectFirewall(row)
+    return
+  }
+  if (key === 'testFirewall') {
+    await testFirewallSNMP(row)
+    return
+  }
+  if (key === 'approveSession') {
+    await approveJumpSession(row)
+    return
+  }
+  if (key === 'rejectSession') {
+    await rejectJumpSession(row)
+    return
+  }
+  if (key === 'connectSession') {
+    await connectJumpSession(row)
+    return
+  }
+  if (key === 'disconnectSession') {
+    await disconnectJumpSession(row)
+    return
+  }
+  if (key === 'disconnectRisk') {
+    await disconnectRiskSession(row)
   }
 }
 
@@ -1500,6 +1691,17 @@ onBeforeUnmount(() => {
   margin-top: 12px;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.asset-action-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.asset-action-title {
+  font-weight: 600;
+  margin-bottom: 10px;
 }
 
 .integration-tabs :deep(.el-tabs__header) {

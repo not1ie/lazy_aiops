@@ -202,10 +202,7 @@
               </template>
               <el-menu-item v-if="canAny(['cmdb','firewall','jump'])" index="/asset/ops">资产作战台</el-menu-item>
               <el-menu-item v-if="can('cmdb')" index="/asset/overview">资产总览</el-menu-item>
-              <el-menu-item v-if="can('cmdb')" index="/host">主机管理</el-menu-item>
-              <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
               <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
-              <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
@@ -214,8 +211,8 @@
                 <span>容器与K8s</span>
               </template>
               <el-menu-item v-if="can('k8s')" index="/k8s/overview">平台总览</el-menu-item>
-              <el-menu-item v-if="can('k8s')" index="/k8s/workloads">工作负载</el-menu-item>
-              <el-menu-item v-if="can('docker')" index="/docker">Docker管理</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/deployments">Deployments</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/pods">Pods</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['monitor','alert','domain'])" index="/monitor">
@@ -225,8 +222,6 @@
               </template>
               <el-menu-item index="/monitor/center">监控告警中心</el-menu-item>
               <el-menu-item v-if="can('domain')" index="/domain/center">域名监控中心</el-menu-item>
-              <el-menu-item v-if="can('alert')" index="/alert/events">告警事件</el-menu-item>
-              <el-menu-item v-if="can('domain')" index="/domain/ssl">域名与证书</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['workflow','executor','task','oncall'])" index="/automation">
@@ -236,8 +231,6 @@
               </template>
               <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
               <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
-              <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
-              <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['cicd','workorder'])" index="/cicd">
@@ -246,7 +239,6 @@
                 <span>CI/CD</span>
               </template>
               <el-menu-item index="/delivery/center">交付中心</el-menu-item>
-              <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['system:user','system:role','system:permission'])" index="/system">
@@ -256,7 +248,6 @@
               </template>
               <el-menu-item v-if="can('system:user')" index="/system/users">用户管理</el-menu-item>
               <el-menu-item v-if="can('system:role')" index="/system/roles">角色管理</el-menu-item>
-              <el-menu-item v-if="can('system:permission')" index="/system/menus">权限管理</el-menu-item>
             </el-sub-menu>
           </template>
         </el-menu>
@@ -1953,9 +1944,9 @@ const moduleQuickLinks = [
     links: [
       { label: '监控告警中心', path: '/monitor/center', permAny: ['monitor', 'alert', 'notify', 'domain'] },
       { label: '域名监控中心', path: '/domain/center', permAny: ['domain'] },
-      { label: '告警事件', path: '/alert/events', permAny: ['alert'] },
-      { label: '通知渠道', path: '/notify/channels', permAny: ['notify'] },
-      { label: '域名与证书', path: '/domain/ssl', permAny: ['domain'] }
+      { label: '告警事件', path: '/alert/events', permAny: ['alert'], hiddenByDefault: true },
+      { label: '通知渠道', path: '/notify/channels', permAny: ['notify'], hiddenByDefault: true },
+      { label: '域名与证书', path: '/domain/ssl', permAny: ['domain'], hiddenByDefault: true }
     ]
   },
   {
@@ -1963,11 +1954,11 @@ const moduleQuickLinks = [
     prefixes: ['/delivery', '/cicd', '/workorder', '/sqlaudit', '/gitops', '/application'],
     links: [
       { label: '交付中心', path: '/delivery/center', permAny: ['cicd', 'workorder'] },
-      { label: '流水线管理', path: '/cicd/pipelines', permAny: ['cicd'] },
-      { label: '执行记录', path: '/cicd/executions', permAny: ['cicd'] },
-      { label: '发布管理', path: '/cicd/releases', permAny: ['cicd'] },
-      { label: '工单管理', path: '/workorder/tickets', permAny: ['workorder'] },
-      { label: '应用中心', path: '/application', permAny: ['application'] }
+      { label: '流水线管理', path: '/cicd/pipelines', permAny: ['cicd'], hiddenByDefault: true },
+      { label: '执行记录', path: '/cicd/executions', permAny: ['cicd'], hiddenByDefault: true },
+      { label: '发布管理', path: '/cicd/releases', permAny: ['cicd'], hiddenByDefault: true },
+      { label: '工单管理', path: '/workorder/tickets', permAny: ['workorder'], hiddenByDefault: true },
+      { label: '应用中心', path: '/application', permAny: ['application'], hiddenByDefault: true }
     ]
   },
   {
@@ -1992,11 +1983,30 @@ const activeModuleGroup = computed(() => {
 const ensureModuleState = (group) => {
   if (!group?.key) return
   const defaults = group.links.map((item) => item.path)
+  const defaultsMap = new Map(group.links.map((item) => [item.path, item]))
   const existing = Array.isArray(moduleLinkState.value[group.key]) ? moduleLinkState.value[group.key] : []
-  const kept = existing.filter((item) => defaults.includes(item?.path))
+  const hasCustomVisibility = existing.some((item) => Boolean(item?.hidden || item?.pinned))
+  const kept = existing
+    .filter((item) => defaults.includes(item?.path))
+    .map((item) => {
+      if (hasCustomVisibility) return item
+      const meta = defaultsMap.get(item.path)
+      return {
+        ...item,
+        hidden: Boolean(meta?.hiddenByDefault)
+      }
+    })
   const existingPathSet = new Set(kept.map((item) => item.path))
   defaults.forEach((path) => {
-    if (!existingPathSet.has(path)) kept.push({ path, pinned: false, hidden: false })
+    const meta = defaultsMap.get(path) || {}
+    if (!existingPathSet.has(path)) {
+      kept.push({ path, pinned: false, hidden: Boolean(meta.hiddenByDefault) })
+      return
+    }
+    const idx = kept.findIndex((item) => item.path === path)
+    if (idx >= 0 && (kept[idx].hidden === undefined || kept[idx].hidden === null)) {
+      kept[idx] = { ...kept[idx], hidden: Boolean(meta.hiddenByDefault) }
+    }
   })
   moduleLinkState.value = { ...moduleLinkState.value, [group.key]: kept }
 }
@@ -2085,7 +2095,7 @@ const handleModuleLinksCommand = (command) => {
   if (command === 'reset') {
     moduleLinkState.value = {
       ...moduleLinkState.value,
-      [group.key]: group.links.map((item) => ({ path: item.path, pinned: false, hidden: false }))
+      [group.key]: group.links.map((item) => ({ path: item.path, pinned: false, hidden: Boolean(item.hiddenByDefault) }))
     }
     persistModuleLinkState()
     return
