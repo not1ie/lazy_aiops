@@ -29,7 +29,7 @@
     </el-row>
 
     <div class="table-scroll">
-      <el-table :fit="true" :data="filteredDeployments" stripe v-loading="loading" style="width: 100%; min-width: 1880px">
+      <el-table :fit="false" :data="filteredDeployments" stripe v-loading="loading" style="width: 100%; min-width: 2160px">
         <el-table-column prop="namespace" label="命名空间" min-width="130" />
         <el-table-column prop="name" label="名称" min-width="180" />
         <el-table-column label="域名解析" min-width="230">
@@ -62,27 +62,31 @@
             <el-progress :percentage="rolloutPercent(row)" :status="rolloutStatus(row)" :stroke-width="10" />
           </template>
         </el-table-column>
-        <el-table-column label="镜像" min-width="300">
+        <el-table-column label="镜像" min-width="360">
           <template #default="{ row }">
-            <el-tag v-for="img in row.images || []" :key="img" size="small" class="mr-2">{{ img }}</el-tag>
+            <el-tooltip v-for="img in row.images || []" :key="img" :content="img" placement="top">
+              <el-tag size="small" class="mr-2 image-tag">{{ img }}</el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" min-width="170">
+        <el-table-column label="创建时间" width="200">
           <template #default="{ row }">
             <div>{{ formatTime(row.created_at) }}</div>
             <div class="text-xs text-gray-400">{{ formatSince(row.created_at) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="640" fixed="right">
+        <el-table-column label="操作" width="560" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openDetail(row)">详情</el-button>
-            <el-button size="small" type="primary" plain @click="openPods(row)">Pods</el-button>
-            <el-button size="small" type="success" plain @click="openOps(row, 'domains')">域名</el-button>
-            <el-button size="small" type="warning" plain @click="openOps(row, 'env')">环境变量</el-button>
-            <el-button size="small" type="info" plain @click="openOps(row, 'image')">镜像</el-button>
-            <el-button size="small" @click="scaleDeployment(row)">扩缩容</el-button>
-            <el-button size="small" type="warning" @click="restartDeployment(row)">重启</el-button>
-            <el-button size="small" type="danger" plain @click="deleteDeployment(row)">删除</el-button>
+            <div class="action-wrap">
+              <el-button size="small" @click="openDetail(row)">详情</el-button>
+              <el-button size="small" type="primary" plain @click="openPods(row)">Pods</el-button>
+              <el-button size="small" type="success" plain @click="openOps(row, 'domains')">域名</el-button>
+              <el-button size="small" type="warning" plain @click="openOps(row, 'env')">环境变量</el-button>
+              <el-button size="small" type="info" plain @click="openOps(row, 'image')">镜像</el-button>
+              <el-button size="small" @click="scaleDeployment(row)">扩缩容</el-button>
+              <el-button size="small" type="warning" @click="restartDeployment(row)">重启</el-button>
+              <el-button size="small" type="danger" plain @click="deleteDeployment(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -761,6 +765,18 @@ onMounted(async () => {
 .mt-12 { margin-top: 12px; }
 .domain-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .domain-link { font-size: 12px; }
+.image-tag {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.action-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .ops-overview-desc { margin-bottom: 16px; }
 .ops-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .ops-toolbar.wrap { flex-wrap: wrap; }
@@ -768,4 +784,10 @@ onMounted(async () => {
 .overview-cards { margin-bottom: 12px; }
 .ops-section { margin-top: 12px; }
 .section-title { font-size: 13px; color: #606266; margin-bottom: 8px; }
+
+@media (max-width: 1600px) {
+  .image-tag {
+    max-width: 240px;
+  }
+}
 </style>
