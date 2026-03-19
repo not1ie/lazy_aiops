@@ -90,12 +90,50 @@ type WorkloadDetail struct {
 	CreatedAt time.Time         `json:"created_at"`
 }
 
+type DeploymentEnvVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type DeploymentContainerRuntime struct {
+	Name  string             `json:"name"`
+	Image string             `json:"image"`
+	Env   []DeploymentEnvVar `json:"env"`
+}
+
+type DeploymentServiceOption struct {
+	Name  string  `json:"name"`
+	Ports []int32 `json:"ports"`
+}
+
+type DeploymentRuntime struct {
+	ClusterID          string                       `json:"cluster_id"`
+	Namespace          string                       `json:"namespace"`
+	Name               string                       `json:"name"`
+	Replicas           int32                        `json:"replicas"`
+	Ready              int32                        `json:"ready"`
+	Updated            int32                        `json:"updated"`
+	Available          int32                        `json:"available"`
+	Generation         int64                        `json:"generation"`
+	ObservedGeneration int64                        `json:"observed_generation"`
+	Rolling            bool                         `json:"rolling"`
+	Containers         []DeploymentContainerRuntime `json:"containers"`
+	Domains            []string                     `json:"domains"`
+	ManagedDomains     []string                     `json:"managed_domains"`
+	ManagedIngress     string                       `json:"managed_ingress"`
+	IngressClass       string                       `json:"ingress_class"`
+	ServiceName        string                       `json:"service_name"`
+	ServiceCandidates  []DeploymentServiceOption    `json:"service_candidates"`
+}
+
 // Pod Pod信息
 type Pod struct {
 	ClusterID  string            `json:"cluster_id"`
 	Namespace  string            `json:"namespace"`
 	Name       string            `json:"name"`
 	Status     string            `json:"status"`
+	Phase      string            `json:"phase"`
+	Reason     string            `json:"reason,omitempty"`
 	Node       string            `json:"node"`
 	IP         string            `json:"ip"`
 	Labels     map[string]string `json:"labels"`
@@ -103,6 +141,8 @@ type Pod struct {
 	OwnerName  string            `json:"owner_name"`
 	Containers []Container       `json:"containers"`
 	Restarts   int32             `json:"restarts"`
+	Ready      int32             `json:"ready"`
+	Total      int32             `json:"total"`
 	CreatedAt  time.Time         `json:"created_at"`
 }
 

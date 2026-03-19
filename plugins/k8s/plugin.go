@@ -68,6 +68,10 @@ func (p *K8sPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.DELETE("/clusters/:id/namespaces/:ns/deployments/:name", h.DeleteDeployment)
 	g.PUT("/clusters/:id/namespaces/:ns/deployments/:name/scale", h.ScaleDeployment)
 	g.POST("/clusters/:id/namespaces/:ns/deployments/:name/restart", h.RestartDeployment)
+	g.GET("/clusters/:id/namespaces/:ns/deployments/:name/runtime", h.GetDeploymentRuntime)
+	g.PUT("/clusters/:id/namespaces/:ns/deployments/:name/env", h.UpdateDeploymentEnv)
+	g.PUT("/clusters/:id/namespaces/:ns/deployments/:name/image", h.UpdateDeploymentImage)
+	g.PUT("/clusters/:id/namespaces/:ns/deployments/:name/domains", h.UpdateDeploymentDomains)
 
 	// Pod管理
 	g.GET("/clusters/:id/namespaces/:ns/pods", h.ListPods)

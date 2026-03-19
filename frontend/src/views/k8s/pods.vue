@@ -17,11 +17,7 @@
         </el-select>
         <el-input v-model="keyword" placeholder="搜索名称/节点/IP" class="w-52" clearable />
         <el-select v-model="statusFilter" placeholder="状态" class="w-40" clearable>
-          <el-option label="Running" value="Running" />
-          <el-option label="Pending" value="Pending" />
-          <el-option label="Succeeded" value="Succeeded" />
-          <el-option label="Failed" value="Failed" />
-          <el-option label="Unknown" value="Unknown" />
+          <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
         </el-select>
         <el-select v-model="ownerKindFilter" placeholder="控制器类型" class="w-40" clearable>
           <el-option label="Deployment" value="Deployment" />
@@ -42,8 +38,8 @@
     <el-row :gutter="16" class="summary-row">
       <el-col :span="4"><el-card><div class="card-title">总数</div><div class="card-value">{{ podStats.total }}</div></el-card></el-col>
       <el-col :span="4"><el-card><div class="card-title">Running</div><div class="card-value">{{ podStats.running }}</div></el-card></el-col>
-      <el-col :span="4"><el-card><div class="card-title">Pending</div><div class="card-value">{{ podStats.pending }}</div></el-card></el-col>
-      <el-col :span="4"><el-card><div class="card-title">Failed</div><div class="card-value">{{ podStats.failed }}</div></el-card></el-col>
+      <el-col :span="4"><el-card><div class="card-title">待就绪</div><div class="card-value">{{ podStats.pending }}</div></el-card></el-col>
+      <el-col :span="4"><el-card><div class="card-title">异常</div><div class="card-value">{{ podStats.failed }}</div></el-card></el-col>
       <el-col :span="4"><el-card><div class="card-title">Succeeded</div><div class="card-value">{{ podStats.succeeded }}</div></el-card></el-col>
       <el-col :span="4"><el-card><div class="card-title">重启次数</div><div class="card-value">{{ podStats.restarts }}</div></el-card></el-col>
     </el-row>
@@ -55,9 +51,12 @@
       <el-table-column prop="name" label="名称" min-width="220" />
       <el-table-column label="状态" width="120">
         <template #default="scope">
-          <el-tag :type="statusType(scope.row.status)">{{ scope.row.status }}</el-tag>
+          <el-tooltip :content="scope.row.reason || scope.row.phase || ''" placement="top" :disabled="!scope.row.reason && !scope.row.phase">
+            <el-tag :type="statusType(scope.row.status)">{{ scope.row.status }}</el-tag>
+          </el-tooltip>
         </template>
       </el-table-column>
+      <el-table-column prop="phase" label="阶段" width="110" />
       <el-table-column label="控制器" min-width="180">
         <template #default="scope">
           <span class="text-xs text-gray-500" v-if="!scope.row.owner_kind">-</span>
@@ -144,6 +143,14 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import {
+  buildPodStatusOptions,
+  isPodStatusCritical,
+  isPodStatusHealthy,
+  isPodStatusPending,
+  normalizePodStatus,
+  podStatusType
+} from '@/utils/podStatus'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -208,7 +215,8 @@ const fetchPods = async () => {
 const filteredPods = computed(() => {
   const key = keyword.value.trim().toLowerCase()
   return pods.value.filter(p => {
-    if (statusFilter.value && p.status !== statusFilter.value) return false
+    const status = normalizePodStatus(p.status, p.phase)
+    if (statusFilter.value && status !== statusFilter.value) return false
     if (nodeFilter.value && p.node !== nodeFilter.value) return false
     if (ownerKindFilter.value && p.owner_kind !== ownerKindFilter.value) return false
     if (ownerNameFilter.value && p.owner_name !== ownerNameFilter.value) return false
@@ -223,6 +231,8 @@ const filteredPods = computed(() => {
   })
 })
 
+const statusOptions = computed(() => buildPodStatusOptions(pods.value.map((item) => normalizePodStatus(item.status, item.phase))))
+
 const nodes = computed(() => {
   const set = new Set(pods.value.map(p => p.node).filter(Boolean))
   return Array.from(set)
@@ -231,28 +241,18 @@ const nodes = computed(() => {
 const podStats = computed(() => {
   const stats = { total: filteredPods.value.length, running: 0, pending: 0, failed: 0, succeeded: 0, restarts: 0 }
   filteredPods.value.forEach((p) => {
-    if (p.status === 'Running') stats.running += 1
-    if (p.status === 'Pending') stats.pending += 1
-    if (p.status === 'Failed') stats.failed += 1
-    if (p.status === 'Succeeded') stats.succeeded += 1
+    const status = normalizePodStatus(p.status, p.phase)
+    if (status === 'Running') stats.running += 1
+    if (status === 'Succeeded' || status === 'Completed') stats.succeeded += 1
+    if (isPodStatusPending(status)) stats.pending += 1
+    if (isPodStatusCritical(status)) stats.failed += 1
     stats.restarts += Number(p.restarts || 0)
   })
   return stats
 })
 
 const statusType = (status) => {
-  switch (status) {
-    case 'Running':
-      return 'success'
-    case 'Pending':
-      return 'warning'
-    case 'Failed':
-      return 'danger'
-    case 'Succeeded':
-      return 'info'
-    default:
-      return 'info'
-  }
+  return podStatusType(normalizePodStatus(status))
 }
 
 const handleClusterChange = async () => {

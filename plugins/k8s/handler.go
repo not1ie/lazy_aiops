@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -40,6 +42,8 @@ type K8sHandler struct {
 func NewK8sHandler(db *gorm.DB, auth *core.AuthService) *K8sHandler {
 	return &K8sHandler{db: db, auth: auth}
 }
+
+var ingressHostPattern = regexp.MustCompile(`^\*\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 func (h *K8sHandler) getClient(clusterID string) (*kubernetes.Clientset, error) {
 	var cluster Cluster
@@ -1098,6 +1102,636 @@ func (h *K8sHandler) RestartDeployment(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "重启成功"})
 }
 
+func (h *K8sHandler) GetDeploymentRuntime(c *gin.Context) {
+	id := c.Param("id")
+	ns := c.Param("ns")
+	name := c.Param("name")
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	deploy, err := client.AppsV1().Deployments(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	services, _ := client.CoreV1().Services(ns).List(context.Background(), metav1.ListOptions{})
+	ingresses, _ := client.NetworkingV1().Ingresses(ns).List(context.Background(), metav1.ListOptions{})
+	serviceHostMap := buildServiceHostMap(ingresses.Items)
+	domains := resolveDeploymentDomains(*deploy, services.Items, serviceHostMap)
+	matchedServices := findDeploymentMatchedServices(*deploy, services.Items)
+	serviceOptions := make([]DeploymentServiceOption, 0, len(matchedServices))
+	for _, svc := range matchedServices {
+		ports := make([]int32, 0, len(svc.Spec.Ports))
+		for _, port := range svc.Spec.Ports {
+			ports = append(ports, port.Port)
+		}
+		serviceOptions = append(serviceOptions, DeploymentServiceOption{
+			Name:  svc.Name,
+			Ports: ports,
+		})
+	}
+
+	managedIngressName := managedIngressNameForDeployment(deploy.Name)
+	managedDomains := make([]string, 0)
+	managedIngressClass := ""
+	managedServiceName := ""
+	if ing, getErr := client.NetworkingV1().Ingresses(ns).Get(context.Background(), managedIngressName, metav1.GetOptions{}); getErr == nil {
+		for _, rule := range ing.Spec.Rules {
+			host := strings.TrimSpace(rule.Host)
+			if host != "" {
+				managedDomains = append(managedDomains, host)
+			}
+			if managedServiceName == "" && rule.HTTP != nil {
+				for _, path := range rule.HTTP.Paths {
+					if path.Backend.Service != nil {
+						managedServiceName = path.Backend.Service.Name
+						break
+					}
+				}
+			}
+		}
+		if ing.Spec.IngressClassName != nil {
+			managedIngressClass = *ing.Spec.IngressClassName
+		}
+	}
+	sort.Strings(managedDomains)
+	managedDomains = uniqueStrings(managedDomains)
+
+	containers := make([]DeploymentContainerRuntime, 0, len(deploy.Spec.Template.Spec.Containers))
+	for _, ctn := range deploy.Spec.Template.Spec.Containers {
+		envs := make([]DeploymentEnvVar, 0, len(ctn.Env))
+		for _, env := range ctn.Env {
+			envs = append(envs, DeploymentEnvVar{Name: env.Name, Value: env.Value})
+		}
+		sort.Slice(envs, func(i, j int) bool { return envs[i].Name < envs[j].Name })
+		containers = append(containers, DeploymentContainerRuntime{
+			Name:  ctn.Name,
+			Image: ctn.Image,
+			Env:   envs,
+		})
+	}
+
+	replicas := int32(0)
+	if deploy.Spec.Replicas != nil {
+		replicas = *deploy.Spec.Replicas
+	}
+	rolling := deploy.Status.UpdatedReplicas < replicas ||
+		deploy.Status.AvailableReplicas < replicas ||
+		deploy.Status.ObservedGeneration < deploy.Generation
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": DeploymentRuntime{
+			ClusterID:          id,
+			Namespace:          ns,
+			Name:               name,
+			Replicas:           replicas,
+			Ready:              deploy.Status.ReadyReplicas,
+			Updated:            deploy.Status.UpdatedReplicas,
+			Available:          deploy.Status.AvailableReplicas,
+			Generation:         deploy.Generation,
+			ObservedGeneration: deploy.Status.ObservedGeneration,
+			Rolling:            rolling,
+			Containers:         containers,
+			Domains:            domains,
+			ManagedDomains:     managedDomains,
+			ManagedIngress:     managedIngressName,
+			IngressClass:       managedIngressClass,
+			ServiceName:        managedServiceName,
+			ServiceCandidates:  serviceOptions,
+		},
+	})
+}
+
+func (h *K8sHandler) UpdateDeploymentEnv(c *gin.Context) {
+	id := c.Param("id")
+	ns := c.Param("ns")
+	name := c.Param("name")
+
+	var req struct {
+		Container string            `json:"container"`
+		Env       map[string]string `json:"env"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	deploy, err := client.AppsV1().Deployments(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	containerIndex := findDeploymentContainerIndex(deploy.Spec.Template.Spec.Containers, req.Container)
+	if containerIndex < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "容器不存在"})
+		return
+	}
+
+	envKeys := make([]string, 0, len(req.Env))
+	for k := range req.Env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	envVars := make([]corev1.EnvVar, 0, len(envKeys))
+	for _, key := range envKeys {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  trimmedKey,
+			Value: req.Env[key],
+		})
+	}
+
+	deploy.Spec.Template.Spec.Containers[containerIndex].Env = envVars
+	if deploy.Spec.Template.Annotations == nil {
+		deploy.Spec.Template.Annotations = map[string]string{}
+	}
+	deploy.Spec.Template.Annotations["lazyautoops/env-updated-at"] = time.Now().UTC().Format(time.RFC3339)
+
+	updated, err := client.AppsV1().Deployments(ns).Update(context.Background(), deploy, metav1.UpdateOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "环境变量已更新，已触发滚动发布",
+		"data": gin.H{
+			"generation": updated.Generation,
+			"container":  updated.Spec.Template.Spec.Containers[containerIndex].Name,
+		},
+	})
+}
+
+func (h *K8sHandler) UpdateDeploymentImage(c *gin.Context) {
+	id := c.Param("id")
+	ns := c.Param("ns")
+	name := c.Param("name")
+
+	var req struct {
+		Container string `json:"container"`
+		Image     string `json:"image" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Image) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "镜像不能为空"})
+		return
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+
+	deploy, err := client.AppsV1().Deployments(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	containerIndex := findDeploymentContainerIndex(deploy.Spec.Template.Spec.Containers, req.Container)
+	if containerIndex < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "容器不存在"})
+		return
+	}
+
+	deploy.Spec.Template.Spec.Containers[containerIndex].Image = strings.TrimSpace(req.Image)
+	if deploy.Spec.Template.Annotations == nil {
+		deploy.Spec.Template.Annotations = map[string]string{}
+	}
+	deploy.Spec.Template.Annotations["lazyautoops/image-updated-at"] = time.Now().UTC().Format(time.RFC3339)
+
+	updated, err := client.AppsV1().Deployments(ns).Update(context.Background(), deploy, metav1.UpdateOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "镜像已更新，已触发滚动发布",
+		"data": gin.H{
+			"generation": updated.Generation,
+			"container":  updated.Spec.Template.Spec.Containers[containerIndex].Name,
+			"image":      updated.Spec.Template.Spec.Containers[containerIndex].Image,
+		},
+	})
+}
+
+func (h *K8sHandler) UpdateDeploymentDomains(c *gin.Context) {
+	id := c.Param("id")
+	ns := c.Param("ns")
+	name := c.Param("name")
+
+	var req struct {
+		Domains      []string `json:"domains"`
+		ServiceName  string   `json:"service_name"`
+		ServicePort  int32    `json:"service_port"`
+		IngressClass string   `json:"ingress_class"`
+		Path         string   `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	domains := normalizeIngressHosts(req.Domains)
+	for _, host := range domains {
+		if !ingressHostPattern.MatchString(host) {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": fmt.Sprintf("域名格式错误: %s", host)})
+			return
+		}
+	}
+
+	client, err := h.getClient(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	deploy, err := client.AppsV1().Deployments(ns).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	path := strings.TrimSpace(req.Path)
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	ingressClass := strings.TrimSpace(req.IngressClass)
+	managedIngressName := managedIngressNameForDeployment(deploy.Name)
+	managedServiceName := strings.TrimSpace(req.ServiceName)
+
+	services, _ := client.CoreV1().Services(ns).List(context.Background(), metav1.ListOptions{})
+	matchedServices := findDeploymentMatchedServices(*deploy, services.Items)
+	matchedServiceNames := make([]string, 0, len(matchedServices))
+	for _, svc := range matchedServices {
+		matchedServiceNames = append(matchedServiceNames, svc.Name)
+	}
+	sort.Strings(matchedServiceNames)
+
+	servicePort := req.ServicePort
+	if managedServiceName == "" && len(matchedServices) > 0 {
+		managedServiceName = matchedServices[0].Name
+	}
+	if managedServiceName == "" {
+		managedServiceName = managedServiceNameForDeployment(deploy.Name)
+	}
+
+	service, svcErr := client.CoreV1().Services(ns).Get(context.Background(), managedServiceName, metav1.GetOptions{})
+	if svcErr != nil {
+		containerPort := int32(80)
+		if len(deploy.Spec.Template.Spec.Containers) > 0 && len(deploy.Spec.Template.Spec.Containers[0].Ports) > 0 {
+			containerPort = deploy.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort
+		}
+		if servicePort <= 0 {
+			servicePort = containerPort
+		}
+		selector := deploy.Spec.Template.Labels
+		if len(selector) == 0 {
+			selector = deploy.Spec.Selector.MatchLabels
+		}
+		if len(selector) == 0 {
+			selector = map[string]string{"app": deploy.Name}
+		}
+		newSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      managedServiceName,
+				Namespace: ns,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "lazy-auto-ops",
+					"lazyautoops.io/deployment":    deploy.Name,
+				},
+			},
+			Spec: corev1.ServiceSpec{
+				Type:     corev1.ServiceTypeClusterIP,
+				Selector: selector,
+				Ports: []corev1.ServicePort{
+					{
+						Name:       "http",
+						Port:       servicePort,
+						Protocol:   corev1.ProtocolTCP,
+						TargetPort: intstr.FromInt(int(containerPort)),
+					},
+				},
+			},
+		}
+		createdSvc, createErr := client.CoreV1().Services(ns).Create(context.Background(), newSvc, metav1.CreateOptions{})
+		if createErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建 Service 失败: " + createErr.Error()})
+			return
+		}
+		service = createdSvc
+	} else if servicePort <= 0 && len(service.Spec.Ports) > 0 {
+		servicePort = service.Spec.Ports[0].Port
+	}
+	if servicePort <= 0 {
+		servicePort = 80
+	}
+
+	if len(domains) == 0 {
+		if err := client.NetworkingV1().Ingresses(ns).Delete(context.Background(), managedIngressName, metav1.DeleteOptions{}); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "删除 Ingress 失败: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code":    0,
+			"message": "已清空托管域名解析",
+			"data": gin.H{
+				"domains":            []string{},
+				"service_name":       service.Name,
+				"matched_services":   matchedServiceNames,
+				"managed_ingress":    managedIngressName,
+				"ingress_class_name": ingressClass,
+				"service_port":       servicePort,
+			},
+		})
+		return
+	}
+
+	pathType := networkingv1.PathTypePrefix
+	rules := make([]networkingv1.IngressRule, 0, len(domains))
+	for _, host := range domains {
+		rules = append(rules, networkingv1.IngressRule{
+			Host: host,
+			IngressRuleValue: networkingv1.IngressRuleValue{
+				HTTP: &networkingv1.HTTPIngressRuleValue{
+					Paths: []networkingv1.HTTPIngressPath{
+						{
+							Path:     path,
+							PathType: &pathType,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: service.Name,
+									Port: networkingv1.ServiceBackendPort{Number: servicePort},
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+	}
+
+	ingress, getIngressErr := client.NetworkingV1().Ingresses(ns).Get(context.Background(), managedIngressName, metav1.GetOptions{})
+	if getIngressErr != nil {
+		ingress = &networkingv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      managedIngressName,
+				Namespace: ns,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "lazy-auto-ops",
+					"lazyautoops.io/deployment":    deploy.Name,
+				},
+			},
+			Spec: networkingv1.IngressSpec{Rules: rules},
+		}
+		if ingressClass != "" {
+			ingress.Spec.IngressClassName = &ingressClass
+		}
+		if _, err := client.NetworkingV1().Ingresses(ns).Create(context.Background(), ingress, metav1.CreateOptions{}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建 Ingress 失败: " + err.Error()})
+			return
+		}
+	} else {
+		ingress.Spec.Rules = rules
+		if ingressClass != "" {
+			ingress.Spec.IngressClassName = &ingressClass
+		}
+		if _, err := client.NetworkingV1().Ingresses(ns).Update(context.Background(), ingress, metav1.UpdateOptions{}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "更新 Ingress 失败: " + err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "域名解析已更新",
+		"data": gin.H{
+			"domains":            domains,
+			"service_name":       service.Name,
+			"matched_services":   matchedServiceNames,
+			"managed_ingress":    managedIngressName,
+			"ingress_class_name": ingressClass,
+			"service_port":       servicePort,
+		},
+	})
+}
+
+func findDeploymentContainerIndex(containers []corev1.Container, containerName string) int {
+	if len(containers) == 0 {
+		return -1
+	}
+	if strings.TrimSpace(containerName) == "" {
+		return 0
+	}
+	for idx, ctn := range containers {
+		if ctn.Name == containerName {
+			return idx
+		}
+	}
+	return -1
+}
+
+func findDeploymentMatchedServices(deploy appsv1.Deployment, services []corev1.Service) []corev1.Service {
+	result := make([]corev1.Service, 0)
+	podLabels := deploy.Spec.Template.Labels
+	if len(podLabels) == 0 {
+		podLabels = deploy.Spec.Selector.MatchLabels
+	}
+	if len(podLabels) == 0 {
+		return result
+	}
+	for _, svc := range services {
+		if svc.Namespace != deploy.Namespace {
+			continue
+		}
+		if selectorMatches(svc.Spec.Selector, podLabels) {
+			result = append(result, svc)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
+func managedIngressNameForDeployment(name string) string {
+	return normalizeK8sName(name, "ing")
+}
+
+func managedServiceNameForDeployment(name string) string {
+	return normalizeK8sName(name, "svc")
+}
+
+func normalizeK8sName(name, suffix string) string {
+	base := strings.ToLower(strings.TrimSpace(name))
+	base = strings.ReplaceAll(base, "_", "-")
+	base = strings.ReplaceAll(base, ".", "-")
+	if base == "" {
+		base = "deployment"
+	}
+	candidate := fmt.Sprintf("%s-%s", base, suffix)
+	if len(candidate) <= 63 {
+		return strings.Trim(candidate, "-")
+	}
+	maxBase := 63 - len(suffix) - 1
+	if maxBase < 1 {
+		return suffix
+	}
+	base = strings.Trim(base[:maxBase], "-")
+	if base == "" {
+		base = "d"
+	}
+	return fmt.Sprintf("%s-%s", base, suffix)
+}
+
+func normalizeIngressHosts(hosts []string) []string {
+	uniq := map[string]struct{}{}
+	result := make([]string, 0, len(hosts))
+	for _, raw := range hosts {
+		host := strings.ToLower(strings.TrimSpace(raw))
+		if host == "" {
+			continue
+		}
+		if _, ok := uniq[host]; ok {
+			continue
+		}
+		uniq[host] = struct{}{}
+		result = append(result, host)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func uniqueStrings(items []string) []string {
+	if len(items) == 0 {
+		return items
+	}
+	uniq := make(map[string]struct{}, len(items))
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if _, exists := uniq[item]; exists {
+			continue
+		}
+		uniq[item] = struct{}{}
+		result = append(result, item)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func podReadyCount(statuses []corev1.ContainerStatus) (ready int32, total int32) {
+	total = int32(len(statuses))
+	for _, cs := range statuses {
+		if cs.Ready {
+			ready++
+		}
+	}
+	return ready, total
+}
+
+func podConditionReady(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func podDisplayStatus(pod *corev1.Pod) (string, string) {
+	if pod == nil {
+		return "Unknown", ""
+	}
+	if pod.DeletionTimestamp != nil {
+		return "Terminating", "Pod deleting"
+	}
+
+	for _, cs := range pod.Status.InitContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason, cs.State.Waiting.Message
+		}
+		if cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
+			reason := cs.State.Terminated.Reason
+			if reason == "" {
+				reason = "InitFailed"
+			}
+			return reason, cs.State.Terminated.Message
+		}
+	}
+
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason, cs.State.Waiting.Message
+		}
+		if cs.State.Terminated != nil {
+			reason := cs.State.Terminated.Reason
+			if reason == "" {
+				if cs.State.Terminated.ExitCode == 0 {
+					reason = "Completed"
+				} else {
+					reason = "Terminated"
+				}
+			}
+			if reason != "Completed" {
+				return reason, cs.State.Terminated.Message
+			}
+		}
+		if cs.LastTerminationState.Terminated != nil {
+			last := cs.LastTerminationState.Terminated
+			if last.Reason == "OOMKilled" {
+				return "OOMKilled", last.Message
+			}
+		}
+	}
+
+	phase := string(pod.Status.Phase)
+	ready, total := podReadyCount(pod.Status.ContainerStatuses)
+	switch phase {
+	case "Running":
+		if !podConditionReady(pod) || (total > 0 && ready < total) {
+			return "NotReady", fmt.Sprintf("%d/%d containers ready", ready, total)
+		}
+		return "Running", ""
+	case "Pending":
+		if pod.Status.Reason != "" {
+			return pod.Status.Reason, pod.Status.Message
+		}
+		return "Pending", pod.Status.Message
+	case "Failed":
+		if pod.Status.Reason != "" {
+			return pod.Status.Reason, pod.Status.Message
+		}
+		return "Failed", pod.Status.Message
+	case "Succeeded":
+		return "Succeeded", ""
+	default:
+		if pod.Status.Reason != "" {
+			return pod.Status.Reason, pod.Status.Message
+		}
+		if phase == "" {
+			return "Unknown", ""
+		}
+		return phase, pod.Status.Message
+	}
+}
+
 // ListPods Pod列表
 func (h *K8sHandler) ListPods(c *gin.Context) {
 	id := c.Param("id")
@@ -1122,16 +1756,22 @@ func (h *K8sHandler) ListPods(c *gin.Context) {
 	result := make([]Pod, 0)
 	for _, p := range pods.Items {
 		ownerKind, ownerName := resolveOwnerRef(&p, nil)
+		status, reason := podDisplayStatus(&p)
+		ready, total := podReadyCount(p.Status.ContainerStatuses)
 		pod := Pod{
 			ClusterID: id,
 			Namespace: p.Namespace,
 			Name:      p.Name,
-			Status:    string(p.Status.Phase),
+			Status:    status,
+			Phase:     string(p.Status.Phase),
+			Reason:    reason,
 			Node:      p.Spec.NodeName,
 			IP:        p.Status.PodIP,
 			Labels:    p.Labels,
 			OwnerKind: ownerKind,
 			OwnerName: ownerName,
+			Ready:     ready,
+			Total:     total,
 			CreatedAt: p.CreationTimestamp.Time,
 		}
 
@@ -1139,11 +1779,21 @@ func (h *K8sHandler) ListPods(c *gin.Context) {
 			pod.Restarts += cs.RestartCount
 			state := "unknown"
 			if cs.State.Running != nil {
-				state = "running"
+				state = "Running"
 			} else if cs.State.Waiting != nil {
-				state = cs.State.Waiting.Reason
+				if cs.State.Waiting.Reason != "" {
+					state = cs.State.Waiting.Reason
+				} else {
+					state = "Waiting"
+				}
 			} else if cs.State.Terminated != nil {
-				state = "terminated"
+				if cs.State.Terminated.Reason != "" {
+					state = cs.State.Terminated.Reason
+				} else if cs.State.Terminated.ExitCode == 0 {
+					state = "Completed"
+				} else {
+					state = "Terminated"
+				}
 			}
 			pod.Containers = append(pod.Containers, Container{
 				Name:  cs.Name,
@@ -1178,27 +1828,43 @@ func (h *K8sHandler) GetPod(c *gin.Context) {
 	}
 
 	ownerKind, ownerName := resolveOwnerRef(p, nil)
+	status, reason := podDisplayStatus(p)
+	ready, total := podReadyCount(p.Status.ContainerStatuses)
 	pod := Pod{
 		ClusterID: id,
 		Namespace: p.Namespace,
 		Name:      p.Name,
-		Status:    string(p.Status.Phase),
+		Status:    status,
+		Phase:     string(p.Status.Phase),
+		Reason:    reason,
 		Node:      p.Spec.NodeName,
 		IP:        p.Status.PodIP,
 		Labels:    p.Labels,
 		OwnerKind: ownerKind,
 		OwnerName: ownerName,
+		Ready:     ready,
+		Total:     total,
 		CreatedAt: p.CreationTimestamp.Time,
 	}
 	for _, cs := range p.Status.ContainerStatuses {
 		pod.Restarts += cs.RestartCount
 		state := "unknown"
 		if cs.State.Running != nil {
-			state = "running"
+			state = "Running"
 		} else if cs.State.Waiting != nil {
-			state = cs.State.Waiting.Reason
+			if cs.State.Waiting.Reason != "" {
+				state = cs.State.Waiting.Reason
+			} else {
+				state = "Waiting"
+			}
 		} else if cs.State.Terminated != nil {
-			state = cs.State.Terminated.Reason
+			if cs.State.Terminated.Reason != "" {
+				state = cs.State.Terminated.Reason
+			} else if cs.State.Terminated.ExitCode == 0 {
+				state = "Completed"
+			} else {
+				state = "Terminated"
+			}
 		}
 		pod.Containers = append(pod.Containers, Container{
 			Name:  cs.Name,

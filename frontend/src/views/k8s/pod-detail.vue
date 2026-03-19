@@ -36,10 +36,15 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item label="名称">{{ pod.name }}</el-descriptions-item>
           <el-descriptions-item label="命名空间">{{ pod.namespace }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ pod.status }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="podStatusType(normalizePodStatus(pod.status, pod.phase))">{{ normalizePodStatus(pod.status, pod.phase) }}</el-tag>
+            <span v-if="pod.reason" class="status-reason">{{ pod.reason }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="阶段">{{ pod.phase || '-' }}</el-descriptions-item>
           <el-descriptions-item label="节点">{{ pod.node }}</el-descriptions-item>
           <el-descriptions-item label="IP">{{ pod.ip }}</el-descriptions-item>
           <el-descriptions-item label="重启次数">{{ pod.restarts }}</el-descriptions-item>
+          <el-descriptions-item label="容器就绪">{{ Number(pod.ready || 0) }}/{{ Number(pod.total || 0) }}</el-descriptions-item>
           <el-descriptions-item label="控制器">{{ pod.owner_kind ? `${pod.owner_kind}/${pod.owner_name}` : '-' }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ pod.created_at }}</el-descriptions-item>
         </el-descriptions>
@@ -111,6 +116,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import { normalizePodStatus, podStatusType } from '@/utils/podStatus'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -528,6 +534,11 @@ onBeforeUnmount(() => {
 .form-block { max-width: 520px; }
 .w-52 { width: 220px; }
 .section-title { margin: 12px 0; }
+.status-reason {
+  margin-left: 8px;
+  color: #6b7280;
+  font-size: 12px;
+}
 .log-controls { display: flex; gap: 12px; margin-bottom: 12px; align-items: center; }
 .event-controls { display: flex; gap: 12px; margin-bottom: 12px; align-items: center; }
 .log-highlight {

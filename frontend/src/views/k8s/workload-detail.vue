@@ -198,6 +198,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import { normalizePodStatus, podStatusType } from '@/utils/podStatus'
 
 const clusters = ref([])
 const namespaces = ref([])
@@ -393,18 +394,7 @@ const openPodDetail = (row) => {
 }
 
 const statusType = (status) => {
-  switch (status) {
-    case 'Running':
-      return 'success'
-    case 'Pending':
-      return 'warning'
-    case 'Failed':
-      return 'danger'
-    case 'Succeeded':
-      return 'info'
-    default:
-      return 'info'
-  }
+  return podStatusType(normalizePodStatus(status))
 }
 
 const fetchEvents = async () => {

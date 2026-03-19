@@ -11,7 +11,23 @@
       </div>
     </div>
 
-    <el-row :gutter="16" class="motion-up delay-2">
+    <div class="scope-bar motion-up delay-2">
+      <span class="scope-label">范围</span>
+      <el-select v-model="scope.environment" class="scope-item" @change="handleScopeEnvironmentChange">
+        <el-option v-for="item in environmentOptions" :key="item.value" :label="item.label" :value="item.value" />
+      </el-select>
+      <el-select v-model="scope.clusterId" class="scope-item" clearable placeholder="全部集群" @change="handleScopeClusterChange">
+        <el-option v-for="item in scopeClusters" :key="item.id" :label="item.display_name || item.name" :value="item.id" />
+      </el-select>
+      <el-select v-model="scope.namespace" class="scope-item" clearable placeholder="全部命名空间" @change="refreshDashboard">
+        <el-option v-for="item in scopeNamespaces" :key="item" :label="item" :value="item" />
+      </el-select>
+      <el-select v-model="scope.timeWindowHours" class="scope-item narrow" @change="refreshDashboard">
+        <el-option v-for="item in timeWindowOptions" :key="item.value" :label="item.label" :value="item.value" />
+      </el-select>
+    </div>
+
+    <el-row :gutter="16" class="motion-up delay-3">
       <el-col :span="4">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">主机总数</div>
@@ -56,7 +72,7 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="16" class="panel-row motion-up delay-3">
+    <el-row :gutter="16" class="panel-row motion-up delay-4">
       <el-col :span="24">
         <el-card shadow="never" class="backlog-overview-card">
           <div class="panel-header backlog-header">
@@ -97,7 +113,7 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="16" class="panel-row motion-up delay-4">
+    <el-row :gutter="16" class="panel-row motion-up delay-5">
       <el-col :span="16">
         <el-card shadow="never">
           <div class="panel-header">
@@ -171,10 +187,49 @@
             <el-button link @click="go('/task/schedules')">进入</el-button>
           </div>
         </el-card>
+
+        <el-card shadow="never" class="stack-card risk-card">
+          <div class="panel-header">
+            <div>
+              <h3>Deployment 风险</h3>
+              <p class="panel-desc">{{ deploymentRisk.clusterName }} / {{ deploymentRisk.namespaceLabel }}</p>
+            </div>
+            <el-button link type="primary" @click="goDeploymentCenter">进入</el-button>
+          </div>
+          <div class="risk-kpi-grid">
+            <div class="risk-kpi-item">
+              <div class="risk-kpi-label">总量</div>
+              <div class="risk-kpi-value">{{ deploymentRisk.total }}</div>
+            </div>
+            <div class="risk-kpi-item">
+              <div class="risk-kpi-label">健康</div>
+              <div class="risk-kpi-value success">{{ deploymentRisk.healthy }}</div>
+            </div>
+            <div class="risk-kpi-item">
+              <div class="risk-kpi-label">发布中</div>
+              <div class="risk-kpi-value warning">{{ deploymentRisk.progressing }}</div>
+            </div>
+            <div class="risk-kpi-item">
+              <div class="risk-kpi-label">异常</div>
+              <div class="risk-kpi-value danger">{{ deploymentRisk.degraded }}</div>
+            </div>
+          </div>
+          <div class="risk-extra">
+            <span>副本缺口 {{ deploymentRisk.gapReplicas }}</span>
+            <span>异常 Pod {{ deploymentRisk.podAbnormal }}</span>
+          </div>
+          <div class="risk-list" v-if="deploymentRisk.topRisk.length">
+            <div class="risk-list-item" v-for="item in deploymentRisk.topRisk" :key="item.key">
+              <span class="risk-name">{{ item.name }}</span>
+              <el-tag size="small" :type="item.type">{{ item.label }}</el-tag>
+            </div>
+          </div>
+          <div class="panel-desc" v-else>当前范围内无明显风险。</div>
+        </el-card>
       </el-col>
     </el-row>
 
-    <el-row :gutter="16" class="panel-row motion-up delay-5">
+    <el-row :gutter="16" class="panel-row motion-up delay-6">
       <el-col :span="16">
         <el-card shadow="never">
           <div class="panel-header">
@@ -313,6 +368,45 @@ const moduleStatus = reactive({
   task: 'unknown'
 })
 
+const environmentOptions = [
+  { label: '全部环境', value: 'all' },
+  { label: '生产', value: 'prod' },
+  { label: '预发/测试', value: 'staging' },
+  { label: '开发', value: 'dev' }
+]
+
+const timeWindowOptions = [
+  { label: '最近 6 小时', value: 6 },
+  { label: '最近 12 小时', value: 12 },
+  { label: '最近 24 小时', value: 24 },
+  { label: '最近 72 小时', value: 72 }
+]
+
+const scope = reactive({
+  environment: 'all',
+  clusterId: '',
+  namespace: '',
+  timeWindowHours: 24
+})
+
+const scopeClusters = ref([])
+const scopeNamespaces = ref([])
+const scopeNamespaceLoadedFor = ref('')
+const partialFailureNotice = reactive({ key: '', at: 0 })
+
+const deploymentRisk = reactive({
+  clusterId: '',
+  clusterName: '未选择集群',
+  namespaceLabel: '全部命名空间',
+  total: 0,
+  healthy: 0,
+  progressing: 0,
+  degraded: 0,
+  gapReplicas: 0,
+  podAbnormal: 0,
+  topRisk: []
+})
+
 const recentAlerts = ref([])
 const topHosts = ref([])
 const trendRecords = ref([])
@@ -370,6 +464,28 @@ const toNumber = (v, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback
 }
 const normalizeText = (v) => String(v ?? '').trim().toLowerCase()
+const nowMs = () => Date.now()
+
+const inferClusterEnvironment = (cluster) => {
+  const raw = `${cluster?.display_name || ''} ${cluster?.name || ''} ${cluster?.description || ''}`
+  const text = normalizeText(raw)
+  if (text.includes('prod') || text.includes('生产')) return 'prod'
+  if (text.includes('staging') || text.includes('stage') || text.includes('测试') || text.includes('预发')) return 'staging'
+  if (text.includes('dev') || text.includes('开发')) return 'dev'
+  return 'other'
+}
+
+const clusterInEnvironment = (cluster) => {
+  if (!cluster) return false
+  if (scope.environment === 'all') return true
+  return inferClusterEnvironment(cluster) === scope.environment
+}
+
+const clusterInScope = (cluster) => {
+  if (!clusterInEnvironment(cluster)) return false
+  if (!scope.clusterId) return true
+  return cluster.id === scope.clusterId
+}
 
 const parseTimestamp = (value) => {
   if (!value) return null
@@ -380,7 +496,7 @@ const parseTimestamp = (value) => {
 const elapsedMinutes = (value) => {
   const ts = parseTimestamp(value)
   if (!ts) return 0
-  const diff = Math.floor((Date.now() - ts) / 60000)
+  const diff = Math.floor((nowMs() - ts) / 60000)
   return diff > 0 ? diff : 0
 }
 
@@ -413,9 +529,165 @@ const clusterFreshnessTs = (row) =>
   row?.last_checked_at ||
   row?.updated_at
 
+const inTimeWindow = (value) => {
+  const ts = parseTimestamp(value)
+  if (!ts) return true
+  const hours = toNumber(scope.timeWindowHours, 24)
+  return ts >= nowMs() - hours * 60 * 60 * 1000
+}
+
 const summarizeSettled = (results) => {
   const ok = results.filter((item) => item.status === 'fulfilled').length
   return { ok, fail: results.length - ok }
+}
+
+const throttledPartialFailureMessage = (failures) => {
+  if (!failures.length) return
+  const key = failures.join('|')
+  const now = nowMs()
+  if (partialFailureNotice.key === key && now - partialFailureNotice.at < 15000) return
+  partialFailureNotice.key = key
+  partialFailureNotice.at = now
+  ElMessage.warning(`部分数据加载失败：${failures.join('、')}`)
+}
+
+const ensureScopeNamespaces = async (force = false) => {
+  if (!scope.clusterId) {
+    scopeNamespaces.value = []
+    scope.namespace = ''
+    scopeNamespaceLoadedFor.value = ''
+    return
+  }
+  if (!force && scopeNamespaceLoadedFor.value === scope.clusterId && scopeNamespaces.value.length) return
+  try {
+    const res = await axios.get(`/api/v1/k8s/clusters/${scope.clusterId}/namespaces`, { headers: authHeaders() })
+    const list = toArray(res.data?.data).map((item) => item.name).filter(Boolean)
+    scopeNamespaces.value = list
+    scopeNamespaceLoadedFor.value = scope.clusterId
+    if (scope.namespace && !scopeNamespaces.value.includes(scope.namespace)) {
+      scope.namespace = ''
+    }
+  } catch (err) {
+    scopeNamespaces.value = []
+    scope.namespace = ''
+  }
+}
+
+const handleScopeEnvironmentChange = async () => {
+  if (scope.clusterId) {
+    scope.clusterId = ''
+    scope.namespace = ''
+    scopeNamespaceLoadedFor.value = ''
+  }
+  await refreshDashboard()
+}
+
+const handleScopeClusterChange = async () => {
+  scope.namespace = ''
+  await ensureScopeNamespaces(true)
+  await refreshDashboard()
+}
+
+const goDeploymentCenter = () => {
+  router.push({
+    path: '/k8s/deployments',
+    query: {
+      clusterId: scope.clusterId || undefined,
+      namespace: scope.namespace || undefined
+    }
+  })
+}
+
+const refreshDeploymentRisk = async (scopedClusters, failures) => {
+  const targetCluster = scope.clusterId
+    ? scopedClusters.find((item) => item.id === scope.clusterId)
+    : scopedClusters[0]
+
+  if (!targetCluster) {
+    deploymentRisk.clusterId = ''
+    deploymentRisk.clusterName = '未选择集群'
+    deploymentRisk.namespaceLabel = '全部命名空间'
+    deploymentRisk.total = 0
+    deploymentRisk.healthy = 0
+    deploymentRisk.progressing = 0
+    deploymentRisk.degraded = 0
+    deploymentRisk.gapReplicas = 0
+    deploymentRisk.podAbnormal = 0
+    deploymentRisk.topRisk = []
+    return
+  }
+
+  const namespace = scope.namespace || ''
+  deploymentRisk.clusterId = targetCluster.id
+  deploymentRisk.clusterName = targetCluster.display_name || targetCluster.name
+  deploymentRisk.namespaceLabel = namespace || '全部命名空间'
+
+  try {
+    const workloadsRes = await axios.get(`/api/v1/k8s/clusters/${targetCluster.id}/workloads`, {
+      headers: authHeaders(),
+      params: { namespace }
+    })
+    const all = toArray(workloadsRes.data?.data)
+    const deployments = all.filter((item) => item.kind === 'Deployment')
+    deploymentRisk.total = deployments.length
+    deploymentRisk.healthy = 0
+    deploymentRisk.progressing = 0
+    deploymentRisk.degraded = 0
+    deploymentRisk.gapReplicas = 0
+    const topRisk = []
+
+    deployments.forEach((item) => {
+      const replicas = toNumber(item.replicas, 0)
+      const ready = toNumber(item.ready, 0)
+      const available = toNumber(item.available, 0)
+      const gap = Math.max(0, replicas - ready)
+      deploymentRisk.gapReplicas += gap
+      if (replicas <= 0) {
+        topRisk.push({ key: `${item.namespace}/${item.name}`, name: `${item.namespace}/${item.name}`, label: 'Scaled 0', type: 'info' })
+        return
+      }
+      if (ready >= replicas && available >= replicas) {
+        deploymentRisk.healthy += 1
+        return
+      }
+      if (ready > 0 || available > 0) {
+        deploymentRisk.progressing += 1
+        topRisk.push({ key: `${item.namespace}/${item.name}`, name: `${item.namespace}/${item.name}`, label: `${ready}/${replicas}`, type: 'warning' })
+        return
+      }
+      deploymentRisk.degraded += 1
+      topRisk.push({ key: `${item.namespace}/${item.name}`, name: `${item.namespace}/${item.name}`, label: '0 Ready', type: 'danger' })
+    })
+
+    const candidateNamespaces = namespace
+      ? [namespace]
+      : Array.from(new Set(deployments.map((item) => item.namespace).filter(Boolean))).slice(0, 6)
+    const podCalls = await Promise.allSettled(
+      candidateNamespaces.map((ns) => axios.get(`/api/v1/k8s/clusters/${targetCluster.id}/namespaces/${ns}/pods`, { headers: authHeaders() }))
+    )
+    const abnormal = []
+    podCalls.forEach((item) => {
+      if (item.status !== 'fulfilled') return
+      const rows = toArray(item.value.data?.data)
+      rows.forEach((pod) => {
+        const status = normalizeText(pod.status)
+        if (pod.owner_kind !== 'Deployment') return
+        if (status === 'running' || status === 'succeeded' || status === 'completed') return
+        abnormal.push(pod)
+      })
+    })
+    deploymentRisk.podAbnormal = abnormal.length
+    deploymentRisk.topRisk = topRisk.slice(0, 6)
+  } catch (err) {
+    deploymentRisk.total = 0
+    deploymentRisk.healthy = 0
+    deploymentRisk.progressing = 0
+    deploymentRisk.degraded = 0
+    deploymentRisk.gapReplicas = 0
+    deploymentRisk.podAbnormal = 0
+    deploymentRisk.topRisk = []
+    failures.push(getErrorMessage(err, 'Deployment 风险'))
+  }
 }
 
 const runBacklogAction = async (key) => {
@@ -656,256 +928,272 @@ const refreshRealtimeMetrics = async () => {
 const refreshDashboard = async () => {
   if (refreshing.value) return
   refreshing.value = true
+  try {
+    const calls = await Promise.allSettled([
+      axios.get('/api/v1/cmdb/hosts', { headers: authHeaders() }),
+      axios.get('/api/v1/docker/hosts', { headers: authHeaders() }),
+      axios.get('/api/v1/k8s/clusters', { headers: authHeaders() }),
+      axios.get('/api/v1/monitor/alerts', { headers: authHeaders() }),
+      axios.get('/api/v1/task/tasks', { headers: authHeaders() }),
+      axios.get('/api/v1/monitor/agents', { headers: authHeaders() }),
+      axios.get('/api/v1/monitor/metrics', { headers: authHeaders() }),
+      axios.get('/api/v1/monitor/metrics/history', { headers: authHeaders(), params: { hours: Number(scope.timeWindowHours || 24) } }),
+      axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders() }),
+      axios.get('/api/v1/firewall/devices', { headers: authHeaders() }),
+      axios.get('/api/v1/jump/sessions', { headers: authHeaders() }),
+      axios.get('/api/v1/jump/risk-events', { headers: authHeaders() }),
+      axios.get('/api/v1/domain/domains', { headers: authHeaders() }),
+      axios.get('/api/v1/domain/certs', { headers: authHeaders() }),
+      axios.get('/api/v1/cicd/executions', { headers: authHeaders() }),
+      axios.get('/api/v1/cicd/schedules', { headers: authHeaders() }),
+      axios.get('/api/v1/workorder/orders', { headers: authHeaders() }),
+      axios.get('/api/v1/workflow/executions', { headers: authHeaders() }),
+      axios.get('/api/v1/terminal/sessions', { headers: authHeaders() })
+    ])
 
-  const calls = await Promise.allSettled([
-    axios.get('/api/v1/cmdb/hosts', { headers: authHeaders() }),
-    axios.get('/api/v1/docker/hosts', { headers: authHeaders() }),
-    axios.get('/api/v1/k8s/clusters', { headers: authHeaders() }),
-    axios.get('/api/v1/monitor/alerts', { headers: authHeaders() }),
-    axios.get('/api/v1/task/tasks', { headers: authHeaders() }),
-    axios.get('/api/v1/monitor/agents', { headers: authHeaders() }),
-    axios.get('/api/v1/monitor/metrics', { headers: authHeaders() }),
-    axios.get('/api/v1/monitor/metrics/history', { headers: authHeaders(), params: { hours: 24 } }),
-    axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders() }),
-    axios.get('/api/v1/firewall/devices', { headers: authHeaders() }),
-    axios.get('/api/v1/jump/sessions', { headers: authHeaders() }),
-    axios.get('/api/v1/jump/risk-events', { headers: authHeaders() }),
-    axios.get('/api/v1/domain/domains', { headers: authHeaders() }),
-    axios.get('/api/v1/domain/certs', { headers: authHeaders() }),
-    axios.get('/api/v1/cicd/executions', { headers: authHeaders() }),
-    axios.get('/api/v1/cicd/schedules', { headers: authHeaders() }),
-    axios.get('/api/v1/workorder/orders', { headers: authHeaders() }),
-    axios.get('/api/v1/workflow/executions', { headers: authHeaders() }),
-    axios.get('/api/v1/terminal/sessions', { headers: authHeaders() })
-  ])
+    const failures = []
 
-  const failures = []
-
-  const hostsPayload = extractData(calls[0])
-  const hosts = toArray(hostsPayload)
-  if (hostsPayload !== null) {
-    stats.hostTotal = hosts.length
-    stats.hostOnline = hosts.filter((h) => toNumber(h.status, -1) === 1 || String(h.status).toLowerCase() === 'online').length
-    moduleStatus.cmdb = 'ok'
-  } else {
-    moduleStatus.cmdb = 'error'
-    failures.push(extractFailure(calls[0], 'CMDB') || 'CMDB')
-  }
-
-  const dockerPayload = extractData(calls[1])
-  const dockerHosts = toArray(dockerPayload)
-  if (dockerPayload !== null) {
-    stats.dockerTotal = dockerHosts.length
-    stats.dockerOnline = dockerHosts.filter((h) => String(h.status).toLowerCase() === 'online').length
-    moduleStatus.docker = 'ok'
-  } else {
-    moduleStatus.docker = 'error'
-    failures.push(extractFailure(calls[1], 'Docker') || 'Docker')
-  }
-
-  const clustersPayload = extractData(calls[2])
-  const clusters = toArray(clustersPayload)
-  if (clustersPayload !== null) {
-    stats.k8sTotal = clusters.length
-    stats.k8sHealthy = clusters.filter((c) => toNumber(c.status, -1) === 1 || String(c.status).toLowerCase() === 'online').length
-    moduleStatus.k8s = 'ok'
-  } else {
-    moduleStatus.k8s = 'error'
-    failures.push(extractFailure(calls[2], 'K8s') || 'K8s')
-  }
-
-  const alertsPayload = extractData(calls[3])
-  const alerts = toArray(alertsPayload)
-  if (alertsPayload !== null) {
-    stats.alertTotal = alerts.length
-    stats.alertOpen = alerts.filter((a) => toNumber(a.status, -1) === 0).length
-    recentAlerts.value = alerts.slice(0, 8)
-  } else {
-    failures.push(extractFailure(calls[3], '告警') || '告警')
-  }
-
-  const tasksPayload = extractData(calls[4])
-  const tasks = toArray(tasksPayload)
-  if (tasksPayload !== null) {
-    stats.taskTotal = tasks.length
-    stats.taskEnabled = tasks.filter((t) => Boolean(t.enabled)).length
-    moduleStatus.task = 'ok'
-  } else {
-    moduleStatus.task = 'error'
-    failures.push(extractFailure(calls[4], '任务') || '任务')
-  }
-
-  const agentsPayload = extractData(calls[5])
-  const agents = toArray(agentsPayload)
-  if (agentsPayload !== null) {
-    stats.agentTotal = agents.length
-    stats.agentOnline = agents.filter((a) => String(a.status).toLowerCase() === 'online').length
-  } else {
-    failures.push(extractFailure(calls[5], 'Agent') || 'Agent')
-  }
-
-  const metricData = extractData(calls[6])
-  if (metricData !== null) {
-    realtime.cpu = toNumber(metricData.cpu)
-    realtime.memory = toNumber(metricData.memory)
-    realtime.disk = toNumber(metricData.disk)
-    realtime.network = toNumber(metricData.network)
-    moduleStatus.monitor = 'ok'
-  } else {
-    moduleStatus.monitor = 'error'
-    failures.push(extractFailure(calls[6], '监控') || '监控')
-  }
-
-  const historyPayload = extractData(calls[7])
-  const history = toArray(historyPayload)
-  if (historyPayload === null) {
-    failures.push(extractFailure(calls[7], '趋势') || '趋势')
-  }
-  trendRecords.value = history
-    .map((item) => ({
-      timestamp: item.timestamp,
-      cpu_usage: toNumber(item.cpu_usage),
-      memory_usage: toNumber(item.memory_usage),
-      disk_usage: toNumber(item.disk_usage)
-    }))
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-
-  const networkDevices = toArray(extractData(calls[8]))
-  const firewalls = toArray(extractData(calls[9]))
-  const jumpSessions = toArray(extractData(calls[10]))
-  const jumpRiskEvents = toArray(extractData(calls[11]))
-  const domains = toArray(extractData(calls[12]))
-  const certs = toArray(extractData(calls[13]))
-  const deliveryExecutions = toArray(extractData(calls[14]))
-  const deliverySchedules = toArray(extractData(calls[15]))
-  const workorders = toArray(extractData(calls[16]))
-  const workflowExecutions = toArray(extractData(calls[17]))
-  const terminalSessions = toArray(extractData(calls[18]))
-
-  const offlineHosts = hosts.filter((item) => !isOnlineStatus(item.status))
-  const offlineNetworks = networkDevices.filter((item) => !isOnlineStatus(item.status))
-  const hostOffline = offlineHosts.length
-  const networkOffline = offlineNetworks.length
-  const firewallAlert = firewalls.filter((item) => Number(item.status) === 2).length
-  const jumpPendingTimeout = jumpSessions.filter(
-    (item) => normalizeText(item.status) === 'pending_approval' && elapsedMinutes(item.started_at) >= 30
-  ).length
-  const riskCritical = jumpRiskEvents.filter((item) => normalizeText(item.severity) === 'critical').length
-  backlog.asset = hostOffline + networkOffline + firewallAlert + jumpPendingTimeout + riskCritical
-  backlog.assetOverdue = jumpPendingTimeout
-
-  const monitorAlertTimeout = alerts.filter(
-    (item) => isAlertOpen(item.status) && elapsedMinutes(item.fired_at || item.created_at) >= 60
-  ).length
-  const monitorCriticalOpen = alerts.filter(
-    (item) => isAlertOpen(item.status) && normalizeText(item.severity) === 'critical'
-  ).length
-  const domainRiskRows = []
-  const staleDomainNames = []
-  const staleCertIds = []
-  domains.forEach((item) => {
-    const health = normalizeText(item.health_status)
-    if (health === 'warning' || health === 'critical') {
-      const checkedAt = item.last_checked_at || item.updated_at
-      domainRiskRows.push({ checkedAt })
-      const ts = parseTimestamp(checkedAt)
-      if (!ts || Date.now() - ts > 24 * 60 * 60 * 1000) {
-        if (item.domain) staleDomainNames.push(item.domain)
-      }
+    const hostsPayload = extractData(calls[0])
+    const hosts = toArray(hostsPayload)
+    if (hostsPayload !== null) {
+      stats.hostTotal = hosts.length
+      stats.hostOnline = hosts.filter((h) => toNumber(h.status, -1) === 1 || normalizeText(h.status) === 'online').length
+      moduleStatus.cmdb = 'ok'
+    } else {
+      moduleStatus.cmdb = 'error'
+      failures.push(extractFailure(calls[0], 'CMDB') || 'CMDB')
     }
-  })
-  certs.forEach((item) => {
-    if (toNumber(item.days_to_expire, 0) <= 30) {
-      const checkedAt = item.last_check_at || item.updated_at
-      domainRiskRows.push({ checkedAt })
-      const ts = parseTimestamp(checkedAt)
-      if (!ts || Date.now() - ts > 24 * 60 * 60 * 1000) {
-        if (item.id) staleCertIds.push(item.id)
-      }
+
+    const dockerPayload = extractData(calls[1])
+    const dockerHosts = toArray(dockerPayload)
+    if (dockerPayload !== null) {
+      stats.dockerTotal = dockerHosts.length
+      stats.dockerOnline = dockerHosts.filter((h) => normalizeText(h.status) === 'online').length
+      moduleStatus.docker = 'ok'
+    } else {
+      moduleStatus.docker = 'error'
+      failures.push(extractFailure(calls[1], 'Docker') || 'Docker')
     }
-  })
-  const monitorRiskStale = domainRiskRows.filter((item) => {
-    const ts = parseTimestamp(item.checkedAt)
-    return !ts || Date.now() - ts > 24 * 60 * 60 * 1000
-  }).length
-  backlog.monitor = monitorAlertTimeout + monitorCriticalOpen + monitorRiskStale
-  backlog.monitorOverdue = monitorAlertTimeout + monitorRiskStale
 
-  const degradedClusters = clusters.filter(
-    (item) => !isOnlineStatus(item.status) && !isMaintenanceStatus(item.status)
-  )
-  const staleClusters = clusters.filter(
-    (item) => isOnlineStatus(item.status) && elapsedMinutes(clusterFreshnessTs(item)) >= 15
-  )
-  const k8sClusterDegraded = degradedClusters.length
-  const k8sClusterStale = staleClusters.length
-  backlog.k8s = k8sClusterDegraded + k8sClusterStale
-  backlog.k8sOverdue = k8sClusterStale
+    const clustersPayload = extractData(calls[2])
+    const allClusters = toArray(clustersPayload)
+    const envClusters = allClusters.filter((item) => clusterInEnvironment(item))
+    scopeClusters.value = envClusters
+    if (scope.clusterId && !envClusters.some((item) => item.id === scope.clusterId)) {
+      scope.clusterId = ''
+      scope.namespace = ''
+      scopeNamespaceLoadedFor.value = ''
+    }
+    if (!scope.clusterId && envClusters.length === 1) {
+      scope.clusterId = envClusters[0].id
+    }
+    await ensureScopeNamespaces()
 
-  const deliveryOrderTimeout = workorders.filter(
-    (item) => isWorkorderApprovalPending(item.status) && elapsedMinutes(item.created_at) >= 120
-  ).length
-  const deliveryLongExecutions = deliveryExecutions.filter((item) => Number(item.status) === 0 && elapsedMinutes(item.started_at) >= 30)
-  const deliveryExecutionLong = deliveryLongExecutions.length
-  const deliveryScheduleStale = deliverySchedules.filter((item) => {
-    if (!isScheduleEnabled(item)) return false
-    const nextTs = parseTimestamp(item.next_run_at)
-    if (!nextTs) return true
-    return nextTs < Date.now() - 5 * 60 * 1000
-  }).length
-  backlog.delivery = deliveryOrderTimeout + deliveryExecutionLong + deliveryScheduleStale
-  backlog.deliveryOverdue = backlog.delivery
+    const scopedClusters = allClusters.filter((item) => clusterInScope(item))
+    if (clustersPayload !== null) {
+      stats.k8sTotal = scopedClusters.length
+      stats.k8sHealthy = scopedClusters.filter((c) => toNumber(c.status, -1) === 1 || normalizeText(c.status) === 'online').length
+      moduleStatus.k8s = 'ok'
+    } else {
+      moduleStatus.k8s = 'error'
+      failures.push(extractFailure(calls[2], 'K8s') || 'K8s')
+    }
 
-  const collabOrderTimeout = workorders.filter((item) => {
-    const status = Number(item.status)
-    return (status === 0 || status === 1 || status === 4) && elapsedMinutes(item.created_at) >= 120
-  }).length
-  const longWorkflowExecutions = workflowExecutions.filter(
-    (item) => Number(item.status) === 0 && elapsedMinutes(item.started_at) >= 15
-  )
-  const collabWorkflowLong = longWorkflowExecutions.length
-  const collabTerminalPending = terminalSessions.filter((item) => {
-    if (Number(item.status) !== 0) return false
-    return elapsedMinutes(item.started_at || item.created_at) >= 10
-  }).length
-  const failedTerminalSessions = terminalSessions.filter((item) => Number(item.status) === 3)
-  const collabTerminalFailed = failedTerminalSessions.length
-  backlog.collab = collabOrderTimeout + collabWorkflowLong + collabTerminalPending + collabTerminalFailed
-  backlog.collabOverdue = collabOrderTimeout + collabWorkflowLong + collabTerminalPending
+    const alertsPayload = extractData(calls[3])
+    const alerts = toArray(alertsPayload)
+    const scopedAlerts = alerts.filter((item) => inTimeWindow(item.fired_at || item.created_at))
+    if (alertsPayload !== null) {
+      stats.alertTotal = scopedAlerts.length
+      stats.alertOpen = scopedAlerts.filter((a) => toNumber(a.status, -1) === 0).length
+      recentAlerts.value = scopedAlerts.slice(0, 8)
+    } else {
+      failures.push(extractFailure(calls[3], '告警') || '告警')
+    }
 
-  backlog.total = backlog.asset + backlog.monitor + backlog.k8s + backlog.delivery + backlog.collab
-  backlog.overdue =
-    backlog.assetOverdue +
-    backlog.monitorOverdue +
-    backlog.k8sOverdue +
-    backlog.deliveryOverdue +
-    backlog.collabOverdue
+    const tasksPayload = extractData(calls[4])
+    const tasks = toArray(tasksPayload)
+    if (tasksPayload !== null) {
+      stats.taskTotal = tasks.length
+      stats.taskEnabled = tasks.filter((t) => Boolean(t.enabled)).length
+      moduleStatus.task = 'ok'
+    } else {
+      moduleStatus.task = 'error'
+      failures.push(extractFailure(calls[4], '任务') || '任务')
+    }
 
-  backlogSource.offlineHostIds = offlineHosts.map((item) => item.id).filter(Boolean)
-  backlogSource.offlineNetworkDeviceIds = offlineNetworks.map((item) => item.id).filter(Boolean)
-  backlogSource.staleDomainNames = staleDomainNames
-  backlogSource.staleCertIds = staleCertIds
-  backlogSource.degradedClusterIds = degradedClusters.map((item) => item.id).filter(Boolean)
-  backlogSource.staleClusterIds = staleClusters.map((item) => item.id).filter(Boolean)
-  backlogSource.longRunningExecutionIds = deliveryLongExecutions
-    .filter((item) => elapsedMinutes(item.started_at) >= 120)
-    .map((item) => item.id)
-    .filter(Boolean)
-  backlogSource.longRunningWorkflowIds = longWorkflowExecutions
-    .filter((item) => elapsedMinutes(item.started_at) >= 120)
-    .map((item) => item.id)
-    .filter(Boolean)
-  backlogSource.failedTerminalSessionIds = failedTerminalSessions.map((item) => item.id).filter(Boolean)
+    const agentsPayload = extractData(calls[5])
+    const agents = toArray(agentsPayload)
+    if (agentsPayload !== null) {
+      stats.agentTotal = agents.length
+      stats.agentOnline = agents.filter((a) => normalizeText(a.status) === 'online').length
+    } else {
+      failures.push(extractFailure(calls[5], 'Agent') || 'Agent')
+    }
 
-  lastUpdated.value = new Date().toLocaleString()
-  renderTrend()
-  await refreshTopHosts()
+    const metricData = extractData(calls[6])
+    if (metricData !== null) {
+      realtime.cpu = toNumber(metricData.cpu)
+      realtime.memory = toNumber(metricData.memory)
+      realtime.disk = toNumber(metricData.disk)
+      realtime.network = toNumber(metricData.network)
+      moduleStatus.monitor = 'ok'
+    } else {
+      moduleStatus.monitor = 'error'
+      failures.push(extractFailure(calls[6], '监控') || '监控')
+    }
 
-  if (failures.length) {
-    ElMessage.warning(`部分数据加载失败：${failures.join('、')}`)
+    const historyPayload = extractData(calls[7])
+    const history = toArray(historyPayload).filter((item) => inTimeWindow(item.timestamp))
+    if (historyPayload === null) {
+      failures.push(extractFailure(calls[7], '趋势') || '趋势')
+    }
+    trendRecords.value = history
+      .map((item) => ({
+        timestamp: item.timestamp,
+        cpu_usage: toNumber(item.cpu_usage),
+        memory_usage: toNumber(item.memory_usage),
+        disk_usage: toNumber(item.disk_usage)
+      }))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+    const networkDevices = toArray(extractData(calls[8]))
+    const firewalls = toArray(extractData(calls[9]))
+    const jumpSessions = toArray(extractData(calls[10]))
+    const jumpRiskEvents = toArray(extractData(calls[11]))
+    const domains = toArray(extractData(calls[12]))
+    const certs = toArray(extractData(calls[13]))
+    const deliveryExecutions = toArray(extractData(calls[14]))
+    const deliverySchedules = toArray(extractData(calls[15]))
+    const workorders = toArray(extractData(calls[16]))
+    const workflowExecutions = toArray(extractData(calls[17]))
+    const terminalSessions = toArray(extractData(calls[18]))
+
+    const offlineHosts = hosts.filter((item) => !isOnlineStatus(item.status))
+    const offlineNetworks = networkDevices.filter((item) => !isOnlineStatus(item.status))
+    const hostOffline = offlineHosts.length
+    const networkOffline = offlineNetworks.length
+    const firewallAlert = firewalls.filter((item) => Number(item.status) === 2).length
+    const jumpPendingTimeout = jumpSessions.filter(
+      (item) => normalizeText(item.status) === 'pending_approval' && elapsedMinutes(item.started_at) >= 30
+    ).length
+    const riskCritical = jumpRiskEvents.filter((item) => normalizeText(item.severity) === 'critical').length
+    backlog.asset = hostOffline + networkOffline + firewallAlert + jumpPendingTimeout + riskCritical
+    backlog.assetOverdue = jumpPendingTimeout
+
+    const monitorAlertTimeout = scopedAlerts.filter(
+      (item) => isAlertOpen(item.status) && elapsedMinutes(item.fired_at || item.created_at) >= 60
+    ).length
+    const monitorCriticalOpen = scopedAlerts.filter(
+      (item) => isAlertOpen(item.status) && normalizeText(item.severity) === 'critical'
+    ).length
+    const domainRiskRows = []
+    const staleDomainNames = []
+    const staleCertIds = []
+    domains.forEach((item) => {
+      const health = normalizeText(item.health_status)
+      if (health === 'warning' || health === 'critical') {
+        const checkedAt = item.last_checked_at || item.updated_at
+        domainRiskRows.push({ checkedAt })
+        const ts = parseTimestamp(checkedAt)
+        if (!ts || nowMs() - ts > 24 * 60 * 60 * 1000) {
+          if (item.domain) staleDomainNames.push(item.domain)
+        }
+      }
+    })
+    certs.forEach((item) => {
+      if (toNumber(item.days_to_expire, 0) <= 30) {
+        const checkedAt = item.last_check_at || item.updated_at
+        domainRiskRows.push({ checkedAt })
+        const ts = parseTimestamp(checkedAt)
+        if (!ts || nowMs() - ts > 24 * 60 * 60 * 1000) {
+          if (item.id) staleCertIds.push(item.id)
+        }
+      }
+    })
+    const monitorRiskStale = domainRiskRows.filter((item) => {
+      const ts = parseTimestamp(item.checkedAt)
+      return !ts || nowMs() - ts > 24 * 60 * 60 * 1000
+    }).length
+    backlog.monitor = monitorAlertTimeout + monitorCriticalOpen + monitorRiskStale
+    backlog.monitorOverdue = monitorAlertTimeout + monitorRiskStale
+
+    const degradedClusters = scopedClusters.filter(
+      (item) => !isOnlineStatus(item.status) && !isMaintenanceStatus(item.status)
+    )
+    const staleClusters = scopedClusters.filter(
+      (item) => isOnlineStatus(item.status) && elapsedMinutes(clusterFreshnessTs(item)) >= 15
+    )
+    const k8sClusterDegraded = degradedClusters.length
+    const k8sClusterStale = staleClusters.length
+    backlog.k8s = k8sClusterDegraded + k8sClusterStale
+    backlog.k8sOverdue = k8sClusterStale
+
+    const deliveryOrderTimeout = workorders.filter(
+      (item) => isWorkorderApprovalPending(item.status) && elapsedMinutes(item.created_at) >= 120
+    ).length
+    const deliveryLongExecutions = deliveryExecutions.filter((item) => Number(item.status) === 0 && elapsedMinutes(item.started_at) >= 30)
+    const deliveryExecutionLong = deliveryLongExecutions.length
+    const deliveryScheduleStale = deliverySchedules.filter((item) => {
+      if (!isScheduleEnabled(item)) return false
+      const nextTs = parseTimestamp(item.next_run_at)
+      if (!nextTs) return true
+      return nextTs < nowMs() - 5 * 60 * 1000
+    }).length
+    backlog.delivery = deliveryOrderTimeout + deliveryExecutionLong + deliveryScheduleStale
+    backlog.deliveryOverdue = backlog.delivery
+
+    const collabOrderTimeout = workorders.filter((item) => {
+      const status = Number(item.status)
+      return (status === 0 || status === 1 || status === 4) && elapsedMinutes(item.created_at) >= 120
+    }).length
+    const longWorkflowExecutions = workflowExecutions.filter(
+      (item) => Number(item.status) === 0 && elapsedMinutes(item.started_at) >= 15
+    )
+    const collabWorkflowLong = longWorkflowExecutions.length
+    const collabTerminalPending = terminalSessions.filter((item) => {
+      if (Number(item.status) !== 0) return false
+      return elapsedMinutes(item.started_at || item.created_at) >= 10
+    }).length
+    const failedTerminalSessions = terminalSessions.filter((item) => Number(item.status) === 3)
+    const collabTerminalFailed = failedTerminalSessions.length
+    backlog.collab = collabOrderTimeout + collabWorkflowLong + collabTerminalPending + collabTerminalFailed
+    backlog.collabOverdue = collabOrderTimeout + collabWorkflowLong + collabTerminalPending
+
+    backlog.total = backlog.asset + backlog.monitor + backlog.k8s + backlog.delivery + backlog.collab
+    backlog.overdue =
+      backlog.assetOverdue +
+      backlog.monitorOverdue +
+      backlog.k8sOverdue +
+      backlog.deliveryOverdue +
+      backlog.collabOverdue
+
+    backlogSource.offlineHostIds = offlineHosts.map((item) => item.id).filter(Boolean)
+    backlogSource.offlineNetworkDeviceIds = offlineNetworks.map((item) => item.id).filter(Boolean)
+    backlogSource.staleDomainNames = staleDomainNames
+    backlogSource.staleCertIds = staleCertIds
+    backlogSource.degradedClusterIds = degradedClusters.map((item) => item.id).filter(Boolean)
+    backlogSource.staleClusterIds = staleClusters.map((item) => item.id).filter(Boolean)
+    backlogSource.longRunningExecutionIds = deliveryLongExecutions
+      .filter((item) => elapsedMinutes(item.started_at) >= 120)
+      .map((item) => item.id)
+      .filter(Boolean)
+    backlogSource.longRunningWorkflowIds = longWorkflowExecutions
+      .filter((item) => elapsedMinutes(item.started_at) >= 120)
+      .map((item) => item.id)
+      .filter(Boolean)
+    backlogSource.failedTerminalSessionIds = failedTerminalSessions.map((item) => item.id).filter(Boolean)
+
+    await refreshDeploymentRisk(scopedClusters, failures)
+
+    lastUpdated.value = new Date().toLocaleString()
+    renderTrend()
+    await refreshTopHosts()
+    throttledPartialFailureMessage(failures)
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '仪表盘刷新失败'))
+  } finally {
+    refreshing.value = false
   }
-
-  refreshing.value = false
 }
 
 const onResize = () => {
@@ -991,6 +1279,31 @@ onBeforeUnmount(() => {
 .updated-at {
   color: #9ca3af;
   font-size: 12px;
+}
+
+.scope-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.scope-label {
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scope-item {
+  width: 180px;
+}
+
+.scope-item.narrow {
+  width: 150px;
 }
 
 .kpi-card {
@@ -1144,6 +1457,70 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
+.risk-card {
+  border: 1px solid #e5e7eb;
+}
+
+.risk-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.risk-kpi-item {
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.risk-kpi-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.risk-kpi-value {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.risk-kpi-value.success { color: #16a34a; }
+.risk-kpi-value.warning { color: #d97706; }
+.risk-kpi-value.danger { color: #dc2626; }
+
+.risk-extra {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.risk-list {
+  margin-top: 10px;
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.risk-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.risk-name {
+  font-size: 12px;
+  color: #374151;
+}
+
 .motion-up {
   animation: motion-up 0.38s ease both;
 }
@@ -1153,6 +1530,7 @@ onBeforeUnmount(() => {
 .delay-3 { animation-delay: 0.09s; }
 .delay-4 { animation-delay: 0.12s; }
 .delay-5 { animation-delay: 0.15s; }
+.delay-6 { animation-delay: 0.18s; }
 
 @keyframes motion-up {
   from {
@@ -1173,6 +1551,14 @@ onBeforeUnmount(() => {
 
 @media (max-width: 980px) {
   .backlog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scope-item {
+    width: 100%;
+  }
+
+  .risk-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
