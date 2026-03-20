@@ -79,7 +79,12 @@
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
-          <span>资产融合视图</span>
+          <div class="integration-title-wrap">
+            <span>资产融合视图</span>
+            <el-tag size="small" type="info" effect="plain">
+              当前：{{ activePanelMeta.label }} · {{ activePanelMeta.count }}
+            </el-tag>
+          </div>
           <div class="integration-actions">
             <el-input
               v-model="panelKeyword"
@@ -88,10 +93,23 @@
               class="panel-search"
               placeholder="筛选名称、IP、类型、区域..."
             />
+            <el-button v-if="panelKeyword" size="small" @click="panelKeyword = ''">清空筛选</el-button>
             <el-button size="small" type="primary" plain @click="openCurrentPanel">进入完整页面</el-button>
           </div>
         </div>
       </template>
+
+      <div class="panel-switch">
+        <el-check-tag
+          v-for="item in panelOptions"
+          :key="item.name"
+          :checked="activePanel === item.name"
+          @change="activePanel = item.name"
+        >
+          {{ item.label }}
+          <span class="panel-switch-count">{{ item.count }}</span>
+        </el-check-tag>
+      </div>
 
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="主机" name="hosts">
@@ -182,6 +200,26 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
+
+        <el-tab-pane label="WebTerminal会话" name="terminal">
+          <el-table :fit="true" :data="filteredTerminalSessions" size="small" max-height="360" empty-text="暂无会话数据">
+            <el-table-column prop="operator" label="操作人" min-width="120" />
+            <el-table-column prop="host" label="主机" min-width="170" />
+            <el-table-column prop="username" label="登录用户" min-width="120" />
+            <el-table-column prop="port" label="端口" width="90" />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="terminalSessionStatus(row.status).type">{{ terminalSessionStatus(row.status).text }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="开始时间" min-width="170">
+              <template #default="{ row }">{{ formatTime(row.started_at || row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="last_error" label="失败原因" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.last_error || '-' }}</template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
   </el-card>
@@ -203,6 +241,7 @@ const credentials = ref([])
 const groups = ref([])
 const firewallDevices = ref([])
 const jumpAssets = ref([])
+const terminalSessions = ref([])
 const activePanel = ref('hosts')
 const panelKeyword = ref('')
 
@@ -217,7 +256,8 @@ const stats = reactive({
   groupTotal: 0,
   firewallDeviceTotal: 0,
   firewallRisk: 0,
-  jumpAssetTotal: 0
+  jumpAssetTotal: 0,
+  terminalSessionTotal: 0
 })
 
 
@@ -227,7 +267,8 @@ const panelRouteMap = {
   database: '/cmdb/database',
   cloud: '/cmdb/cloud',
   firewall: '/firewall',
-  jump: '/jump/assets'
+  jump: '/jump/assets',
+  terminal: '/terminal'
 }
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
@@ -247,6 +288,14 @@ const jumpAssetStatus = (row) => {
     return { text: '禁用', type: 'info' }
   }
   return { text: '可用', type: 'success' }
+}
+
+const terminalSessionStatus = (status) => {
+  const value = Number(status)
+  if (value === 1) return { text: '在线', type: 'success' }
+  if (value === 2) return { text: '已关闭', type: 'info' }
+  if (value === 3) return { text: '失败', type: 'danger' }
+  return { text: '待连', type: 'warning' }
 }
 
 const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
@@ -300,6 +349,24 @@ const filteredJumpAssets = computed(() =>
   filterRows(jumpAssets.value, [(row) => row.name, (row) => row.asset_type, (row) => row.protocol, (row) => row.address, (row) => row.source])
 )
 
+const filteredTerminalSessions = computed(() =>
+  filterRows(terminalSessions.value, [(row) => row.operator, (row) => row.host, (row) => row.username, (row) => row.last_error, (row) => row.session_no])
+)
+
+const panelOptions = computed(() => [
+  { name: 'hosts', label: '主机', count: hosts.value.length },
+  { name: 'network', label: '网络设备', count: networkDevices.value.length },
+  { name: 'database', label: '数据库资产', count: databases.value.length },
+  { name: 'cloud', label: '云资源', count: cloudResources.value.length },
+  { name: 'firewall', label: '防火墙', count: firewallDevices.value.length },
+  { name: 'jump', label: '堡垒机资产', count: jumpAssets.value.length },
+  { name: 'terminal', label: 'WebTerminal会话', count: terminalSessions.value.length }
+])
+
+const activePanelMeta = computed(
+  () => panelOptions.value.find((item) => item.name === activePanel.value) || panelOptions.value[0] || { label: '-', count: 0 }
+)
+
 const formatTime = (value) => {
   if (!value) return '-'
   const date = new Date(value)
@@ -329,10 +396,11 @@ const refreshAll = async () => {
       fetchList('/api/v1/cmdb/cloud/resources'),
       fetchList('/api/v1/cmdb/network-devices'),
       fetchList('/api/v1/firewall/devices'),
-      fetchList('/api/v1/jump/assets')
+      fetchList('/api/v1/jump/assets'),
+      fetchList('/api/v1/terminal/sessions')
     ])
 
-    const [hostList, groupList, credentialList, databaseList, cloudResourceList, networkList, firewallList, jumpAssetList] = settled.map(safeData)
+    const [hostList, groupList, credentialList, databaseList, cloudResourceList, networkList, firewallList, jumpAssetList, sessionList] = settled.map(safeData)
 
     hosts.value = hostList
     groups.value = groupList
@@ -342,6 +410,7 @@ const refreshAll = async () => {
     networkDevices.value = networkList
     firewallDevices.value = firewallList
     jumpAssets.value = jumpAssetList
+    terminalSessions.value = sessionList
 
     stats.hostTotal = hostList.length
     stats.hostOnline = hostList.filter((item) => isOnline(item.status)).length
@@ -354,6 +423,7 @@ const refreshAll = async () => {
     stats.firewallDeviceTotal = firewallList.length
     stats.firewallRisk = firewallList.filter((item) => firewallStatus(item.status).type === 'danger').length
     stats.jumpAssetTotal = jumpAssetList.length
+    stats.terminalSessionTotal = sessionList.length
 
     const failed = settled.filter((item) => item.status === 'rejected').length
     if (failed > 0) {
@@ -394,6 +464,13 @@ onMounted(refreshAll)
   gap: 10px;
 }
 
+.integration-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .integration-actions {
   display: flex;
   align-items: center;
@@ -404,9 +481,19 @@ onMounted(refreshAll)
   width: 260px;
 }
 
-.integration-tabs :deep(.el-tabs__header) {
+.panel-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 10px;
 }
+
+.panel-switch-count {
+  margin-left: 6px;
+  opacity: 0.8;
+}
+
+.integration-tabs :deep(.el-tabs__header) { display: none; }
 
 @media (max-width: 1100px) {
   .integration-header {

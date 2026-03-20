@@ -37,6 +37,18 @@ func detectCertSansColumn(db *gorm.DB) string {
 	return "sans"
 }
 
+func (h *DomainHandler) certReadQuery(base *gorm.DB) *gorm.DB {
+	query := base.Model(&SSLCertificate{})
+	if h.certSansColumn == "s_a_ns" {
+		return query.Select("ssl_certificates.*, s_a_ns AS sans")
+	}
+	return query
+}
+
+func (h *DomainHandler) loadCertByID(id string, cert *SSLCertificate) error {
+	return h.certReadQuery(h.db).Where("id = ?", id).First(cert).Error
+}
+
 type domainRuntimeResult struct {
 	Domain          string                 `json:"domain"`
 	DNSResolved     bool                   `json:"dns_resolved"`
@@ -238,7 +250,7 @@ func (h *DomainHandler) CheckAllDomains(c *gin.Context) {
 // ListCerts SSL证书列表
 func (h *DomainHandler) ListCerts(c *gin.Context) {
 	var certs []SSLCertificate
-	if err := h.db.Order("CASE WHEN not_after IS NULL THEN 1 ELSE 0 END, not_after ASC").Find(&certs).Error; err != nil {
+	if err := h.certReadQuery(h.db.Order("CASE WHEN not_after IS NULL THEN 1 ELSE 0 END, not_after ASC")).Find(&certs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -308,7 +320,7 @@ func (h *DomainHandler) DeleteCert(c *gin.Context) {
 func (h *DomainHandler) CheckCert(c *gin.Context) {
 	id := c.Param("id")
 	var cert SSLCertificate
-	if err := h.db.First(&cert, "id = ?", id).Error; err != nil {
+	if err := h.loadCertByID(id, &cert); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "证书不存在"})
 		return
 	}
@@ -366,7 +378,7 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 // CheckAllCerts 批量检查证书
 func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 	var certs []SSLCertificate
-	if err := h.db.Find(&certs).Error; err != nil {
+	if err := h.certReadQuery(h.db).Find(&certs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -423,7 +435,7 @@ func (h *DomainHandler) ListExpiringCerts(c *gin.Context) {
 	var certs []SSLCertificate
 	now := time.Now()
 	cutoff := now.Add(time.Duration(days) * 24 * time.Hour)
-	if err := h.db.Where("not_after IS NOT NULL AND not_after > ? AND not_after <= ?", now, cutoff).Order("not_after ASC").Find(&certs).Error; err != nil {
+	if err := h.certReadQuery(h.db.Where("not_after IS NOT NULL AND not_after > ? AND not_after <= ?", now, cutoff).Order("not_after ASC")).Find(&certs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}

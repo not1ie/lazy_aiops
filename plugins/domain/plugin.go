@@ -1,8 +1,6 @@
 package domain
 
 import (
-	"fmt"
-
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
@@ -47,9 +45,11 @@ func ensureCertSansCompatibility(db *gorm.DB) error {
 	hasSans := migrator.HasColumn(&SSLCertificate{}, "sans")
 	hasLegacySANs := migrator.HasColumn(&SSLCertificate{}, "s_a_ns")
 	if !hasSans {
-		return fmt.Errorf("ssl_certificates.sans column missing after migration")
+		if err := migrator.AddColumn(&SSLCertificate{}, "SANs"); err == nil {
+			hasSans = migrator.HasColumn(&SSLCertificate{}, "sans")
+		}
 	}
-	if !hasLegacySANs {
+	if !hasSans || !hasLegacySANs {
 		return nil
 	}
 	return db.Exec(`
