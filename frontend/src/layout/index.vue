@@ -186,24 +186,20 @@
               <span>AI运维助手</span>
             </el-menu-item>
 
-            <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:session','terminal'])" index="/cmdb">
+            <el-sub-menu v-if="canAny(['cmdb','firewall','jump'])" index="/cmdb">
               <template #title>
                 <el-icon><Monitor /></el-icon>
                 <span>资产管理</span>
               </template>
               <el-menu-item v-if="canAny(['cmdb','firewall','jump'])" index="/asset/ops">资产作战台</el-menu-item>
-              <el-menu-item v-if="can('cmdb')" index="/asset/overview">资产总览</el-menu-item>
-              <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
             </el-sub-menu>
 
-            <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
+            <el-sub-menu v-if="can('k8s')" index="/k8s">
               <template #title>
                 <el-icon><Platform /></el-icon>
                 <span>容器与K8s</span>
               </template>
               <el-menu-item v-if="can('k8s')" index="/k8s/overview">平台总览</el-menu-item>
-              <el-menu-item v-if="can('k8s')" index="/k8s/deployments">Deployments</el-menu-item>
-              <el-menu-item v-if="can('k8s')" index="/k8s/pods">Pods</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['monitor','alert','domain'])" index="/monitor">
@@ -212,7 +208,6 @@
                 <span>监控告警</span>
               </template>
               <el-menu-item index="/monitor/center">监控告警中心</el-menu-item>
-              <el-menu-item v-if="can('domain')" index="/domain/center">域名监控中心</el-menu-item>
             </el-sub-menu>
 
             <el-sub-menu v-if="canAny(['workflow','executor','task','oncall'])" index="/automation">
@@ -232,7 +227,7 @@
               <el-menu-item index="/delivery/center">交付中心</el-menu-item>
             </el-sub-menu>
 
-            <el-sub-menu v-if="canAny(['system:user','system:role','system:permission'])" index="/system">
+            <el-sub-menu v-if="canAny(['system:user','system:role'])" index="/system">
               <template #title>
                 <el-icon><Setting /></el-icon>
                 <span>系统管理</span>
