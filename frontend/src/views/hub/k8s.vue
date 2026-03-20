@@ -110,7 +110,12 @@
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
-          <span>K8s 融合视图</span>
+          <div class="integration-title-wrap">
+            <span>K8s 融合视图</span>
+            <el-tag size="small" type="info" effect="plain">
+              当前：{{ activePanelMeta.label }} · {{ activePanelMeta.count }}
+            </el-tag>
+          </div>
           <div class="integration-actions">
             <el-input
               v-model="panelKeyword"
@@ -119,10 +124,23 @@
               class="panel-search"
               placeholder="筛选名称、命名空间、类型、状态..."
             />
+            <el-button v-if="panelKeyword" size="small" @click="panelKeyword = ''">清空筛选</el-button>
             <el-button size="small" type="primary" plain @click="openCurrentPanel">进入完整页面</el-button>
           </div>
         </div>
       </template>
+
+      <div class="panel-switch">
+        <el-check-tag
+          v-for="item in panelOptions"
+          :key="item.name"
+          :checked="activePanel === item.name"
+          @change="activePanel = item.name"
+        >
+          {{ item.label }}
+          <span class="panel-switch-count">{{ item.count }}</span>
+        </el-check-tag>
+      </div>
 
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="集群" name="clusters">
@@ -593,6 +611,18 @@ const filteredEvents = computed(() =>
   filterRows(events.value, [(row) => row.type, (row) => row.reason, (row) => row.message, (row) => row.involved_object || row.involved, (row) => row.namespace])
 )
 
+const panelOptions = computed(() => [
+  { name: 'clusters', label: '集群', count: clusters.value.length },
+  { name: 'workloads', label: '工作负载', count: workloads.value.length },
+  { name: 'serviceIngress', label: '服务与Ingress', count: services.value.length + ingresses.value.length },
+  { name: 'nodes', label: '节点', count: nodes.value.length },
+  { name: 'events', label: '事件', count: events.value.length }
+])
+
+const activePanelMeta = computed(
+  () => panelOptions.value.find((item) => item.name === activePanel.value) || panelOptions.value[0] || { label: '-', count: 0 }
+)
+
 const eventMatchesWorkload = (event, row) => {
   if (!event || !row) return false
   if (normalizeText(event.namespace) !== normalizeText(row.namespace)) return false
@@ -911,6 +941,13 @@ onUnmounted(() => {
   gap: 10px;
 }
 
+.integration-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .integration-actions {
   display: flex;
   align-items: center;
@@ -921,9 +958,19 @@ onUnmounted(() => {
   width: 260px;
 }
 
-.integration-tabs :deep(.el-tabs__header) {
+.panel-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 10px;
 }
+
+.panel-switch-count {
+  margin-left: 6px;
+  opacity: 0.8;
+}
+
+.integration-tabs :deep(.el-tabs__header) { display: none; }
 
 .cockpit-header {
   width: 100%;

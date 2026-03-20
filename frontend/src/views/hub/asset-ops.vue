@@ -178,7 +178,12 @@
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
-          <span>资产作战融合视图</span>
+          <div class="integration-title-wrap">
+            <span>资产作战融合视图</span>
+            <el-tag size="small" type="info" effect="plain">
+              当前：{{ activePanelMeta.label }} · {{ activePanelMeta.count }}
+            </el-tag>
+          </div>
           <div class="integration-actions">
             <el-input
               v-model="panelKeyword"
@@ -187,10 +192,23 @@
               class="panel-search"
               placeholder="筛选会话号、资产、用户、IP、风险..."
             />
+            <el-button v-if="panelKeyword" size="small" @click="panelKeyword = ''">清空筛选</el-button>
             <el-button size="small" type="primary" plain @click="openCurrentPanel">进入完整页面</el-button>
           </div>
         </div>
       </template>
+
+      <div class="panel-switch">
+        <el-check-tag
+          v-for="item in panelOptions"
+          :key="item.name"
+          :checked="activePanel === item.name"
+          @change="activePanel = item.name"
+        >
+          {{ item.label }}
+          <span class="panel-switch-count">{{ item.count }}</span>
+        </el-check-tag>
+      </div>
 
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="离线资产" name="offline">
@@ -952,6 +970,19 @@ const filteredJumpAssets = computed(() =>
   filterRows(scopedJumpAssets.value, [(row) => row.name, (row) => row.asset_type, (row) => row.protocol, (row) => row.address, (row) => row.source])
 )
 
+const panelOptions = computed(() => [
+  { name: 'offline', label: '离线资产', count: offlineAssets.value.length },
+  { name: 'pending', label: '待审批会话', count: scopedPendingSessionsRaw.value.length },
+  { name: 'active', label: '活跃会话', count: scopedActiveSessionsRaw.value.length },
+  { name: 'risk', label: '风险事件', count: scopedRiskEventsRaw.value.length },
+  { name: 'firewall', label: '防火墙', count: scopedFirewalls.value.length },
+  { name: 'jumpAssets', label: '堡垒机资产', count: scopedJumpAssets.value.length }
+])
+
+const activePanelMeta = computed(
+  () => panelOptions.value.find((item) => item.name === activePanel.value) || panelOptions.value[0] || { label: '-', count: 0 }
+)
+
 const assetDetailTitleMap = {
   host: '主机详情',
   network: '网络设备详情',
@@ -1650,6 +1681,13 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.integration-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .integration-actions {
   display: flex;
   align-items: center;
@@ -1658,6 +1696,18 @@ onBeforeUnmount(() => {
 
 .panel-search {
   width: 280px;
+}
+
+.panel-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.panel-switch-count {
+  margin-left: 6px;
+  opacity: 0.8;
 }
 
 .inline-actions {
@@ -1684,9 +1734,7 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
 }
 
-.integration-tabs :deep(.el-tabs__header) {
-  margin-bottom: 10px;
-}
+.integration-tabs :deep(.el-tabs__header) { display: none; }
 
 @media (max-width: 1100px) {
   .workbench-layout {

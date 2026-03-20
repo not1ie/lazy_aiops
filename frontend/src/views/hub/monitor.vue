@@ -107,7 +107,12 @@
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
-          <span>监控融合视图</span>
+          <div class="integration-title-wrap">
+            <span>监控融合视图</span>
+            <el-tag size="small" type="info" effect="plain">
+              当前：{{ activePanelMeta.label }} · {{ activePanelMeta.count }}
+            </el-tag>
+          </div>
           <div class="integration-actions">
             <el-input
               v-model="panelKeyword"
@@ -116,10 +121,23 @@
               class="panel-search"
               placeholder="筛选名称、目标、级别、渠道..."
             />
+            <el-button v-if="panelKeyword" size="small" @click="panelKeyword = ''">清空筛选</el-button>
             <el-button size="small" type="primary" plain @click="openCurrentPanel">进入完整页面</el-button>
           </div>
         </div>
       </template>
+
+      <div class="panel-switch">
+        <el-check-tag
+          v-for="item in panelOptions"
+          :key="item.name"
+          :checked="activePanel === item.name"
+          @change="activePanel = item.name"
+        >
+          {{ item.label }}
+          <span class="panel-switch-count">{{ item.count }}</span>
+        </el-check-tag>
+      </div>
 
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="告警事件" name="alerts">
@@ -499,6 +517,18 @@ const filteredTemplates = computed(() =>
 
 const filteredDomainRisk = computed(() => filterRows(riskRows.value, [(row) => row.type, (row) => row.name, (row) => row.reason, (row) => row.detail]))
 
+const panelOptions = computed(() => [
+  { name: 'alerts', label: '告警事件', count: alerts.value.length },
+  { name: 'rules', label: '告警规则', count: rules.value.length },
+  { name: 'channels', label: '通知渠道', count: channels.value.length },
+  { name: 'notify', label: '通知组与模板', count: groups.value.length + templates.value.length },
+  { name: 'domain', label: '域名证书风险', count: riskRows.value.length }
+])
+
+const activePanelMeta = computed(
+  () => panelOptions.value.find((item) => item.name === activePanel.value) || panelOptions.value[0] || { label: '-', count: 0 }
+)
+
 const formatTime = (value) => {
   if (!value) return '-'
   const date = new Date(value)
@@ -742,6 +772,13 @@ onUnmounted(() => {
   gap: 10px;
 }
 
+.integration-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .integration-actions {
   display: flex;
   align-items: center;
@@ -752,9 +789,19 @@ onUnmounted(() => {
   width: 260px;
 }
 
-.integration-tabs :deep(.el-tabs__header) {
+.panel-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 10px;
 }
+
+.panel-switch-count {
+  margin-left: 6px;
+  opacity: 0.8;
+}
+
+.integration-tabs :deep(.el-tabs__header) { display: none; }
 
 @media (max-width: 1100px) {
   .integration-header {
