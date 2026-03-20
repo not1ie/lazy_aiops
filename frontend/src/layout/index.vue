@@ -186,55 +186,35 @@
               <span>AI运维助手</span>
             </el-menu-item>
 
-            <el-sub-menu v-if="canAny(['cmdb','firewall','jump'])" index="/cmdb">
-              <template #title>
-                <el-icon><Monitor /></el-icon>
-                <span>资产管理</span>
-              </template>
-              <el-menu-item v-if="canAny(['cmdb','firewall','jump'])" index="/asset/ops">资产作战台</el-menu-item>
-            </el-sub-menu>
+            <el-menu-item v-if="canAny(['cmdb','firewall','jump','terminal'])" :index="assetHubPath">
+              <el-icon><Monitor /></el-icon>
+              <span>资产作战台</span>
+            </el-menu-item>
 
-            <el-sub-menu v-if="can('k8s')" index="/k8s">
-              <template #title>
-                <el-icon><Platform /></el-icon>
-                <span>容器与K8s</span>
-              </template>
-              <el-menu-item v-if="can('k8s')" index="/k8s/overview">平台总览</el-menu-item>
-            </el-sub-menu>
+            <el-menu-item v-if="canAny(['k8s','docker'])" :index="containerHubPath">
+              <el-icon><Platform /></el-icon>
+              <span>容器K8s作战台</span>
+            </el-menu-item>
 
-            <el-sub-menu v-if="canAny(['monitor','alert','domain'])" index="/monitor">
-              <template #title>
-                <el-icon><Histogram /></el-icon>
-                <span>监控告警</span>
-              </template>
-              <el-menu-item index="/monitor/center">监控告警中心</el-menu-item>
-            </el-sub-menu>
+            <el-menu-item v-if="canAny(['monitor','alert','notify','domain'])" :index="monitorHubPath">
+              <el-icon><Histogram /></el-icon>
+              <span>监控告警中心</span>
+            </el-menu-item>
 
-            <el-sub-menu v-if="canAny(['workflow','executor','task','oncall'])" index="/automation">
-              <template #title>
-                <el-icon><Operation /></el-icon>
-                <span>自动化</span>
-              </template>
-              <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
-              <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
-            </el-sub-menu>
+            <el-menu-item v-if="canAny(['workflow','executor','task','ansible','oncall'])" :index="automationHubPath">
+              <el-icon><Operation /></el-icon>
+              <span>自动化协同</span>
+            </el-menu-item>
 
-            <el-sub-menu v-if="canAny(['cicd','workorder'])" index="/cicd">
-              <template #title>
-                <el-icon><Connection /></el-icon>
-                <span>CI/CD</span>
-              </template>
-              <el-menu-item index="/delivery/center">交付中心</el-menu-item>
-            </el-sub-menu>
+            <el-menu-item v-if="canAny(['cicd','application','workorder','sqlaudit','gitops'])" :index="deliveryHubPath">
+              <el-icon><Connection /></el-icon>
+              <span>交付中心</span>
+            </el-menu-item>
 
-            <el-sub-menu v-if="canAny(['system:user','system:role'])" index="/system">
-              <template #title>
-                <el-icon><Setting /></el-icon>
-                <span>系统管理</span>
-              </template>
-              <el-menu-item v-if="can('system:user')" index="/system/users">用户管理</el-menu-item>
-              <el-menu-item v-if="can('system:role')" index="/system/roles">角色管理</el-menu-item>
-            </el-sub-menu>
+            <el-menu-item v-if="canAny(['system:user','system:role','system:permission'])" :index="systemHubPath">
+              <el-icon><Setting /></el-icon>
+              <span>系统管理</span>
+            </el-menu-item>
           </template>
         </el-menu>
       </el-scrollbar>
@@ -316,249 +296,7 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-dropdown trigger="click" @command="handleWorkspacePresetCommand">
-            <el-button class="tab-action-btn" link>工作台模板</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item
-                  command="openLast"
-                  :disabled="!hasLastWorkspacePreset"
-                >
-                  恢复上次模板
-                </el-dropdown-item>
-                <el-dropdown-item command="saveCurrent">保存当前页签为模板</el-dropdown-item>
-                <el-dropdown-item divided disabled>系统模板</el-dropdown-item>
-                <el-dropdown-item
-                  v-for="preset in availableBuiltinWorkspacePresets"
-                  :key="preset.key"
-                  :command="`open:${preset.key}`"
-                >
-                  {{ preset.label }}
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-if="availableCustomWorkspacePresets.length"
-                  divided
-                  disabled
-                >
-                  自定义模板
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-for="preset in availableCustomWorkspacePresets"
-                  :key="`custom-${preset.key}`"
-                  :command="`open:${preset.key}`"
-                >
-                  {{ preset.label }}
-                </el-dropdown-item>
-                <template v-for="group in availableTeamWorkspacePresetGroups" :key="`group-${group.key}`">
-                  <el-dropdown-item divided disabled>
-                    团队模板 · {{ group.label }}
-                  </el-dropdown-item>
-                  <el-dropdown-item
-                    v-for="preset in group.items"
-                    :key="`team-${preset.id}`"
-                    :command="`openTeam:${preset.id}`"
-                  >
-                    {{ preset.name }} · {{ preset.owner_name || 'team' }}
-                  </el-dropdown-item>
-                </template>
-                <el-dropdown-item
-                  v-if="!availableBuiltinWorkspacePresets.length && !availableCustomWorkspacePresets.length && !availableTeamWorkspacePresets.length"
-                  disabled
-                >
-                  暂无可用模板
-                </el-dropdown-item>
-                <el-dropdown-item v-if="isAdmin" divided command="saveCurrentTeam">保存为团队模板</el-dropdown-item>
-                <el-dropdown-item command="refreshTeam">刷新团队模板</el-dropdown-item>
-                <el-dropdown-item command="manageTeam">管理团队模板</el-dropdown-item>
-                <el-dropdown-item
-                  v-if="customWorkspacePresets.length"
-                  command="clearCustom"
-                >
-                  清空自定义模板
-                </el-dropdown-item>
-                <el-dropdown-item command="copyShareLink">复制当前工作台链接</el-dropdown-item>
-                <el-dropdown-item
-                  v-if="customWorkspacePresets.length"
-                  command="exportCustom"
-                >
-                  导出自定义模板
-                </el-dropdown-item>
-                <el-dropdown-item command="importCustom">导入自定义模板</el-dropdown-item>
-                <el-dropdown-item
-                  v-if="customWorkspacePresets.length"
-                  divided
-                  disabled
-                >
-                  删除单个模板
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-for="preset in customWorkspacePresets"
-                  :key="`delete-${preset.key}`"
-                  :command="`delete:${preset.key}`"
-                >
-                  删除 {{ preset.label }}
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-if="manageableTeamWorkspacePresets.length"
-                  divided
-                  disabled
-                >
-                  删除团队模板
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-for="preset in manageableTeamWorkspacePresets"
-                  :key="`delete-team-${preset.id}`"
-                  :command="`deleteTeam:${preset.id}`"
-                >
-                  删除 {{ preset.name }}
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-if="manageableTeamWorkspacePresets.length"
-                  divided
-                  disabled
-                >
-                  编辑团队模板
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-for="preset in manageableTeamWorkspacePresets"
-                  :key="`rename-team-${preset.id}`"
-                  :command="`renameTeam:${preset.id}`"
-                >
-                  重命名 {{ preset.name }}
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-for="preset in manageableTeamWorkspacePresets"
-                  :key="`overwrite-team-${preset.id}`"
-                  :command="`overwriteTeam:${preset.id}`"
-                >
-                  用当前工作台更新 {{ preset.name }}
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
         </div>
-        <div v-if="workspaceSceneActions.length" class="workspace-scene-wrap">
-          <div class="workspace-scene-label">场景工作台</div>
-          <div class="workspace-scene-actions">
-            <el-button
-              v-for="item in workspaceSceneActions"
-              :key="item.key"
-              size="small"
-              plain
-              class="workspace-scene-btn"
-              @click="openWorkspaceByCategory(item.key)"
-            >
-              <el-icon><component :is="item.icon" /></el-icon>
-              <span>{{ item.label }}</span>
-            </el-button>
-          </div>
-        </div>
-        <div
-          v-if="activeModuleGroup"
-          :class="[
-            'module-context-wrap',
-            `module-context-${activeModuleGroup.key}`,
-            { 'is-compact': moduleLinksCompact }
-          ]"
-        >
-          <div class="module-context-label">模块页签</div>
-          <el-scrollbar>
-            <div class="module-context-links">
-              <template v-if="activeModuleLinks.length">
-                <el-tag
-                  v-for="link in activeModuleLinks"
-                  :key="link.path"
-                  draggable="true"
-                  effect="plain"
-                  :class="[
-                    'module-context-tag',
-                    { 'is-active': isContextLinkActive(link.path), 'is-pinned': link.pinned }
-                  ]"
-                  @click="openTab(link.path)"
-                  @dragstart="onModuleLinkDragStart(link.path)"
-                  @dragover.prevent
-                  @drop.prevent="onModuleLinkDrop(link.path)"
-                  @dragend="onModuleLinkDragEnd"
-                  @auxclick="onModuleLinkAuxClick($event, link.path)"
-                  @contextmenu.prevent="openModuleLinkContextMenu($event, link.path)"
-                >
-                  <span class="module-context-tag-inner">
-                    <span class="module-context-tag-title">{{ link.label }}</span>
-                    <span class="module-context-tag-actions">
-                      <el-icon class="module-pin-icon" @click.stop="toggleModuleLinkPin(link.path)">
-                        <component :is="link.pinned ? 'StarFilled' : 'Star'" />
-                      </el-icon>
-                      <el-icon
-                        v-if="!link.pinned && activeModuleLinks.length > 1"
-                        class="module-close-icon"
-                        @click.stop="hideModuleLink(link.path)"
-                      >
-                        <Close />
-                      </el-icon>
-                    </span>
-                  </span>
-                </el-tag>
-              </template>
-              <span v-else class="module-context-empty">当前模块无可见联动页签</span>
-            </div>
-          </el-scrollbar>
-          <el-dropdown trigger="click" @command="handleModuleLinksCommand">
-            <el-button class="module-context-action" link>页签管理</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="openAll">打开当前模块全部</el-dropdown-item>
-                <el-dropdown-item command="toggleCompact">
-                  {{ moduleLinksCompact ? '关闭紧凑模式' : '开启紧凑模式' }}
-                </el-dropdown-item>
-                <el-dropdown-item command="reset">重置当前模块</el-dropdown-item>
-                <el-dropdown-item
-                  v-for="link in hiddenModuleLinks"
-                  :key="`hidden-${link.path}`"
-                  :command="`show:${link.path}`"
-                >
-                  恢复 {{ link.label }}
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-        <teleport to="body">
-          <transition name="module-context-menu-fade">
-            <div
-              v-if="moduleContextMenu.visible"
-              class="module-context-menu"
-              :style="{ left: `${moduleContextMenu.x}px`, top: `${moduleContextMenu.y}px` }"
-              @click.stop
-            >
-              <button class="module-context-menu-item" @click="handleModuleContextMenuCommand('open')">
-                打开页面
-              </button>
-              <button class="module-context-menu-item" @click="handleModuleContextMenuCommand('togglePin')">
-                {{ moduleContextMenuLink?.pinned ? '取消固定' : '固定页签' }}
-              </button>
-              <button
-                class="module-context-menu-item"
-                :disabled="activeModuleLinks.length <= 1"
-                @click="handleModuleContextMenuCommand('closeCurrent')"
-              >
-                关闭当前
-              </button>
-              <button
-                class="module-context-menu-item"
-                :disabled="activeModuleLinks.length <= 1"
-                @click="handleModuleContextMenuCommand('closeOthers')"
-              >
-                关闭其他
-              </button>
-              <button class="module-context-menu-item" @click="handleModuleContextMenuCommand('toggleCompact')">
-                {{ moduleLinksCompact ? '关闭紧凑模式' : '开启紧凑模式' }}
-              </button>
-              <button class="module-context-menu-item danger" @click="handleModuleContextMenuCommand('reset')">
-                重置当前模块
-              </button>
-            </div>
-          </transition>
-        </teleport>
         <el-dialog
           v-model="teamWorkspacePanelVisible"
           title="团队模板管理"
@@ -940,6 +678,36 @@ const can = (code) => {
 }
 
 const canAny = (codes = []) => codes.some((c) => can(c))
+const assetHubPath = computed(() => {
+  if (canAny(['cmdb', 'firewall', 'jump'])) return '/asset/ops'
+  if (can('terminal')) return '/terminal'
+  return '/asset/ops'
+})
+const containerHubPath = computed(() => (can('k8s') ? '/k8s/overview' : '/docker'))
+const monitorHubPath = computed(() => {
+  if (canAny(['monitor', 'alert', 'notify', 'domain'])) return '/monitor/center'
+  return '/monitor/center'
+})
+const automationHubPath = computed(() => {
+  if (can('workflow')) return '/workflow/designer'
+  if (can('executor')) return '/executor'
+  if (can('task')) return '/task/schedules'
+  if (can('ansible')) return '/ansible/playbooks'
+  if (can('oncall')) return '/oncall/schedule'
+  return '/workflow/designer'
+})
+const deliveryHubPath = computed(() => {
+  if (canAny(['cicd', 'workorder', 'application'])) return '/delivery/center'
+  if (can('sqlaudit')) return '/sqlaudit/requests'
+  if (can('gitops')) return '/gitops/repos'
+  return '/delivery/center'
+})
+const systemHubPath = computed(() => {
+  if (can('system:user')) return '/system/users'
+  if (can('system:role')) return '/system/roles'
+  if (can('system:permission')) return '/system/menus'
+  return '/system/users'
+})
 const hasAnyPerm = (codes = []) => {
   if (!codes?.length) return true
   return codes.some((code) => can(code))
