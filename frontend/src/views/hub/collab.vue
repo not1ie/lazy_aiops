@@ -10,12 +10,6 @@
       </div>
     </div>
 
-    <div class="module-tabs">
-      <el-tag v-for="item in quickTabs" :key="item.path" class="tab-item" effect="plain" @click="go(item.path)">
-        {{ item.label }}
-      </el-tag>
-    </div>
-
     <el-row :gutter="12" class="summary-row">
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
         <el-card><div class="metric-title">AI会话</div><div class="metric-value">{{ stats.aiSessions }}</div></el-card>
@@ -362,14 +356,6 @@ const stats = reactive({
   terminalTotal: 0
 })
 
-const quickTabs = [
-  { label: 'AI运维助手', path: '/ai' },
-  { label: '工单管理', path: '/workorder/tickets' },
-  { label: '工作流编排', path: '/workflow/designer' },
-  { label: '值班排班', path: '/oncall/schedule' },
-  { label: '升级策略', path: '/oncall/escalation' },
-  { label: 'WebTerminal', path: '/terminal' }
-]
 
 const panelRouteMap = {
   ai: '/ai',
@@ -1141,8 +1127,6 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.module-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.tab-item { cursor: pointer; user-select: none; }
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }

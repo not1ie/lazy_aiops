@@ -10,12 +10,6 @@
       </div>
     </div>
 
-    <div class="module-tabs">
-      <el-tag v-for="item in quickTabs" :key="item.path" class="tab-item" effect="plain" @click="go(item.path)">
-        {{ item.label }}
-      </el-tag>
-    </div>
-
     <el-row :gutter="12" class="summary-row">
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
         <el-card><div class="metric-title">主机总数</div><div class="metric-value">{{ stats.hostTotal }}</div></el-card>
@@ -226,15 +220,6 @@ const stats = reactive({
   jumpAssetTotal: 0
 })
 
-const quickTabs = [
-  { label: '主机管理', path: '/host' },
-  { label: '网络设备', path: '/cmdb/network-devices' },
-  { label: '凭据管理', path: '/cmdb/credential' },
-  { label: '数据库资产', path: '/cmdb/database' },
-  { label: '云资源', path: '/cmdb/cloud' },
-  { label: '防火墙管理', path: '/firewall' },
-  { label: '堡垒机资产', path: '/jump/assets' }
-]
 
 const panelRouteMap = {
   hosts: '/host',
@@ -389,8 +374,6 @@ onMounted(refreshAll)
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.module-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.tab-item { cursor: pointer; user-select: none; }
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }

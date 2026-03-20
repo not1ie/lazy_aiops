@@ -11,12 +11,6 @@
       </div>
     </div>
 
-    <div class="module-tabs">
-      <el-tag v-for="item in quickTabs" :key="item.path" class="tab-item" effect="plain" @click="go(item.path)">
-        {{ item.label }}
-      </el-tag>
-    </div>
-
     <div class="workbench-layout">
       <aside class="asset-tree-panel">
         <div class="asset-tree-head">
@@ -503,15 +497,6 @@ const stats = reactive({
   pendingBacklog: 0
 })
 
-const quickTabs = [
-  { label: '资产总览', path: '/asset/overview' },
-  { label: '主机管理', path: '/host' },
-  { label: '网络设备', path: '/cmdb/network-devices' },
-  { label: '防火墙管理', path: '/firewall' },
-  { label: '堡垒机会话', path: '/jump/sessions' },
-  { label: '风控规则', path: '/jump/command-rules' },
-  { label: '会话审计', path: '/terminal' }
-]
 
 const panelRouteMap = {
   offline: '/host',
@@ -1584,8 +1569,6 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.module-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.tab-item { cursor: pointer; user-select: none; }
 
 .workbench-layout {
   display: flex;

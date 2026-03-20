@@ -201,14 +201,9 @@
               <span>监控告警中心</span>
             </el-menu-item>
 
-            <el-menu-item v-if="canAny(['workflow','executor','task','ansible','oncall'])" :index="automationHubPath">
-              <el-icon><Operation /></el-icon>
-              <span>自动化协同</span>
-            </el-menu-item>
-
-            <el-menu-item v-if="canAny(['cicd','application','workorder','sqlaudit','gitops'])" :index="deliveryHubPath">
+            <el-menu-item v-if="canAny(['workflow','executor','task','ansible','oncall','cicd','application','workorder','sqlaudit','gitops'])" :index="deliveryHubPath">
               <el-icon><Connection /></el-icon>
-              <span>交付中心</span>
+              <span>交付自动化</span>
             </el-menu-item>
 
             <el-menu-item v-if="canAny(['system:user','system:role','system:permission'])" :index="systemHubPath">
@@ -688,16 +683,13 @@ const monitorHubPath = computed(() => {
   if (canAny(['monitor', 'alert', 'notify', 'domain'])) return '/monitor/center'
   return '/monitor/center'
 })
-const automationHubPath = computed(() => {
+const deliveryHubPath = computed(() => {
+  if (canAny(['cicd', 'workorder', 'application'])) return '/delivery/center'
   if (can('workflow')) return '/workflow/designer'
   if (can('executor')) return '/executor'
   if (can('task')) return '/task/schedules'
   if (can('ansible')) return '/ansible/playbooks'
   if (can('oncall')) return '/oncall/schedule'
-  return '/workflow/designer'
-})
-const deliveryHubPath = computed(() => {
-  if (canAny(['cicd', 'workorder', 'application'])) return '/delivery/center'
   if (can('sqlaudit')) return '/sqlaudit/requests'
   if (can('gitops')) return '/gitops/repos'
   return '/delivery/center'
