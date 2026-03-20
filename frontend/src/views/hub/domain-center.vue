@@ -779,15 +779,122 @@ const onRiskSelectionChange = (rows) => {
   selectedRiskRows.value = Array.isArray(rows) ? rows : []
 }
 
-const doRiskCheck = async (row) => {
-  if (row.kind === 'cert' && row.id) {
-    return axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
+const recalcStats = () => {
+  stats.domainTotal = domains.value.length
+  stats.domainHealthy = domains.value.filter((item) => normalizeText(item.health_status) === 'healthy').length
+  stats.domainWarning = domains.value.filter((item) => normalizeText(item.health_status) === 'warning').length
+  stats.domainCritical = domains.value.filter((item) => normalizeText(item.health_status) === 'critical').length
+  stats.certTotal = certs.value.length
+  stats.certExpiringSoon = certs.value.filter((item) => Number(certDays(item)) <= 30).length
+  stats.certCriticalSoon = certs.value.filter((item) => Number(certDays(item)) <= 7).length
+  stats.accountTotal = accounts.value.length
+  stats.pendingRecheck =
+    domains.value.filter((item) => isCheckStale(item.last_check_at)).length +
+    certs.value.filter((item) => isCheckStale(item.last_check_at)).length
+}
+
+const resolveCheckTime = (value) => {
+  if (!value) return new Date().toISOString()
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString()
+  return parsed.toISOString()
+}
+
+const resolveCertStatusByDays = (days) => {
+  const num = Number(days)
+  if (!Number.isFinite(num)) return 1
+  if (num <= 0) return 0
+  if (num <= 30) return 2
+  return 1
+}
+
+const applyRiskCheckPatch = (result) => {
+  if (!result) return
+  const checkedAt = resolveCheckTime(result.checkedAt || result.payload?.checked_at || result.payload?.last_check_at)
+  nowTick.value = Date.now()
+
+  if (result.kind === 'domain') {
+    const domain = normalizeText(result.domain || result.payload?.domain)
+    if (!domain) return
+    domains.value = domains.value.map((item) => {
+      if (normalizeText(item.domain) !== domain) return item
+      return {
+        ...item,
+        dns_resolved: result.payload?.dns_resolved ?? item.dns_resolved,
+        http_status_code: result.payload?.http_status_code ?? item.http_status_code,
+        response_time_ms: result.payload?.response_time_ms ?? item.response_time_ms,
+        ssl_days_to_expire: result.payload?.ssl_days_to_expire ?? item.ssl_days_to_expire,
+        health_status: result.payload?.health_status || item.health_status,
+        last_check_at: checkedAt
+      }
+    })
   }
+
+  if (result.kind === 'cert') {
+    const certID = String(result.id || result.payload?.id || '').trim()
+    const certDomain = normalizeText(result.domain || result.payload?.domain)
+    const nextDays = Number(result.payload?.days_to_expire)
+    const nextStatus = result.payload?.status ?? resolveCertStatusByDays(nextDays)
+
+    certs.value = certs.value.map((item) => {
+      const idMatched = certID && String(item.id || '').trim() === certID
+      const domainMatched = certDomain && normalizeText(item.domain) === certDomain
+      if (!idMatched && !domainMatched) return item
+      return {
+        ...item,
+        issuer: result.payload?.issuer || item.issuer,
+        subject: result.payload?.subject || item.subject,
+        sans: result.payload?.sans || item.sans,
+        not_before: result.payload?.not_before ?? item.not_before,
+        not_after: result.payload?.not_after ?? item.not_after,
+        days_to_expire: Number.isFinite(nextDays) ? nextDays : item.days_to_expire,
+        serial_number: result.payload?.serial_number || item.serial_number,
+        status: nextStatus,
+        last_check_at: checkedAt
+      }
+    })
+
+    domains.value = domains.value.map((item) => {
+      if (certDomain && normalizeText(item.domain) !== certDomain) return item
+      return {
+        ...item,
+        ssl_days_to_expire: Number.isFinite(nextDays) ? nextDays : item.ssl_days_to_expire,
+        last_check_at: checkedAt
+      }
+    })
+  }
+
+  recalcStats()
+}
+
+const scheduleConsistencyRefresh = () => {
+  window.setTimeout(() => {
+    refreshAll({ silent: true })
+  }, 450)
+}
+
+const doRiskCheck = async (row) => {
   const domain = row.domain || row.name
+  if (row.kind === 'cert' && row.id) {
+    const res = await axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
+    return {
+      kind: 'cert',
+      id: row.id,
+      domain,
+      payload: res?.data?.data || {},
+      checkedAt: res?.data?.data?.checked_at || res?.data?.data?.last_check_at || new Date().toISOString()
+    }
+  }
   if (!domain) {
     return Promise.reject(new Error('缺少域名信息'))
   }
-  return axios.post('/api/v1/domain/domains/check', { domain }, { headers: authHeaders() })
+  const res = await axios.post('/api/v1/domain/domains/check', { domain }, { headers: authHeaders() })
+  return {
+    kind: 'domain',
+    domain,
+    payload: res?.data?.data || {},
+    checkedAt: res?.data?.data?.checked_at || new Date().toISOString()
+  }
 }
 
 const runBatchRiskAction = async (rows, title, message) => {
@@ -810,10 +917,13 @@ const runBatchRiskAction = async (rows, title, message) => {
     const settled = await Promise.allSettled(uniqueRows.map((item) => doRiskCheck(item)))
     const success = settled.filter((item) => item.status === 'fulfilled').length
     const fail = settled.length - success
+    settled.forEach((item) => {
+      if (item.status === 'fulfilled') applyRiskCheckPatch(item.value)
+    })
     ElMessage.success(`批量处置完成：成功 ${success}，失败 ${fail}`)
     selectedRiskRows.value = []
     if (riskTableRef.value?.clearSelection) riskTableRef.value.clearSelection()
-    await refreshAll()
+    scheduleConsistencyRefresh()
   } catch (err) {
     if (!isCancelError(err)) {
       ElMessage.error(getErrorMessage(err, '批量处置失败'))
@@ -848,9 +958,10 @@ const batchHandleRiskGroup = async (group) => {
 
 const checkDomainRow = async (row) => {
   try {
-    await doRiskCheck({ kind: 'domain', domain: row.domain })
+    const result = await doRiskCheck({ kind: 'domain', domain: row.domain })
+    applyRiskCheckPatch(result)
     ElMessage.success(`域名 ${row.domain} 已触发体检`)
-    await refreshAll()
+    scheduleConsistencyRefresh()
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '域名体检失败'))
   }
@@ -858,9 +969,10 @@ const checkDomainRow = async (row) => {
 
 const checkCertRow = async (row) => {
   try {
-    await doRiskCheck({ kind: 'cert', id: row.id })
+    const result = await doRiskCheck({ kind: 'cert', id: row.id, domain: row.domain })
+    applyRiskCheckPatch(result)
     ElMessage.success(`证书 ${row.domain} 已触发检查`)
-    await refreshAll()
+    scheduleConsistencyRefresh()
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '证书检查失败'))
   }
@@ -969,8 +1081,8 @@ const runDispositionSecondaryAction = async () => {
   }
 }
 
-const refreshAll = async () => {
-  loading.value = true
+const refreshAll = async ({ silent = false } = {}) => {
+  if (!silent) loading.value = true
   try {
     const [domainRes, certRes, accountRes, alertRes] = await Promise.allSettled([
       axios.get('/api/v1/domain/domains', { headers: authHeaders() }),
@@ -984,17 +1096,7 @@ const refreshAll = async () => {
     accounts.value = accountRes.status === 'fulfilled' ? safeArray(accountRes.value) : []
     alerts.value = alertRes.status === 'fulfilled' ? safeArray(alertRes.value) : []
 
-    stats.domainTotal = domains.value.length
-    stats.domainHealthy = domains.value.filter((item) => normalizeText(item.health_status) === 'healthy').length
-    stats.domainWarning = domains.value.filter((item) => normalizeText(item.health_status) === 'warning').length
-    stats.domainCritical = domains.value.filter((item) => normalizeText(item.health_status) === 'critical').length
-    stats.certTotal = certs.value.length
-    stats.certExpiringSoon = certs.value.filter((item) => Number(certDays(item)) <= 30).length
-    stats.certCriticalSoon = certs.value.filter((item) => Number(certDays(item)) <= 7).length
-    stats.accountTotal = accounts.value.length
-    stats.pendingRecheck =
-      domains.value.filter((item) => isCheckStale(item.last_check_at)).length +
-      certs.value.filter((item) => isCheckStale(item.last_check_at)).length
+    recalcStats()
 
     renderHealthChart()
 
@@ -1005,7 +1107,7 @@ const refreshAll = async () => {
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '加载域名监控中心失败'))
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 

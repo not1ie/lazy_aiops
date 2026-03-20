@@ -325,9 +325,27 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 		updates["status"] = 2
 	}
 
-	h.db.Model(&cert).Updates(updates)
+	if err := h.db.Model(&cert).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": certInfo})
+	resp := gin.H{
+		"id":             cert.ID,
+		"domain":         cert.Domain,
+		"issuer":         certInfo["issuer"],
+		"subject":        certInfo["subject"],
+		"sans":           certInfo["sans"],
+		"not_before":     certInfo["not_before"],
+		"not_after":      certInfo["not_after"],
+		"days_to_expire": daysToExpire,
+		"serial_number":  certInfo["serial_number"],
+		"status":         updates["status"],
+		"last_check_at":  now,
+		"checked_at":     now,
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resp})
 }
 
 // CheckAllCerts 批量检查证书
