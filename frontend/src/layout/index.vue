@@ -7,15 +7,6 @@
           <div class="logo-subtitle">Ops Control Center</div>
         </div>
       </div>
-      <div class="nav-mode-switch">
-        <span>导航模式</span>
-        <el-switch
-          v-model="menuSimpleMode"
-          inline-prompt
-          active-text="简"
-          inactive-text="全"
-        />
-      </div>
 
       <el-scrollbar class="sider-scroll">
         <el-menu
@@ -731,7 +722,6 @@ const permissions = ref(new Set(JSON.parse(localStorage.getItem('permissions') |
 const TABS_STORAGE_KEY = 'layout_view_tabs'
 const MODULE_LINKS_STORAGE_KEY = 'layout_module_links_state_v1'
 const MODULE_LINKS_COMPACT_STORAGE_KEY = 'layout_module_links_compact_v1'
-const MENU_SIMPLE_MODE_STORAGE_KEY = 'layout_menu_simple_mode_v1'
 const CUSTOM_WORKSPACE_PRESETS_KEY = 'layout_custom_workspace_presets_v1'
 const LAST_WORKSPACE_PRESET_KEY = 'layout_last_workspace_preset_v1'
 const WORKSPACE_SHARE_QUERY_KEY = 'workspace'
@@ -741,7 +731,7 @@ const draggingViewTabPath = ref('')
 const moduleLinkState = ref({})
 const draggingModuleLinkPath = ref('')
 const moduleLinksCompact = ref(false)
-const menuSimpleMode = ref(true)
+const menuSimpleMode = true
 const moduleContextMenu = ref({ visible: false, x: 0, y: 0, path: '' })
 const customWorkspacePresets = ref([])
 const teamWorkspacePresets = ref([])
@@ -803,20 +793,6 @@ const readModuleLinksCompact = () => {
 
 const persistModuleLinksCompact = () => {
   localStorage.setItem(MODULE_LINKS_COMPACT_STORAGE_KEY, moduleLinksCompact.value ? '1' : '0')
-}
-
-const readMenuSimpleMode = () => {
-  try {
-    const raw = localStorage.getItem(MENU_SIMPLE_MODE_STORAGE_KEY)
-    if (raw === null) return true
-    return raw === '1'
-  } catch {
-    return true
-  }
-}
-
-const persistMenuSimpleMode = () => {
-  localStorage.setItem(MENU_SIMPLE_MODE_STORAGE_KEY, menuSimpleMode.value ? '1' : '0')
 }
 
 const ensureTab = (targetRoute) => {
@@ -2213,7 +2189,6 @@ onMounted(async () => {
   await listTeamWorkspacePresets()
   moduleLinkState.value = readModuleLinkState()
   moduleLinksCompact.value = readModuleLinksCompact()
-  menuSimpleMode.value = readMenuSimpleMode()
   customWorkspacePresets.value = readCustomWorkspacePresets()
   lastWorkspacePresetKey.value = readLastWorkspacePresetKey()
   const cached = readTabsFromStorage()
@@ -2244,10 +2219,6 @@ watch(
   },
   { immediate: true }
 )
-
-watch(menuSimpleMode, () => {
-  persistMenuSimpleMode()
-})
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', closeModuleContextMenu)
@@ -2284,19 +2255,6 @@ onBeforeUnmount(() => {
 
 .logo {
   padding: 24px 20px 18px;
-}
-
-.nav-mode-switch {
-  margin: 0 20px 12px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(15, 23, 42, 0.38);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: rgba(226, 232, 240, 0.86);
-  font-size: 12px;
 }
 
 .logo-title {

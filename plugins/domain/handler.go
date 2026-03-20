@@ -15,11 +15,26 @@ import (
 )
 
 type DomainHandler struct {
-	db *gorm.DB
+	db             *gorm.DB
+	certSansColumn string
 }
 
 func NewDomainHandler(db *gorm.DB) *DomainHandler {
-	return &DomainHandler{db: db}
+	return &DomainHandler{
+		db:             db,
+		certSansColumn: detectCertSansColumn(db),
+	}
+}
+
+func detectCertSansColumn(db *gorm.DB) string {
+	migrator := db.Migrator()
+	if migrator.HasColumn(&SSLCertificate{}, "sans") {
+		return "sans"
+	}
+	if migrator.HasColumn(&SSLCertificate{}, "s_a_ns") {
+		return "s_a_ns"
+	}
+	return "sans"
 }
 
 type domainRuntimeResult struct {
@@ -309,7 +324,6 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 	updates := map[string]interface{}{
 		"issuer":         certInfo["issuer"],
 		"subject":        certInfo["subject"],
-		"sans":           certInfo["sans"],
 		"not_before":     certInfo["not_before"],
 		"not_after":      certInfo["not_after"],
 		"days_to_expire": certInfo["days_to_expire"],
@@ -317,6 +331,7 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 		"last_check_at":  now,
 		"status":         1,
 	}
+	updates[h.certSansColumn] = certInfo["sans"]
 
 	daysToExpire := certInfo["days_to_expire"].(int)
 	if daysToExpire <= 0 {
@@ -368,7 +383,6 @@ func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 		updates := map[string]interface{}{
 			"issuer":         certInfo["issuer"],
 			"subject":        certInfo["subject"],
-			"sans":           certInfo["sans"],
 			"not_before":     certInfo["not_before"],
 			"not_after":      certInfo["not_after"],
 			"days_to_expire": certInfo["days_to_expire"],
@@ -376,6 +390,7 @@ func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 			"last_check_at":  now,
 			"status":         1,
 		}
+		updates[h.certSansColumn] = certInfo["sans"]
 
 		daysToExpire := certInfo["days_to_expire"].(int)
 		if daysToExpire <= 0 {
