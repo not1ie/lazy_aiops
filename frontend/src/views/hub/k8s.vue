@@ -6,7 +6,6 @@
         <p class="page-desc">把集群、工作负载、服务与诊断入口放在一个视图里，按运维排障链路组织信息。</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" plain @click="applyRecommendedWorkspace">推荐工作台</el-button>
         <el-select v-model="clusterId" class="w-52" placeholder="选择集群" @change="refreshClusterData">
           <el-option
             v-for="c in clusters"
@@ -410,7 +409,6 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
-import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 
 const router = useRouter()
 const loading = ref(false)
@@ -467,7 +465,6 @@ const panelRouteMap = {
   events: '/k8s/events'
 }
 
-const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('k8s', 'hub-k8s')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)

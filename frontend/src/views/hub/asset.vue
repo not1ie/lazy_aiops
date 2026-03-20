@@ -6,7 +6,6 @@
         <p class="page-desc">把主机、网络设备、数据库、云资源、防火墙与堡垒机资产融合在一个工作台里。</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" plain @click="applyRecommendedWorkspace">推荐工作台</el-button>
         <el-button :loading="loading" icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
     </div>
@@ -199,7 +198,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 
 const router = useRouter()
 const loading = ref(false)
@@ -249,7 +247,6 @@ const panelRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
-const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('asset', 'hub-asset')
 
 const isOnline = (status) => status === 1 || status === 'online' || status === '在线' || status === true
 

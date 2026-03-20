@@ -6,7 +6,6 @@
         <p class="page-desc">聚合 CMDB、网络设备、防火墙、堡垒机会话与风控事件，按运维处置流程联动。</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" plain @click="applyRecommendedWorkspace">推荐工作台</el-button>
         <el-button :loading="syncingNetworkFromFirewall" icon="RefreshRight" @click="syncNetworkDevicesFromFirewalls">同步防火墙资产</el-button>
         <el-button :loading="loading" icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
@@ -452,7 +451,6 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
-import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
@@ -536,7 +534,6 @@ const assetDetailRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
-const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('asset', 'hub-asset-ops')
 
 const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
 

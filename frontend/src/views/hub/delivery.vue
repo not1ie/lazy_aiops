@@ -6,7 +6,6 @@
         <p class="page-desc">围绕“流水线-执行-发布-工单”构建一屏闭环，贴近企业变更管控流程。</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" plain @click="applyRecommendedWorkspace">推荐工作台</el-button>
         <el-button :loading="loading" icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
     </div>
@@ -336,7 +335,6 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
@@ -393,7 +391,6 @@ const panelRouteMap = {
   workorders: '/workorder/tickets'
 }
 
-const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('delivery', 'hub-delivery')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)

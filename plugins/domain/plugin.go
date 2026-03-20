@@ -1,9 +1,12 @@
 package domain
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -33,7 +36,29 @@ func (p *DomainPlugin) Start() error { return nil }
 func (p *DomainPlugin) Stop() error  { return nil }
 
 func (p *DomainPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&CloudDomain{}, &CloudAccount{}, &SSLCertificate{})
+	if err := p.core.DB.AutoMigrate(&CloudDomain{}, &CloudAccount{}, &SSLCertificate{}); err != nil {
+		return err
+	}
+	return ensureCertSansCompatibility(p.core.DB)
+}
+
+func ensureCertSansCompatibility(db *gorm.DB) error {
+	migrator := db.Migrator()
+	hasSans := migrator.HasColumn(&SSLCertificate{}, "sans")
+	hasLegacySANs := migrator.HasColumn(&SSLCertificate{}, "s_a_ns")
+	if !hasSans {
+		return fmt.Errorf("ssl_certificates.sans column missing after migration")
+	}
+	if !hasLegacySANs {
+		return nil
+	}
+	return db.Exec(`
+		UPDATE ssl_certificates
+		SET sans = COALESCE(NULLIF(sans, ''), s_a_ns)
+		WHERE (sans IS NULL OR sans = '')
+		  AND s_a_ns IS NOT NULL
+		  AND s_a_ns <> ''
+	`).Error
 }
 
 func (p *DomainPlugin) RegisterRoutes(g *gin.RouterGroup) {

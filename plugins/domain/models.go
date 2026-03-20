@@ -62,7 +62,7 @@ type SSLCertificate struct {
 	Domain       string     `gorm:"size:256;index" json:"domain"`
 	Issuer       string     `gorm:"size:256" json:"issuer"`
 	Subject      string     `gorm:"size:512" json:"subject"`
-	SANs         string     `gorm:"type:text" json:"sans"` // Subject Alternative Names
+	SANs         string     `gorm:"column:sans;type:text" json:"sans"` // Subject Alternative Names
 	NotBefore    *time.Time `json:"not_before"`
 	NotAfter     *time.Time `json:"not_after"`
 	DaysToExpire int        `json:"days_to_expire"`

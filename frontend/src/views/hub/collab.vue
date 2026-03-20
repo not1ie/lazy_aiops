@@ -6,7 +6,6 @@
         <p class="page-desc">把 AI 问答、工单流转、流程执行、值班升级与终端会话放进同一协同工作台。</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" plain @click="applyRecommendedWorkspace">推荐工作台</el-button>
         <el-button :loading="loading" icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
     </div>
@@ -318,7 +317,6 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
-import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
@@ -381,7 +379,6 @@ const panelRouteMap = {
   terminal: '/terminal'
 }
 
-const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('collab', 'hub-collab')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
