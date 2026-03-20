@@ -6,17 +6,10 @@
         <p class="page-desc">集中展示域名可用性、证书到期风险与处置入口，避免分散排查。</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" plain @click="applyRecommendedWorkspace">推荐工作台</el-button>
         <el-button :loading="checking" type="primary" plain @click="checkAllDomains">域名一键体检</el-button>
         <el-button :loading="checkingCert" plain @click="checkAllCerts">证书批量检查</el-button>
         <el-button :loading="loading" icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
-    </div>
-
-    <div class="module-tabs">
-      <el-tag v-for="item in quickTabs" :key="item.path" class="tab-item" effect="plain" @click="go(item.path)">
-        {{ item.label }}
-      </el-tag>
     </div>
 
     <el-row :gutter="12" class="summary-row">
@@ -348,7 +341,6 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
-import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 
 const router = useRouter()
 const loading = ref(false)
@@ -383,13 +375,6 @@ const stats = reactive({
 })
 
 const CHECK_STALE_HOURS = 24
-
-const quickTabs = [
-  { label: '域名与证书', path: '/domain/ssl' },
-  { label: '告警事件', path: '/alert/events' },
-  { label: '通知模板', path: '/notify/templates' },
-  { label: '监控告警中心', path: '/monitor/center' }
-]
 
 const panelRouteMap = {
   domains: '/domain/ssl',
@@ -435,8 +420,6 @@ const dispositionPrimaryLabel = computed(() => {
   }
   return '执行处置'
 })
-
-const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('monitor', 'hub-domain-center')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
@@ -1169,8 +1152,6 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.module-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.tab-item { cursor: pointer; user-select: none; }
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }

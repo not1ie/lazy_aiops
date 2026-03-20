@@ -6,15 +6,8 @@
         <p class="page-desc">按“发现-通知-处置”链路汇总可观测数据，减少告警与域名证书排障中的页面切换。</p>
       </div>
       <div class="page-actions">
-        <el-button type="primary" plain @click="applyRecommendedWorkspace">推荐工作台</el-button>
         <el-button :loading="loading" icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
-    </div>
-
-    <div class="module-tabs">
-      <el-tag v-for="item in quickTabs" :key="item.path" class="tab-item" effect="plain" @click="go(item.path)">
-        {{ item.label }}
-      </el-tag>
     </div>
 
     <el-row :gutter="12" class="summary-row">
@@ -77,7 +70,21 @@
 
       <el-col :span="14">
         <el-card>
-          <template #header>域名/证书风险清单</template>
+          <template #header>
+            <div class="risk-header">
+              <span>域名/证书风险清单</span>
+              <div class="risk-actions">
+                <el-tag type="danger" effect="light">高危 {{ riskCriticalRows.length }}</el-tag>
+                <el-tag type="warning" effect="light">待复检 {{ riskStaleRows.length }}</el-tag>
+                <el-button size="small" type="warning" plain :loading="riskBatching" :disabled="!riskCriticalRows.length" @click="batchRecheckRisk('critical')">
+                  批量复检高危
+                </el-button>
+                <el-button size="small" plain :loading="riskBatching" :disabled="!riskStaleRows.length" @click="batchRecheckRisk('stale')">
+                  批量复检待复检
+                </el-button>
+              </div>
+            </div>
+          </template>
           <el-table :fit="true" :data="riskRows" size="small" max-height="420" empty-text="暂无风险项">
             <el-table-column prop="type" label="类型" width="110" />
             <el-table-column prop="name" label="域名" min-width="180" />
@@ -270,7 +277,6 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
-import { requestApplyWorkspaceCategory } from '@/utils/workspace'
 
 const router = useRouter()
 const loading = ref(false)
@@ -285,6 +291,7 @@ const templates = ref([])
 const activePanel = ref('alerts')
 const panelKeyword = ref('')
 const nowTs = ref(Date.now())
+const riskBatching = ref(false)
 let minuteTicker = null
 
 const stats = reactive({
@@ -304,17 +311,6 @@ const stats = reactive({
   templateTotal: 0
 })
 
-const quickTabs = [
-  { label: '监控概览', path: '/monitor/overview' },
-  { label: '主机监控', path: '/monitor/hosts' },
-  { label: '告警事件', path: '/alert/events' },
-  { label: '告警规则', path: '/alert/rules' },
-  { label: '通知渠道', path: '/notify/channels' },
-  { label: '通知组', path: '/notify/groups' },
-  { label: '通知模板', path: '/notify/templates' },
-  { label: '域名与证书', path: '/domain/ssl' }
-]
-
 const panelRouteMap = {
   alerts: '/alert/events',
   rules: '/alert/rules',
@@ -322,8 +318,6 @@ const panelRouteMap = {
   notify: '/notify/groups',
   domain: '/domain/ssl'
 }
-
-const applyRecommendedWorkspace = () => requestApplyWorkspaceCategory('monitor', 'hub-monitor')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
@@ -476,6 +470,8 @@ const riskRows = computed(() => {
     .sort((a, b) => Number(b.level === 'critical') - Number(a.level === 'critical'))
     .slice(0, 30)
 })
+const riskCriticalRows = computed(() => riskRows.value.filter((item) => item.level === 'critical'))
+const riskStaleRows = computed(() => riskRows.value.filter((item) => isRiskCheckStale(item.checked_at)))
 
 const pendingAlertTimeout = computed(() => alerts.value.filter((item) => isAlertStale(item)).length)
 const riskCheckStale = computed(() => riskRows.value.filter((item) => isRiskCheckStale(item.checked_at)).length)
@@ -575,21 +571,61 @@ const testChannel = async (row) => {
   }
 }
 
+const triggerRiskRecheck = async (row, { silent = false } = {}) => {
+  if (row.kind === 'domain') {
+    await axios.post('/api/v1/domain/domains/check', { domain: row.domain || row.name }, { headers: authHeaders() })
+    if (!silent) ElMessage.success(`域名 ${row.domain || row.name} 已触发复检`)
+    return
+  }
+  if (row.kind === 'cert') {
+    await axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
+    if (!silent) ElMessage.success(`证书 ${row.domain || row.name} 已触发复检`)
+    return
+  }
+  throw new Error('暂不支持该风险类型复检')
+}
+
 const checkRisk = async (row) => {
   try {
-    if (row.kind === 'domain') {
-      await axios.post('/api/v1/domain/domains/check', { domain: row.domain || row.name }, { headers: authHeaders() })
-      ElMessage.success(`域名 ${row.domain || row.name} 已触发复检`)
-    } else if (row.kind === 'cert') {
-      await axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
-      ElMessage.success(`证书 ${row.domain || row.name} 已触发复检`)
-    } else {
-      ElMessage.warning('暂不支持该风险类型复检')
-      return
-    }
+    await triggerRiskRecheck(row)
     await refreshAll()
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '触发复检失败'))
+  }
+}
+
+const batchRecheckRisk = async (mode) => {
+  const targetRows = mode === 'stale' ? riskStaleRows.value : riskCriticalRows.value
+  if (!targetRows.length) {
+    ElMessage.info('没有可复检的目标')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认批量复检 ${targetRows.length} 个${mode === 'stale' ? '待复检' : '高危'}对象吗？`,
+      '批量复检',
+      { type: 'warning' }
+    )
+  } catch (err) {
+    if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '操作已取消'))
+    return
+  }
+
+  riskBatching.value = true
+  try {
+    const results = await Promise.allSettled(targetRows.map((row) => triggerRiskRecheck(row, { silent: true })))
+    const success = results.filter((item) => item.status === 'fulfilled').length
+    const failed = results.length - success
+    await refreshAll()
+    if (failed > 0) {
+      ElMessage.warning(`批量复检完成，成功 ${success}，失败 ${failed}`)
+    } else {
+      ElMessage.success(`批量复检完成，共 ${success} 项`)
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '批量复检失败'))
+  } finally {
+    riskBatching.value = false
   }
 }
 
@@ -668,8 +704,20 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.module-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.tab-item { cursor: pointer; user-select: none; }
+.risk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.risk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }
