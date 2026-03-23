@@ -32,20 +32,26 @@
               <el-icon><Monitor /></el-icon>
               <span>资产管理</span>
             </template>
-            <el-menu-item v-if="can('cmdb')" index="/asset/overview">资产总览</el-menu-item>
             <el-menu-item v-if="canAny(['cmdb','firewall','jump'])" index="/asset/ops">资产作战台</el-menu-item>
+            <el-menu-item v-if="can('cmdb')" index="/asset/overview">资产总览</el-menu-item>
             <el-menu-item v-if="can('cmdb')" index="/host">主机管理</el-menu-item>
-            <el-menu-item v-if="can('cmdb')" index="/cmdb/group">主机分组</el-menu-item>
-            <el-menu-item v-if="can('cmdb')" index="/cmdb/credential">凭据管理</el-menu-item>
-            <el-menu-item v-if="can('cmdb')" index="/cmdb/database">数据库资产</el-menu-item>
-            <el-menu-item v-if="can('cmdb')" index="/cmdb/cloud">云资源</el-menu-item>
-            <el-menu-item v-if="can('cmdb')" index="/cmdb/network-devices">网络设备</el-menu-item>
-            <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
             <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
-            <el-menu-item v-if="can('jump:asset')" index="/jump/assets">堡垒机资产</el-menu-item>
-            <el-menu-item v-if="can('jump:policy')" index="/jump/policies">授权策略</el-menu-item>
-            <el-menu-item v-if="can('jump:rule')" index="/jump/command-rules">命令风控</el-menu-item>
-            <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
+            <el-sub-menu
+              v-if="canAny(['cmdb','firewall','jump','jump:asset','jump:policy','jump:rule','jump:session'])"
+              index="/cmdb/more"
+            >
+              <template #title>更多功能</template>
+              <el-menu-item v-if="can('cmdb')" index="/cmdb/group">主机分组</el-menu-item>
+              <el-menu-item v-if="can('cmdb')" index="/cmdb/credential">凭据管理</el-menu-item>
+              <el-menu-item v-if="can('cmdb')" index="/cmdb/database">数据库资产</el-menu-item>
+              <el-menu-item v-if="can('cmdb')" index="/cmdb/cloud">云资源</el-menu-item>
+              <el-menu-item v-if="can('cmdb')" index="/cmdb/network-devices">网络设备</el-menu-item>
+              <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
+              <el-menu-item v-if="can('jump:asset')" index="/jump/assets">堡垒机资产</el-menu-item>
+              <el-menu-item v-if="can('jump:policy')" index="/jump/policies">授权策略</el-menu-item>
+              <el-menu-item v-if="can('jump:rule')" index="/jump/command-rules">命令风控</el-menu-item>
+              <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
+            </el-sub-menu>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
@@ -54,18 +60,21 @@
               <span>容器管理</span>
             </template>
             <el-menu-item v-if="can('k8s')" index="/k8s/overview">平台总览</el-menu-item>
-            <el-menu-item v-if="can('docker')" index="/docker">Docker管理</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/clusters">K8s集群</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/namespaces">命名空间</el-menu-item>
             <el-menu-item v-if="can('k8s')" index="/k8s/workloads">工作负载</el-menu-item>
             <el-menu-item v-if="can('k8s')" index="/k8s/deployments">Deployments</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/pods">Pods</el-menu-item>
             <el-menu-item v-if="can('k8s')" index="/k8s/services">服务与Ingress</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/configs">Config/Secret</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/storage">存储管理</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/nodes">节点管理</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/events">事件与诊断</el-menu-item>
-            <el-menu-item v-if="can('k8s')" index="/k8s/terminal">K8s WebShell</el-menu-item>
+            <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s/more">
+              <template #title>更多功能</template>
+              <el-menu-item v-if="can('docker')" index="/docker">Docker管理</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/clusters">K8s集群</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/namespaces">命名空间</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/pods">Pods</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/configs">Config/Secret</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/storage">存储管理</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/nodes">节点管理</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/events">事件与诊断</el-menu-item>
+              <el-menu-item v-if="can('k8s')" index="/k8s/terminal">K8s WebShell</el-menu-item>
+            </el-sub-menu>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['monitor','alert','notify','domain'])" index="/monitor">
@@ -75,21 +84,24 @@
             </template>
             <el-menu-item index="/monitor/center">监控告警中心</el-menu-item>
             <el-menu-item v-if="can('domain')" index="/domain/center">域名监控中心</el-menu-item>
-            <el-menu-item v-if="can('monitor')" index="/monitor/overview">监控概览</el-menu-item>
-            <el-menu-item v-if="can('monitor')" index="/monitor/hosts">主机监控</el-menu-item>
-            <el-menu-item v-if="can('monitor')" index="/monitor/metrics">指标采集</el-menu-item>
-            <el-menu-item v-if="can('monitor')" index="/monitor/containers">容器监控</el-menu-item>
-            <el-menu-item v-if="can('monitor')" index="/monitor/pods">Pod监控</el-menu-item>
-            <el-menu-item v-if="can('monitor')" index="/monitor/agents">Agent心跳</el-menu-item>
             <el-menu-item v-if="can('alert')" index="/alert/rules">告警规则</el-menu-item>
             <el-menu-item v-if="can('alert')" index="/alert/events">告警事件</el-menu-item>
-            <el-menu-item v-if="can('alert')" index="/alert/silences">告警静默</el-menu-item>
-            <el-menu-item v-if="can('alert')" index="/alert/aggregation">告警聚合</el-menu-item>
-            <el-menu-item v-if="can('alert')" index="/alert/history">告警复盘</el-menu-item>
-            <el-menu-item v-if="can('notify')" index="/notify/channels">通知渠道</el-menu-item>
-            <el-menu-item v-if="can('notify')" index="/notify/groups">通知组</el-menu-item>
-            <el-menu-item v-if="can('notify')" index="/notify/templates">通知模板</el-menu-item>
             <el-menu-item v-if="can('domain')" index="/domain/ssl">域名与证书</el-menu-item>
+            <el-sub-menu v-if="canAny(['monitor','alert','notify'])" index="/monitor/more">
+              <template #title>更多功能</template>
+              <el-menu-item v-if="can('monitor')" index="/monitor/overview">监控概览</el-menu-item>
+              <el-menu-item v-if="can('monitor')" index="/monitor/hosts">主机监控</el-menu-item>
+              <el-menu-item v-if="can('monitor')" index="/monitor/metrics">指标采集</el-menu-item>
+              <el-menu-item v-if="can('monitor')" index="/monitor/containers">容器监控</el-menu-item>
+              <el-menu-item v-if="can('monitor')" index="/monitor/pods">Pod监控</el-menu-item>
+              <el-menu-item v-if="can('monitor')" index="/monitor/agents">Agent心跳</el-menu-item>
+              <el-menu-item v-if="can('alert')" index="/alert/silences">告警静默</el-menu-item>
+              <el-menu-item v-if="can('alert')" index="/alert/aggregation">告警聚合</el-menu-item>
+              <el-menu-item v-if="can('alert')" index="/alert/history">告警复盘</el-menu-item>
+              <el-menu-item v-if="can('notify')" index="/notify/channels">通知渠道</el-menu-item>
+              <el-menu-item v-if="can('notify')" index="/notify/groups">通知组</el-menu-item>
+              <el-menu-item v-if="can('notify')" index="/notify/templates">通知模板</el-menu-item>
+            </el-sub-menu>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['workflow','executor','task','ansible','oncall'])" index="/automation">
@@ -98,12 +110,15 @@
               <span>任务中心</span>
             </template>
             <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
-            <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
             <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
-            <el-menu-item v-if="can('ansible')" index="/ansible/playbooks">Ansible Playbook</el-menu-item>
-            <el-menu-item v-if="can('ansible')" index="/ansible/inventories">Ansible Inventory</el-menu-item>
-            <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
-            <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
+            <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
+            <el-sub-menu v-if="canAny(['ansible','oncall'])" index="/automation/more">
+              <template #title>更多功能</template>
+              <el-menu-item v-if="can('ansible')" index="/ansible/playbooks">Ansible Playbook</el-menu-item>
+              <el-menu-item v-if="can('ansible')" index="/ansible/inventories">Ansible Inventory</el-menu-item>
+              <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
+              <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
+            </el-sub-menu>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['cicd','application','workorder'])" index="/cicd">
@@ -113,10 +128,14 @@
             </template>
             <el-menu-item v-if="canAny(['cicd','workorder'])" index="/delivery/center">交付中心</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
-            <el-menu-item v-if="can('cicd')" index="/cicd/executions">执行记录</el-menu-item>
-            <el-menu-item v-if="can('cicd')" index="/cicd/schedules">定时发布</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/releases">发布管理</el-menu-item>
-            <el-menu-item v-if="can('application')" index="/application">应用中心</el-menu-item>
+            <el-sub-menu v-if="canAny(['cicd','application','workorder'])" index="/cicd/more">
+              <template #title>更多功能</template>
+              <el-menu-item v-if="can('cicd')" index="/cicd/executions">执行记录</el-menu-item>
+              <el-menu-item v-if="can('cicd')" index="/cicd/schedules">定时发布</el-menu-item>
+              <el-menu-item v-if="can('workorder')" index="/workorder/tickets">工单管理</el-menu-item>
+              <el-menu-item v-if="can('application')" index="/application">应用中心</el-menu-item>
+            </el-sub-menu>
           </el-sub-menu>
 
           <el-sub-menu v-if="can('nacos')" index="/nacos">
@@ -133,7 +152,6 @@
               <el-icon><Tickets /></el-icon>
               <span>运维工具</span>
             </template>
-            <el-menu-item v-if="can('workorder')" index="/workorder/tickets">工单管理</el-menu-item>
             <el-menu-item v-if="can('workorder')" index="/workorder/types">工单类型</el-menu-item>
             <el-menu-item v-if="can('sqlaudit')" index="/sqlaudit/requests">SQL工单</el-menu-item>
             <el-menu-item v-if="can('sqlaudit')" index="/sqlaudit/rules">SQL审核规则</el-menu-item>
@@ -488,7 +506,7 @@ const username = ref('Admin')
 const roleCode = ref(localStorage.getItem('role_code') || '')
 const permissions = ref(new Set(JSON.parse(localStorage.getItem('permissions') || '[]')))
 const TABS_STORAGE_KEY = 'layout_view_tabs'
-const MODULE_LINKS_STORAGE_KEY = 'layout_module_links_state_v1'
+const MODULE_LINKS_STORAGE_KEY = 'layout_module_links_state_v2'
 const CUSTOM_WORKSPACE_PRESETS_KEY = 'layout_custom_workspace_presets_v1'
 const LAST_WORKSPACE_PRESET_KEY = 'layout_last_workspace_preset_v1'
 const WORKSPACE_SHARE_QUERY_KEY = 'workspace'
@@ -1648,10 +1666,10 @@ const moduleQuickLinks = [
       { label: '资产总览', path: '/asset/overview', permAny: ['cmdb'] },
       { label: '资产作战台', path: '/asset/ops', permAny: ['cmdb', 'firewall', 'jump'] },
       { label: '主机管理', path: '/host', permAny: ['cmdb'] },
-      { label: '网络设备', path: '/cmdb/network-devices', permAny: ['cmdb'] },
-      { label: '防火墙管理', path: '/firewall', permAny: ['cmdb', 'firewall'] },
+      { label: '网络设备', path: '/cmdb/network-devices', permAny: ['cmdb'], hiddenByDefault: true },
+      { label: '防火墙管理', path: '/firewall', permAny: ['cmdb', 'firewall'], hiddenByDefault: true },
       { label: 'WebTerminal', path: '/terminal', permAny: ['terminal'] },
-      { label: '堡垒机会话', path: '/jump/sessions', permAny: ['jump', 'jump:session'] }
+      { label: '堡垒机会话', path: '/jump/sessions', permAny: ['jump', 'jump:session'], hiddenByDefault: true }
     ]
   },
   {
@@ -1659,12 +1677,12 @@ const moduleQuickLinks = [
     prefixes: ['/k8s', '/docker'],
     links: [
       { label: '平台总览', path: '/k8s/overview', permAny: ['k8s'] },
-      { label: 'Docker管理', path: '/docker', permAny: ['docker'] },
-      { label: 'K8s集群', path: '/k8s/clusters', permAny: ['k8s'] },
+      { label: 'Docker管理', path: '/docker', permAny: ['docker'], hiddenByDefault: true },
+      { label: 'K8s集群', path: '/k8s/clusters', permAny: ['k8s'], hiddenByDefault: true },
       { label: '工作负载', path: '/k8s/workloads', permAny: ['k8s'] },
       { label: 'Deployments', path: '/k8s/deployments', permAny: ['k8s'] },
-      { label: 'Pods', path: '/k8s/pods', permAny: ['k8s'] },
-      { label: '服务与Ingress', path: '/k8s/services', permAny: ['k8s'] }
+      { label: 'Pods', path: '/k8s/pods', permAny: ['k8s'], hiddenByDefault: true },
+      { label: '服务与Ingress', path: '/k8s/services', permAny: ['k8s'], hiddenByDefault: true }
     ]
   },
   {
@@ -1673,7 +1691,7 @@ const moduleQuickLinks = [
     links: [
       { label: '监控告警中心', path: '/monitor/center', permAny: ['monitor', 'alert', 'notify', 'domain'] },
       { label: '域名监控中心', path: '/domain/center', permAny: ['domain'] },
-      { label: '告警事件', path: '/alert/events', permAny: ['alert'], hiddenByDefault: true },
+      { label: '告警事件', path: '/alert/events', permAny: ['alert'] },
       { label: '通知渠道', path: '/notify/channels', permAny: ['notify'], hiddenByDefault: true },
       { label: '域名与证书', path: '/domain/ssl', permAny: ['domain'], hiddenByDefault: true }
     ]
@@ -1683,9 +1701,9 @@ const moduleQuickLinks = [
     prefixes: ['/delivery', '/cicd', '/workorder', '/sqlaudit', '/gitops', '/application'],
     links: [
       { label: '交付中心', path: '/delivery/center', permAny: ['cicd', 'workorder'] },
-      { label: '流水线管理', path: '/cicd/pipelines', permAny: ['cicd'], hiddenByDefault: true },
+      { label: '流水线管理', path: '/cicd/pipelines', permAny: ['cicd'] },
       { label: '执行记录', path: '/cicd/executions', permAny: ['cicd'], hiddenByDefault: true },
-      { label: '发布管理', path: '/cicd/releases', permAny: ['cicd'], hiddenByDefault: true },
+      { label: '发布管理', path: '/cicd/releases', permAny: ['cicd'] },
       { label: '工单管理', path: '/workorder/tickets', permAny: ['workorder'], hiddenByDefault: true },
       { label: '应用中心', path: '/application', permAny: ['application'], hiddenByDefault: true }
     ]
@@ -1696,10 +1714,10 @@ const moduleQuickLinks = [
     links: [
       { label: 'AI运维助手', path: '/ai', permAny: ['ai'] },
       { label: '工作流编排', path: '/workflow/designer', permAny: ['workflow'] },
-      { label: '批量执行', path: '/executor', permAny: ['executor'] },
+      { label: '批量执行', path: '/executor', permAny: ['executor'], hiddenByDefault: true },
       { label: '任务调度', path: '/task/schedules', permAny: ['task'] },
-      { label: '值班排班', path: '/oncall/schedule', permAny: ['oncall'] },
-      { label: '升级策略', path: '/oncall/escalation', permAny: ['oncall'] }
+      { label: '值班排班', path: '/oncall/schedule', permAny: ['oncall'], hiddenByDefault: true },
+      { label: '升级策略', path: '/oncall/escalation', permAny: ['oncall'], hiddenByDefault: true }
     ]
   }
 ]
