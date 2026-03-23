@@ -15,9 +15,8 @@
           background-color="transparent"
           text-color="var(--sider-text)"
           active-text-color="var(--sider-active)"
-          :class="['el-menu-vertical', { 'is-simple': menuSimpleMode }]"
+          class="el-menu-vertical"
         >
-          <template v-if="!menuSimpleMode">
           <el-menu-item v-if="can('dashboard')" index="/dashboard">
             <el-icon><Odometer /></el-icon>
             <span>仪表盘</span>
@@ -52,7 +51,7 @@
           <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
             <template #title>
               <el-icon><Platform /></el-icon>
-              <span>容器与K8s</span>
+              <span>容器管理</span>
             </template>
             <el-menu-item v-if="can('k8s')" index="/k8s/overview">平台总览</el-menu-item>
             <el-menu-item v-if="can('docker')" index="/docker">Docker管理</el-menu-item>
@@ -72,7 +71,7 @@
           <el-sub-menu v-if="canAny(['monitor','alert','notify','domain'])" index="/monitor">
             <template #title>
               <el-icon><Histogram /></el-icon>
-              <span>监控告警</span>
+              <span>监控中心</span>
             </template>
             <el-menu-item index="/monitor/center">监控告警中心</el-menu-item>
             <el-menu-item v-if="can('domain')" index="/domain/center">域名监控中心</el-menu-item>
@@ -96,7 +95,7 @@
           <el-sub-menu v-if="canAny(['workflow','executor','task','ansible','oncall'])" index="/automation">
             <template #title>
               <el-icon><Operation /></el-icon>
-              <span>自动化</span>
+              <span>任务中心</span>
             </template>
             <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
             <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
@@ -110,7 +109,7 @@
           <el-sub-menu v-if="canAny(['cicd','application','workorder'])" index="/cicd">
             <template #title>
               <el-icon><Connection /></el-icon>
-              <span>CI/CD</span>
+              <span>服务管理</span>
             </template>
             <el-menu-item v-if="canAny(['cicd','workorder'])" index="/delivery/center">交付中心</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
@@ -132,7 +131,7 @@
           <el-sub-menu v-if="canAny(['workorder','sqlaudit','gitops'])" index="/change">
             <template #title>
               <el-icon><Tickets /></el-icon>
-              <span>变更管理</span>
+              <span>运维工具</span>
             </template>
             <el-menu-item v-if="can('workorder')" index="/workorder/tickets">工单管理</el-menu-item>
             <el-menu-item v-if="can('workorder')" index="/workorder/types">工单类型</el-menu-item>
@@ -173,44 +172,6 @@
             <el-menu-item v-if="can('system:log')" index="/system/audit-logs">操作日志</el-menu-item>
             <el-menu-item v-if="can('system:captcha')" index="/system/captcha">验证码配置</el-menu-item>
           </el-sub-menu>
-          </template>
-
-          <template v-else>
-            <el-menu-item v-if="can('dashboard')" index="/dashboard">
-              <el-icon><Odometer /></el-icon>
-              <span>仪表盘</span>
-            </el-menu-item>
-
-            <el-menu-item v-if="can('ai')" index="/ai">
-              <el-icon><MagicStick /></el-icon>
-              <span>AI运维助手</span>
-            </el-menu-item>
-
-            <el-menu-item v-if="canAny(['cmdb','firewall','jump','terminal'])" :index="assetHubPath">
-              <el-icon><Monitor /></el-icon>
-              <span>资产作战台</span>
-            </el-menu-item>
-
-            <el-menu-item v-if="canAny(['k8s','docker'])" :index="containerHubPath">
-              <el-icon><Platform /></el-icon>
-              <span>容器K8s作战台</span>
-            </el-menu-item>
-
-            <el-menu-item v-if="canAny(['monitor','alert','notify','domain'])" :index="monitorHubPath">
-              <el-icon><Histogram /></el-icon>
-              <span>监控告警中心</span>
-            </el-menu-item>
-
-            <el-menu-item v-if="canAny(['workflow','executor','task','ansible','oncall','cicd','application','workorder','sqlaudit','gitops'])" :index="deliveryHubPath">
-              <el-icon><Connection /></el-icon>
-              <span>交付自动化</span>
-            </el-menu-item>
-
-            <el-menu-item v-if="canAny(['system:user','system:role','system:permission'])" :index="systemHubPath">
-              <el-icon><Setting /></el-icon>
-              <span>系统管理</span>
-            </el-menu-item>
-          </template>
         </el-menu>
       </el-scrollbar>
     </el-aside>
@@ -292,6 +253,85 @@
             </template>
           </el-dropdown>
         </div>
+
+        <div
+          v-if="activeModuleGroup"
+          :class="['module-context-wrap', `module-context-${activeModuleGroup.key}`]"
+        >
+          <div class="module-context-label">模块页签</div>
+          <el-scrollbar>
+            <div class="module-context-links">
+              <el-tag
+                v-for="link in activeModuleLinks"
+                :key="link.path"
+                class="module-context-tag"
+                :class="{
+                  'is-active': isContextLinkActive(link.path),
+                  'is-pinned': link.pinned
+                }"
+                effect="plain"
+                draggable="true"
+                @click="openTab(link.path)"
+                @contextmenu.prevent.stop="openModuleLinkContextMenu($event, link.path)"
+                @auxclick="onModuleLinkAuxClick($event, link.path)"
+                @dragstart="onModuleLinkDragStart(link.path)"
+                @dragover.prevent
+                @drop.prevent="onModuleLinkDrop(link.path)"
+                @dragend="onModuleLinkDragEnd"
+              >
+                <span class="module-context-tag-inner">
+                  <span class="module-context-tag-title">{{ link.label }}</span>
+                  <span class="module-context-tag-actions">
+                    <el-icon class="module-pin-icon" @click.stop="toggleModuleLinkPin(link.path)"><Star /></el-icon>
+                    <el-icon class="module-close-icon" @click.stop="hideModuleLink(link.path)"><Close /></el-icon>
+                  </span>
+                </span>
+              </el-tag>
+              <span v-if="!activeModuleLinks.length" class="module-context-empty">当前模块暂无可用页签</span>
+            </div>
+          </el-scrollbar>
+          <el-dropdown trigger="click" @command="handleModuleLinksCommand">
+            <el-button class="module-context-action" link>页签管理</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="openAll">全部打开到顶部页签</el-dropdown-item>
+                <el-dropdown-item command="reset">重置模块页签</el-dropdown-item>
+                <el-dropdown-item
+                  v-for="item in hiddenModuleLinks"
+                  :key="`show-${item.path}`"
+                  :command="`show:${item.path}`"
+                >
+                  显示：{{ item.label }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+
+        <transition name="module-context-menu-fade">
+          <div
+            v-if="moduleContextMenu.visible"
+            class="module-context-menu"
+            :style="{ left: `${moduleContextMenu.x}px`, top: `${moduleContextMenu.y}px` }"
+            @click.stop
+          >
+            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('open')">打开页面</button>
+            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('togglePin')">
+              {{ moduleContextMenuLink?.pinned ? '取消固定' : '固定页签' }}
+            </button>
+            <button
+              type="button"
+              class="module-context-menu-item"
+              :disabled="activeModuleLinks.length <= 1"
+              @click="handleModuleContextMenuCommand('closeCurrent')"
+            >
+              隐藏当前
+            </button>
+            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('closeOthers')">仅保留当前</button>
+            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('reset')">重置模块页签</button>
+          </div>
+        </transition>
+
         <el-dialog
           v-model="teamWorkspacePanelVisible"
           title="团队模板管理"
@@ -449,7 +489,6 @@ const roleCode = ref(localStorage.getItem('role_code') || '')
 const permissions = ref(new Set(JSON.parse(localStorage.getItem('permissions') || '[]')))
 const TABS_STORAGE_KEY = 'layout_view_tabs'
 const MODULE_LINKS_STORAGE_KEY = 'layout_module_links_state_v1'
-const MODULE_LINKS_COMPACT_STORAGE_KEY = 'layout_module_links_compact_v1'
 const CUSTOM_WORKSPACE_PRESETS_KEY = 'layout_custom_workspace_presets_v1'
 const LAST_WORKSPACE_PRESET_KEY = 'layout_last_workspace_preset_v1'
 const WORKSPACE_SHARE_QUERY_KEY = 'workspace'
@@ -458,8 +497,6 @@ const viewTabs = ref([{ path: '/dashboard', title: '仪表盘', pinned: false, c
 const draggingViewTabPath = ref('')
 const moduleLinkState = ref({})
 const draggingModuleLinkPath = ref('')
-const moduleLinksCompact = ref(false)
-const menuSimpleMode = true
 const moduleContextMenu = ref({ visible: false, x: 0, y: 0, path: '' })
 const customWorkspacePresets = ref([])
 const teamWorkspacePresets = ref([])
@@ -509,18 +546,6 @@ const readModuleLinkState = () => {
 
 const persistModuleLinkState = () => {
   localStorage.setItem(MODULE_LINKS_STORAGE_KEY, JSON.stringify(moduleLinkState.value))
-}
-
-const readModuleLinksCompact = () => {
-  try {
-    return localStorage.getItem(MODULE_LINKS_COMPACT_STORAGE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-const persistModuleLinksCompact = () => {
-  localStorage.setItem(MODULE_LINKS_COMPACT_STORAGE_KEY, moduleLinksCompact.value ? '1' : '0')
 }
 
 const ensureTab = (targetRoute) => {
@@ -673,33 +698,6 @@ const can = (code) => {
 }
 
 const canAny = (codes = []) => codes.some((c) => can(c))
-const assetHubPath = computed(() => {
-  if (canAny(['cmdb', 'firewall', 'jump'])) return '/asset/ops'
-  if (can('terminal')) return '/terminal'
-  return '/asset/ops'
-})
-const containerHubPath = computed(() => (can('k8s') ? '/k8s/overview' : '/docker'))
-const monitorHubPath = computed(() => {
-  if (canAny(['monitor', 'alert', 'notify', 'domain'])) return '/monitor/center'
-  return '/monitor/center'
-})
-const deliveryHubPath = computed(() => {
-  if (canAny(['cicd', 'workorder', 'application'])) return '/delivery/center'
-  if (can('workflow')) return '/workflow/designer'
-  if (can('executor')) return '/executor'
-  if (can('task')) return '/task/schedules'
-  if (can('ansible')) return '/ansible/playbooks'
-  if (can('oncall')) return '/oncall/schedule'
-  if (can('sqlaudit')) return '/sqlaudit/requests'
-  if (can('gitops')) return '/gitops/repos'
-  return '/delivery/center'
-})
-const systemHubPath = computed(() => {
-  if (can('system:user')) return '/system/users'
-  if (can('system:role')) return '/system/roles'
-  if (can('system:permission')) return '/system/menus'
-  return '/system/users'
-})
 const hasAnyPerm = (codes = []) => {
   if (!codes?.length) return true
   return codes.some((code) => can(code))
@@ -1818,11 +1816,6 @@ const handleModuleLinksCommand = (command) => {
     openModuleLinksAsTabs()
     return
   }
-  if (command === 'toggleCompact') {
-    moduleLinksCompact.value = !moduleLinksCompact.value
-    persistModuleLinksCompact()
-    return
-  }
   if (command === 'reset') {
     moduleLinkState.value = {
       ...moduleLinkState.value,
@@ -1878,10 +1871,6 @@ const handleModuleContextMenuCommand = (command) => {
   if (command === 'togglePin') toggleModuleLinkPin(path)
   if (command === 'closeCurrent') hideModuleLink(path)
   if (command === 'closeOthers') closeModuleLinkOthers(path)
-  if (command === 'toggleCompact') {
-    moduleLinksCompact.value = !moduleLinksCompact.value
-    persistModuleLinksCompact()
-  }
   if (command === 'reset') handleModuleLinksCommand('reset')
   closeModuleContextMenu()
 }
@@ -1943,7 +1932,6 @@ onMounted(async () => {
   await fetchUserInfo()
   await listTeamWorkspacePresets()
   moduleLinkState.value = readModuleLinkState()
-  moduleLinksCompact.value = readModuleLinksCompact()
   customWorkspacePresets.value = readCustomWorkspacePresets()
   lastWorkspacePresetKey.value = readLastWorkspacePresetKey()
   const cached = readTabsFromStorage()
@@ -2036,10 +2024,6 @@ onBeforeUnmount(() => {
 .el-menu-vertical {
   border-right: none;
   padding: 0 10px 12px;
-}
-
-.el-menu-vertical.is-simple {
-  padding-bottom: 24px;
 }
 
 .header {
