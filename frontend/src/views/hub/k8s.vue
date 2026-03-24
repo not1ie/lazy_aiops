@@ -18,6 +18,23 @@
       </div>
     </div>
 
+    <div class="workbench-toolbar">
+      <div class="workbench-toolbar-left">
+        <span class="workbench-toolbar-label">场景工作台</span>
+        <el-check-tag checked @click="go('/k8s/overview')">平台总览</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/deployments')">Deployments</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/pods')">Pods</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/services')">服务与Ingress</el-check-tag>
+      </div>
+      <div class="workbench-toolbar-right">
+        <el-tag type="warning" effect="light">待处置 {{ pendingBacklog }}</el-tag>
+        <el-tag type="danger" effect="light">异常工作负载 {{ stats.degradedWorkloads }}</el-tag>
+        <el-tag type="info" effect="light">NotReady 节点 {{ notReadyNodes }}</el-tag>
+        <el-button link type="primary" @click="focusK8sPanel('workloads')">工作负载处置</el-button>
+        <el-button link type="warning" @click="focusK8sPanel('events')">事件排障</el-button>
+      </div>
+    </div>
+
     <el-row :gutter="12" class="summary-row">
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
         <el-card><div class="metric-title">集群总数</div><div class="metric-value">{{ stats.clusterTotal }}</div></el-card>
@@ -469,6 +486,10 @@ const panelRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const focusK8sPanel = (panel) => {
+  if (!panel || panel === activePanel.value) return
+  activePanel.value = panel
+}
 
 const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
 
@@ -917,6 +938,29 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.workbench-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card-bg) 86%, #ffffff 14%);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.workbench-toolbar-left,
+.workbench-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.workbench-toolbar-label {
+  font-size: 12px;
+  color: var(--muted-text);
+  margin-right: 4px;
+}
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }
@@ -1029,6 +1073,11 @@ onUnmounted(() => {
   }
 
   .integration-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .workbench-toolbar {
     align-items: flex-start;
     flex-direction: column;
   }

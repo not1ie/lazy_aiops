@@ -11,6 +11,23 @@
       </div>
     </div>
 
+    <div class="workbench-toolbar">
+      <div class="workbench-toolbar-left">
+        <span class="workbench-toolbar-label">场景工作台</span>
+        <el-check-tag checked @click="go('/asset/ops')">资产作战台</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/asset/overview')">资产总览</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/overview')">容器总览</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/domain/center')">域名中心</el-check-tag>
+      </div>
+      <div class="workbench-toolbar-right">
+        <el-tag type="warning" effect="light">待处置 {{ stats.pendingBacklog }}</el-tag>
+        <el-tag type="danger" effect="light">高危 {{ riskCriticalCount }}</el-tag>
+        <el-tag type="info" effect="light">待审批 {{ stats.jumpPending }}</el-tag>
+        <el-button link type="primary" @click="focusAssetPanel('risk')">风险处置</el-button>
+        <el-button link type="warning" @click="focusAssetPanel('pending')">审批队列</el-button>
+      </div>
+    </div>
+
     <div class="workbench-layout">
       <aside class="asset-tree-panel">
         <div class="asset-tree-head">
@@ -537,6 +554,10 @@ const assetDetailRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const focusAssetPanel = (panel) => {
+  if (!panel || panel === activePanel.value) return
+  activePanel.value = panel
+}
 
 const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
 
@@ -1600,6 +1621,29 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
+.workbench-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card-bg) 86%, #ffffff 14%);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.workbench-toolbar-left,
+.workbench-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.workbench-toolbar-label {
+  font-size: 12px;
+  color: var(--muted-text);
+  margin-right: 4px;
+}
 
 .workbench-layout {
   display: flex;
@@ -1751,6 +1795,11 @@ onBeforeUnmount(() => {
   }
 
   .integration-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .workbench-toolbar {
     align-items: flex-start;
     flex-direction: column;
   }

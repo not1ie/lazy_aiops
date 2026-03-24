@@ -80,6 +80,9 @@ func (h *DomainHandler) certReadQuery(base *gorm.DB) *gorm.DB {
 	if h.certSansColumn == "s_a_ns" {
 		return query.Select("ssl_certificates.*, s_a_ns AS sans")
 	}
+	if h.certSansColumn == "" {
+		return query.Select("ssl_certificates.*")
+	}
 	return query
 }
 

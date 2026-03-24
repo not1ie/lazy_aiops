@@ -12,6 +12,22 @@
       </div>
     </div>
 
+    <div class="workbench-toolbar">
+      <div class="workbench-toolbar-left">
+        <span class="workbench-toolbar-label">场景工作台</span>
+        <el-check-tag checked @click="go('/domain/center')">域名监控中心</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/monitor/center')">监控告警中心</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/domain/ssl')">域名与证书</el-check-tag>
+      </div>
+      <div class="workbench-toolbar-right">
+        <el-tag type="danger" effect="light">高危 {{ riskCriticalCount }}</el-tag>
+        <el-tag type="warning" effect="light">待复检 {{ riskStaleCount }}</el-tag>
+        <el-tag type="info" effect="light">证书≤7天 {{ stats.certCriticalSoon }}</el-tag>
+        <el-button link type="primary" @click="focusDomainPanel('domains')">域名体检</el-button>
+        <el-button link type="warning" @click="focusDomainPanel('certs')">证书处置</el-button>
+      </div>
+    </div>
+
     <el-row :gutter="12" class="summary-row">
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
         <el-card><div class="metric-title">域名总数</div><div class="metric-value">{{ stats.domainTotal }}</div></el-card>
@@ -132,7 +148,12 @@
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
-          <span>域名融合视图</span>
+          <div class="integration-title-wrap">
+            <span>域名融合视图</span>
+            <el-tag size="small" type="info" effect="plain">
+              当前：{{ activePanelMeta.label }} · {{ activePanelMeta.count }}
+            </el-tag>
+          </div>
           <div class="integration-actions">
             <el-input
               v-model="panelKeyword"
@@ -145,6 +166,18 @@
           </div>
         </div>
       </template>
+
+      <div class="panel-switch">
+        <el-check-tag
+          v-for="item in panelOptions"
+          :key="item.name"
+          :checked="activePanel === item.name"
+          @change="activePanel = item.name"
+        >
+          {{ item.label }}
+          <span class="panel-switch-count">{{ item.count }}</span>
+        </el-check-tag>
+      </div>
 
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="域名体检" name="domains">
@@ -706,6 +739,17 @@ const filteredDomainAlerts = computed(() =>
   filterRows(domainAlerts.value, [(row) => row.rule_name, (row) => row.target, (row) => row.metric, (row) => row.severity, (row) => alertStatusText(row.status)])
 )
 
+const panelOptions = computed(() => [
+  { name: 'domains', label: '域名体检', count: domains.value.length },
+  { name: 'certs', label: 'SSL证书', count: certs.value.length },
+  { name: 'accounts', label: '云账号', count: accounts.value.length },
+  { name: 'alerts', label: '关联告警', count: domainAlerts.value.length }
+])
+
+const activePanelMeta = computed(
+  () => panelOptions.value.find((item) => item.name === activePanel.value) || panelOptions.value[0] || { label: '-', count: 0 }
+)
+
 const renderHealthChart = () => {
   if (!healthChartRef.value) return
   if (!healthChart) healthChart = echarts.init(healthChartRef.value)
@@ -740,6 +784,11 @@ const safeArray = (res) => (Array.isArray(res?.data?.data) ? res.data.data : [])
 
 const openCurrentPanel = () => {
   go(panelRouteMap[activePanel.value] || '/domain/ssl')
+}
+
+const focusDomainPanel = (panel) => {
+  if (!panel || panel === activePanel.value) return
+  activePanel.value = panel
 }
 
 const resolveDispositionPath = (target) => {
@@ -1152,6 +1201,29 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.workbench-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card-bg) 86%, #ffffff 14%);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.workbench-toolbar-left,
+.workbench-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.workbench-toolbar-label {
+  font-size: 12px;
+  color: var(--muted-text);
+  margin-right: 4px;
+}
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }
@@ -1212,6 +1284,13 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.integration-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .integration-actions {
   display: flex;
   align-items: center;
@@ -1222,11 +1301,28 @@ onBeforeUnmount(() => {
   width: 260px;
 }
 
+.panel-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.panel-switch-count {
+  margin-left: 6px;
+  opacity: 0.8;
+}
+
 .integration-tabs :deep(.el-tabs__header) {
   margin-bottom: 10px;
 }
 
 @media (max-width: 1100px) {
+  .workbench-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .integration-header {
     align-items: flex-start;
     flex-direction: column;
