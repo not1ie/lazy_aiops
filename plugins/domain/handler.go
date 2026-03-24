@@ -27,6 +27,18 @@ func NewDomainHandler(db *gorm.DB) *DomainHandler {
 }
 
 func detectCertSansColumn(db *gorm.DB) string {
+	for _, name := range loadTableColumns(db, "ssl_certificates") {
+		lower := strings.ToLower(strings.TrimSpace(name))
+		if lower == "sans" {
+			return "sans"
+		}
+	}
+	for _, name := range loadTableColumns(db, "ssl_certificates") {
+		lower := strings.ToLower(strings.TrimSpace(name))
+		if lower == "s_a_ns" {
+			return "s_a_ns"
+		}
+	}
 	migrator := db.Migrator()
 	if migrator.HasColumn(&SSLCertificate{}, "sans") {
 		return "sans"
@@ -34,7 +46,33 @@ func detectCertSansColumn(db *gorm.DB) string {
 	if migrator.HasColumn(&SSLCertificate{}, "s_a_ns") {
 		return "s_a_ns"
 	}
-	return "sans"
+	return ""
+}
+
+func loadTableColumns(db *gorm.DB, table string) []string {
+	if db == nil || table == "" {
+		return nil
+	}
+	type sqliteCol struct {
+		Name string `gorm:"column:name"`
+	}
+	var sqliteCols []sqliteCol
+	if err := db.Raw("PRAGMA table_info(" + table + ")").Scan(&sqliteCols).Error; err == nil && len(sqliteCols) > 0 {
+		result := make([]string, 0, len(sqliteCols))
+		for _, col := range sqliteCols {
+			result = append(result, col.Name)
+		}
+		return result
+	}
+	types, err := db.Migrator().ColumnTypes(table)
+	if err != nil {
+		return nil
+	}
+	result := make([]string, 0, len(types))
+	for _, col := range types {
+		result = append(result, col.Name())
+	}
+	return result
 }
 
 func (h *DomainHandler) certReadQuery(base *gorm.DB) *gorm.DB {
@@ -43,6 +81,16 @@ func (h *DomainHandler) certReadQuery(base *gorm.DB) *gorm.DB {
 		return query.Select("ssl_certificates.*, s_a_ns AS sans")
 	}
 	return query
+}
+
+func (h *DomainHandler) applyCertSansUpdate(updates map[string]interface{}, sansValue interface{}) map[string]interface{} {
+	if updates == nil {
+		updates = map[string]interface{}{}
+	}
+	if h.certSansColumn != "" {
+		updates[h.certSansColumn] = sansValue
+	}
+	return updates
 }
 
 func (h *DomainHandler) loadCertByID(id string, cert *SSLCertificate) error {
@@ -298,9 +346,16 @@ func (h *DomainHandler) CreateCert(c *gin.Context) {
 	now := time.Now()
 	cert.LastCheckAt = &now
 
-	if err := h.db.Create(&cert).Error; err != nil {
+	createTx := h.db
+	if h.certSansColumn == "" || h.certSansColumn == "s_a_ns" {
+		createTx = createTx.Omit("sans", "SANs")
+	}
+	if err := createTx.Create(&cert).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	if h.certSansColumn == "s_a_ns" {
+		_ = h.db.Model(&cert).Update("s_a_ns", cert.SANs).Error
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cert})
@@ -343,7 +398,7 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 		"last_check_at":  now,
 		"status":         1,
 	}
-	updates[h.certSansColumn] = certInfo["sans"]
+	updates = h.applyCertSansUpdate(updates, certInfo["sans"])
 
 	daysToExpire := certInfo["days_to_expire"].(int)
 	if daysToExpire <= 0 {
@@ -402,7 +457,7 @@ func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 			"last_check_at":  now,
 			"status":         1,
 		}
-		updates[h.certSansColumn] = certInfo["sans"]
+		updates = h.applyCertSansUpdate(updates, certInfo["sans"])
 
 		daysToExpire := certInfo["days_to_expire"].(int)
 		if daysToExpire <= 0 {

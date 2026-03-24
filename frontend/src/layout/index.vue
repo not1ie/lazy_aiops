@@ -104,37 +104,38 @@
             </el-sub-menu>
           </el-sub-menu>
 
-          <el-sub-menu v-if="canAny(['workflow','executor','task','ansible','oncall'])" index="/automation">
-            <template #title>
-              <el-icon><Operation /></el-icon>
-              <span>任务中心</span>
-            </template>
-            <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
-            <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
-            <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
-            <el-sub-menu v-if="canAny(['ansible','oncall'])" index="/automation/more">
-              <template #title>更多功能</template>
-              <el-menu-item v-if="can('ansible')" index="/ansible/playbooks">Ansible Playbook</el-menu-item>
-              <el-menu-item v-if="can('ansible')" index="/ansible/inventories">Ansible Inventory</el-menu-item>
-              <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
-              <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
-            </el-sub-menu>
-          </el-sub-menu>
-
-          <el-sub-menu v-if="canAny(['cicd','application','workorder'])" index="/cicd">
+          <el-sub-menu
+            v-if="canAny(['workflow','executor','task','ansible','oncall','cicd','application','workorder','sqlaudit','gitops'])"
+            index="/delivery-automation"
+          >
             <template #title>
               <el-icon><Connection /></el-icon>
-              <span>服务管理</span>
+              <span>交付自动化</span>
             </template>
             <el-menu-item v-if="canAny(['cicd','workorder'])" index="/delivery/center">交付中心</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/releases">发布管理</el-menu-item>
-            <el-sub-menu v-if="canAny(['cicd','application','workorder'])" index="/cicd/more">
+            <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
+            <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
+            <el-sub-menu
+              v-if="canAny(['workflow','executor','task','ansible','oncall','cicd','application','workorder','sqlaudit','gitops'])"
+              index="/delivery-automation/more"
+            >
               <template #title>更多功能</template>
+              <el-menu-item v-if="can('executor')" index="/executor">批量执行</el-menu-item>
               <el-menu-item v-if="can('cicd')" index="/cicd/executions">执行记录</el-menu-item>
               <el-menu-item v-if="can('cicd')" index="/cicd/schedules">定时发布</el-menu-item>
               <el-menu-item v-if="can('workorder')" index="/workorder/tickets">工单管理</el-menu-item>
+              <el-menu-item v-if="can('workorder')" index="/workorder/types">工单类型</el-menu-item>
+              <el-menu-item v-if="can('sqlaudit')" index="/sqlaudit/requests">SQL工单</el-menu-item>
+              <el-menu-item v-if="can('sqlaudit')" index="/sqlaudit/rules">SQL审核规则</el-menu-item>
+              <el-menu-item v-if="can('gitops')" index="/gitops/repos">GitOps仓库</el-menu-item>
+              <el-menu-item v-if="can('gitops')" index="/gitops/sync">同步记录</el-menu-item>
               <el-menu-item v-if="can('application')" index="/application">应用中心</el-menu-item>
+              <el-menu-item v-if="can('ansible')" index="/ansible/playbooks">Ansible Playbook</el-menu-item>
+              <el-menu-item v-if="can('ansible')" index="/ansible/inventories">Ansible Inventory</el-menu-item>
+              <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
+              <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
             </el-sub-menu>
           </el-sub-menu>
 
@@ -145,18 +146,6 @@
             </template>
             <el-menu-item index="/nacos/servers">Nacos服务器</el-menu-item>
             <el-menu-item index="/nacos/configs">配置管理</el-menu-item>
-          </el-sub-menu>
-
-          <el-sub-menu v-if="canAny(['workorder','sqlaudit','gitops'])" index="/change">
-            <template #title>
-              <el-icon><Tickets /></el-icon>
-              <span>运维工具</span>
-            </template>
-            <el-menu-item v-if="can('workorder')" index="/workorder/types">工单类型</el-menu-item>
-            <el-menu-item v-if="can('sqlaudit')" index="/sqlaudit/requests">SQL工单</el-menu-item>
-            <el-menu-item v-if="can('sqlaudit')" index="/sqlaudit/rules">SQL审核规则</el-menu-item>
-            <el-menu-item v-if="can('gitops')" index="/gitops/repos">GitOps仓库</el-menu-item>
-            <el-menu-item v-if="can('gitops')" index="/gitops/sync">同步记录</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu v-if="can('topology')" index="/visual">
