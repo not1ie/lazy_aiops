@@ -211,6 +211,8 @@
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
+                  <el-dropdown-item @click="openRoleWorkspacePreset">角色推荐工作台</el-dropdown-item>
+                  <el-dropdown-item v-if="isAdmin" @click="openTeamWorkspacePanel">团队模板管理</el-dropdown-item>
                   <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -735,6 +737,16 @@ const WORKSPACE_CATEGORY_PREFIXES = {
   monitor: ['/monitor', '/alert', '/notify', '/domain'],
   delivery: ['/delivery', '/cicd', '/workorder', '/application', '/sqlaudit', '/gitops'],
   automation: ['/workflow', '/executor', '/task', '/oncall', '/ai', '/collab']
+}
+const ROLE_WORKSPACE_PRIORITY = {
+  admin: ['asset', 'monitor', 'k8s', 'delivery', 'automation'],
+  ops: ['monitor', 'asset', 'k8s', 'delivery', 'automation'],
+  operator: ['monitor', 'asset', 'k8s', 'delivery', 'automation'],
+  devops: ['delivery', 'k8s', 'monitor', 'asset', 'automation'],
+  developer: ['delivery', 'k8s', 'monitor', 'asset', 'automation'],
+  rd: ['delivery', 'k8s', 'monitor', 'asset', 'automation'],
+  qa: ['delivery', 'monitor', 'k8s', 'asset', 'automation'],
+  auditor: ['monitor', 'asset', 'delivery', 'k8s', 'automation']
 }
 const formatDateTime = (value) => {
   if (!value) return '-'
@@ -1364,6 +1376,30 @@ const openWorkspaceByCategory = async (categoryKey, silent = false) => {
   return false
 }
 
+const resolveRoleWorkspaceCategories = () => {
+  const role = String(roleCode.value || '').trim().toLowerCase()
+  if (!role) return ['monitor', 'asset', 'k8s', 'delivery', 'automation']
+  for (const [keyword, categories] of Object.entries(ROLE_WORKSPACE_PRIORITY)) {
+    if (role === keyword || role.includes(keyword)) return categories
+  }
+  return ['monitor', 'asset', 'k8s', 'delivery', 'automation']
+}
+
+const openRoleWorkspacePreset = async () => {
+  const categories = resolveRoleWorkspaceCategories()
+  for (const category of categories) {
+    // openWorkspaceByCategory 内部已按 团队推荐 -> 内置模板 优先级处理
+    const opened = await openWorkspaceByCategory(category, true)
+    if (opened) return
+  }
+  ElMessage.warning('当前账号暂无可用工作台模板，请先打开目标页面后保存模板')
+}
+
+const openTeamWorkspacePanel = async () => {
+  teamWorkspacePanelVisible.value = true
+  await listTeamWorkspacePresets({ silent: false })
+}
+
 const saveCurrentAsTeamWorkspacePreset = async () => {
   if (!isAdmin.value) {
     ElMessage.warning('仅管理员可保存团队模板')
@@ -1687,26 +1723,20 @@ const moduleQuickLinks = [
   },
   {
     key: 'delivery',
-    prefixes: ['/delivery', '/cicd', '/workorder', '/sqlaudit', '/gitops', '/application'],
+    prefixes: ['/delivery', '/cicd', '/workorder', '/sqlaudit', '/gitops', '/application', '/ai', '/workflow', '/executor', '/task', '/oncall', '/ansible', '/collab'],
     links: [
       { label: '交付中心', path: '/delivery/center', permAny: ['cicd', 'workorder'] },
+      { label: 'AI运维助手', path: '/ai', permAny: ['ai'] },
+      { label: '工作流编排', path: '/workflow/designer', permAny: ['workflow'] },
+      { label: '任务调度', path: '/task/schedules', permAny: ['task'] },
       { label: '流水线管理', path: '/cicd/pipelines', permAny: ['cicd'] },
       { label: '执行记录', path: '/cicd/executions', permAny: ['cicd'], hiddenByDefault: true },
       { label: '发布管理', path: '/cicd/releases', permAny: ['cicd'] },
+      { label: '批量执行', path: '/executor', permAny: ['executor'], hiddenByDefault: true },
+      { label: '值班排班', path: '/oncall/schedule', permAny: ['oncall'], hiddenByDefault: true },
+      { label: '升级策略', path: '/oncall/escalation', permAny: ['oncall'], hiddenByDefault: true },
       { label: '工单管理', path: '/workorder/tickets', permAny: ['workorder'], hiddenByDefault: true },
       { label: '应用中心', path: '/application', permAny: ['application'], hiddenByDefault: true }
-    ]
-  },
-  {
-    key: 'automation',
-    prefixes: ['/ai', '/workflow', '/executor', '/task', '/oncall', '/collab'],
-    links: [
-      { label: 'AI运维助手', path: '/ai', permAny: ['ai'] },
-      { label: '工作流编排', path: '/workflow/designer', permAny: ['workflow'] },
-      { label: '批量执行', path: '/executor', permAny: ['executor'], hiddenByDefault: true },
-      { label: '任务调度', path: '/task/schedules', permAny: ['task'] },
-      { label: '值班排班', path: '/oncall/schedule', permAny: ['oncall'], hiddenByDefault: true },
-      { label: '升级策略', path: '/oncall/escalation', permAny: ['oncall'], hiddenByDefault: true }
     ]
   }
 ]
