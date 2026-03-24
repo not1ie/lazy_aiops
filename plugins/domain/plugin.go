@@ -42,11 +42,25 @@ func (p *DomainPlugin) Migrate() error {
 
 func ensureCertSansCompatibility(db *gorm.DB) error {
 	migrator := db.Migrator()
-	hasSans := migrator.HasColumn(&SSLCertificate{}, "sans")
-	hasLegacySANs := migrator.HasColumn(&SSLCertificate{}, "s_a_ns")
+	columns := loadTableColumns(db, "ssl_certificates")
+	hasSans := false
+	hasLegacySANs := false
+	for _, col := range columns {
+		switch col {
+		case "sans":
+			hasSans = true
+		case "s_a_ns":
+			hasLegacySANs = true
+		}
+	}
 	if !hasSans {
 		if err := migrator.AddColumn(&SSLCertificate{}, "SANs"); err == nil {
-			hasSans = migrator.HasColumn(&SSLCertificate{}, "sans")
+			for _, col := range loadTableColumns(db, "ssl_certificates") {
+				if col == "sans" {
+					hasSans = true
+					break
+				}
+			}
 		}
 	}
 	if !hasSans || !hasLegacySANs {

@@ -39,13 +39,6 @@ func detectCertSansColumn(db *gorm.DB) string {
 			return "s_a_ns"
 		}
 	}
-	migrator := db.Migrator()
-	if migrator.HasColumn(&SSLCertificate{}, "sans") {
-		return "sans"
-	}
-	if migrator.HasColumn(&SSLCertificate{}, "s_a_ns") {
-		return "s_a_ns"
-	}
 	return ""
 }
 

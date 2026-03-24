@@ -101,6 +101,9 @@
               <el-menu-item v-if="can('notify')" index="/notify/channels">通知渠道</el-menu-item>
               <el-menu-item v-if="can('notify')" index="/notify/groups">通知组</el-menu-item>
               <el-menu-item v-if="can('notify')" index="/notify/templates">通知模板</el-menu-item>
+              <el-menu-item v-if="can('topology')" index="/topology">服务拓扑</el-menu-item>
+              <el-menu-item v-if="can('cost')" index="/cost/overview">成本概览</el-menu-item>
+              <el-menu-item v-if="can('cost')" index="/cost/budget">预算与告警</el-menu-item>
             </el-sub-menu>
           </el-sub-menu>
 
@@ -110,7 +113,7 @@
           >
             <template #title>
               <el-icon><Connection /></el-icon>
-              <span>交付自动化</span>
+              <span>服务管理</span>
             </template>
             <el-menu-item v-if="canAny(['cicd','workorder'])" index="/delivery/center">交付中心</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
@@ -136,33 +139,9 @@
               <el-menu-item v-if="can('ansible')" index="/ansible/inventories">Ansible Inventory</el-menu-item>
               <el-menu-item v-if="can('oncall')" index="/oncall/schedule">值班排班</el-menu-item>
               <el-menu-item v-if="can('oncall')" index="/oncall/escalation">升级策略</el-menu-item>
+              <el-menu-item v-if="can('nacos')" index="/nacos/servers">Nacos服务器</el-menu-item>
+              <el-menu-item v-if="can('nacos')" index="/nacos/configs">配置管理</el-menu-item>
             </el-sub-menu>
-          </el-sub-menu>
-
-          <el-sub-menu v-if="can('nacos')" index="/nacos">
-            <template #title>
-              <el-icon><Setting /></el-icon>
-              <span>配置中心</span>
-            </template>
-            <el-menu-item index="/nacos/servers">Nacos服务器</el-menu-item>
-            <el-menu-item index="/nacos/configs">配置管理</el-menu-item>
-          </el-sub-menu>
-
-          <el-sub-menu v-if="can('topology')" index="/visual">
-            <template #title>
-              <el-icon><Share /></el-icon>
-              <span>可视化</span>
-            </template>
-            <el-menu-item index="/topology">服务拓扑</el-menu-item>
-          </el-sub-menu>
-
-          <el-sub-menu v-if="can('cost')" index="/cost">
-            <template #title>
-              <el-icon><Coin /></el-icon>
-              <span>成本</span>
-            </template>
-            <el-menu-item index="/cost/overview">成本概览</el-menu-item>
-            <el-menu-item index="/cost/budget">预算与告警</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system">
@@ -211,8 +190,6 @@
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item @click="openRoleWorkspacePreset">角色推荐工作台</el-dropdown-item>
-                  <el-dropdown-item v-if="isAdmin" @click="openTeamWorkspacePanel">团队模板管理</el-dropdown-item>
                   <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -264,7 +241,7 @@
         </div>
 
         <div
-          v-if="activeModuleGroup"
+          v-if="showModuleContext && activeModuleGroup"
           :class="['module-context-wrap', `module-context-${activeModuleGroup.key}`]"
         >
           <div class="module-context-label">模块页签</div>
@@ -507,6 +484,7 @@ const draggingViewTabPath = ref('')
 const moduleLinkState = ref({})
 const draggingModuleLinkPath = ref('')
 const moduleContextMenu = ref({ visible: false, x: 0, y: 0, path: '' })
+const showModuleContext = ref(false)
 const customWorkspacePresets = ref([])
 const teamWorkspacePresets = ref([])
 const teamWorkspacePanelVisible = ref(false)
@@ -736,7 +714,7 @@ const WORKSPACE_CATEGORY_PREFIXES = {
   k8s: ['/k8s', '/docker'],
   monitor: ['/monitor', '/alert', '/notify', '/domain'],
   delivery: ['/delivery', '/cicd', '/workorder', '/application', '/sqlaudit', '/gitops'],
-  automation: ['/workflow', '/executor', '/task', '/oncall', '/ai', '/collab']
+  automation: ['/workflow', '/executor', '/task', '/oncall', '/ai']
 }
 const ROLE_WORKSPACE_PRIORITY = {
   admin: ['asset', 'monitor', 'k8s', 'delivery', 'automation'],
@@ -1723,7 +1701,7 @@ const moduleQuickLinks = [
   },
   {
     key: 'delivery',
-    prefixes: ['/delivery', '/cicd', '/workorder', '/sqlaudit', '/gitops', '/application', '/ai', '/workflow', '/executor', '/task', '/oncall', '/ansible', '/collab'],
+    prefixes: ['/delivery', '/cicd', '/workorder', '/sqlaudit', '/gitops', '/application', '/ai', '/workflow', '/executor', '/task', '/oncall', '/ansible'],
     links: [
       { label: '交付中心', path: '/delivery/center', permAny: ['cicd', 'workorder'] },
       { label: 'AI运维助手', path: '/ai', permAny: ['ai'] },
