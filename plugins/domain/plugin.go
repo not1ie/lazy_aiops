@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
@@ -46,7 +48,7 @@ func ensureCertSansCompatibility(db *gorm.DB) error {
 	hasSans := false
 	hasLegacySANs := false
 	for _, col := range columns {
-		switch col {
+		switch strings.ToLower(strings.TrimSpace(col)) {
 		case "sans":
 			hasSans = true
 		case "s_a_ns":
@@ -54,25 +56,31 @@ func ensureCertSansCompatibility(db *gorm.DB) error {
 		}
 	}
 	if !hasSans {
-		if err := migrator.AddColumn(&SSLCertificate{}, "SANs"); err == nil {
-			for _, col := range loadTableColumns(db, "ssl_certificates") {
-				if col == "sans" {
-					hasSans = true
-					break
-				}
+		_ = migrator.AddColumn(&SSLCertificate{}, "SANs")
+		for _, col := range loadTableColumns(db, "ssl_certificates") {
+			if strings.ToLower(strings.TrimSpace(col)) == "sans" {
+				hasSans = true
+				break
 			}
 		}
 	}
 	if !hasSans || !hasLegacySANs {
 		return nil
 	}
-	return db.Exec(`
+	if err := db.Exec(`
 		UPDATE ssl_certificates
 		SET sans = COALESCE(NULLIF(sans, ''), s_a_ns)
 		WHERE (sans IS NULL OR sans = '')
 		  AND s_a_ns IS NOT NULL
 		  AND s_a_ns <> ''
-	`).Error
+	`).Error; err != nil {
+		// Keep startup resilient for mixed historical schemas.
+		if isMissingSansColumnError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (p *DomainPlugin) RegisterRoutes(g *gin.RouterGroup) {

@@ -42,6 +42,27 @@ func detectCertSansColumn(db *gorm.DB) string {
 	return ""
 }
 
+func isMissingSansColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such column: sans") ||
+		strings.Contains(msg, "unknown column 'sans'") ||
+		strings.Contains(msg, "column \"sans\" does not exist")
+}
+
+func (h *DomainHandler) fallbackCertSansColumn() {
+	if h == nil {
+		return
+	}
+	h.certSansColumn = detectCertSansColumn(h.db)
+	if h.certSansColumn == "sans" {
+		// Runtime fallback mode: avoid hard dependency on sans for old schemas.
+		h.certSansColumn = ""
+	}
+}
+
 func loadTableColumns(db *gorm.DB, table string) []string {
 	if db == nil || table == "" {
 		return nil
@@ -90,7 +111,12 @@ func (h *DomainHandler) applyCertSansUpdate(updates map[string]interface{}, sans
 }
 
 func (h *DomainHandler) loadCertByID(id string, cert *SSLCertificate) error {
-	return h.certReadQuery(h.db).Where("id = ?", id).First(cert).Error
+	err := h.certReadQuery(h.db).Where("id = ?", id).First(cert).Error
+	if isMissingSansColumnError(err) {
+		h.fallbackCertSansColumn()
+		return h.certReadQuery(h.db).Where("id = ?", id).First(cert).Error
+	}
+	return err
 }
 
 type domainRuntimeResult struct {
@@ -294,7 +320,13 @@ func (h *DomainHandler) CheckAllDomains(c *gin.Context) {
 // ListCerts SSL证书列表
 func (h *DomainHandler) ListCerts(c *gin.Context) {
 	var certs []SSLCertificate
-	if err := h.certReadQuery(h.db.Order("CASE WHEN not_after IS NULL THEN 1 ELSE 0 END, not_after ASC")).Find(&certs).Error; err != nil {
+	query := h.db.Order("CASE WHEN not_after IS NULL THEN 1 ELSE 0 END, not_after ASC")
+	err := h.certReadQuery(query).Find(&certs).Error
+	if isMissingSansColumnError(err) {
+		h.fallbackCertSansColumn()
+		err = h.certReadQuery(query).Find(&certs).Error
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -347,8 +379,20 @@ func (h *DomainHandler) CreateCert(c *gin.Context) {
 		createTx = createTx.Omit("sans", "SANs")
 	}
 	if err := createTx.Create(&cert).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
-		return
+		if isMissingSansColumnError(err) {
+			h.fallbackCertSansColumn()
+			retryTx := h.db
+			if h.certSansColumn == "" || h.certSansColumn == "s_a_ns" {
+				retryTx = retryTx.Omit("sans", "SANs")
+			}
+			if retryErr := retryTx.Create(&cert).Error; retryErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": retryErr.Error()})
+				return
+			}
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
 	}
 	if h.certSansColumn == "s_a_ns" {
 		_ = h.db.Model(&cert).Update("s_a_ns", cert.SANs).Error
@@ -403,7 +447,14 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 		updates["status"] = 2
 	}
 
-	if err := h.db.Model(&cert).Updates(updates).Error; err != nil {
+	err = h.db.Model(&cert).Updates(updates).Error
+	if isMissingSansColumnError(err) {
+		h.fallbackCertSansColumn()
+		delete(updates, "sans")
+		delete(updates, "s_a_ns")
+		err = h.db.Model(&cert).Updates(updates).Error
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -429,7 +480,12 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 // CheckAllCerts 批量检查证书
 func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 	var certs []SSLCertificate
-	if err := h.certReadQuery(h.db).Find(&certs).Error; err != nil {
+	err := h.certReadQuery(h.db).Find(&certs).Error
+	if isMissingSansColumnError(err) {
+		h.fallbackCertSansColumn()
+		err = h.certReadQuery(h.db).Find(&certs).Error
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -462,7 +518,14 @@ func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 			updates["status"] = 2
 		}
 
-		if err := h.db.Model(&cert).Updates(updates).Error; err != nil {
+		err = h.db.Model(&cert).Updates(updates).Error
+		if isMissingSansColumnError(err) {
+			h.fallbackCertSansColumn()
+			delete(updates, "sans")
+			delete(updates, "s_a_ns")
+			err = h.db.Model(&cert).Updates(updates).Error
+		}
+		if err != nil {
 			failed++
 			continue
 		}
@@ -486,7 +549,13 @@ func (h *DomainHandler) ListExpiringCerts(c *gin.Context) {
 	var certs []SSLCertificate
 	now := time.Now()
 	cutoff := now.Add(time.Duration(days) * 24 * time.Hour)
-	if err := h.certReadQuery(h.db.Where("not_after IS NOT NULL AND not_after > ? AND not_after <= ?", now, cutoff).Order("not_after ASC")).Find(&certs).Error; err != nil {
+	query := h.db.Where("not_after IS NOT NULL AND not_after > ? AND not_after <= ?", now, cutoff).Order("not_after ASC")
+	err := h.certReadQuery(query).Find(&certs).Error
+	if isMissingSansColumnError(err) {
+		h.fallbackCertSansColumn()
+		err = h.certReadQuery(query).Find(&certs).Error
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
