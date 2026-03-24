@@ -334,19 +334,16 @@ const backlog = reactive({
   monitor: 0,
   k8s: 0,
   delivery: 0,
-  collab: 0,
   assetOverdue: 0,
   monitorOverdue: 0,
   k8sOverdue: 0,
-  deliveryOverdue: 0,
-  collabOverdue: 0
+  deliveryOverdue: 0
 })
 const backlogActionLoading = reactive({
   asset: false,
   monitor: false,
   k8s: false,
-  delivery: false,
-  collab: false
+  delivery: false
 })
 const backlogSource = reactive({
   offlineHostIds: [],
@@ -438,19 +435,11 @@ const backlogCards = computed(() => [
   },
   {
     key: 'delivery',
-    label: '交付中心',
+    label: '服务管理',
     value: backlog.delivery,
     overdue: backlog.deliveryOverdue,
-    desc: '审批、执行、调度时效',
+    desc: '交付、自动化、终端会话',
     path: '/delivery/center'
-  },
-  {
-    key: 'collab',
-    label: '协同中心',
-    value: backlog.collab,
-    overdue: backlog.collabOverdue,
-    desc: '工单、流程、终端会话',
-    path: '/collab/center'
   }
 ])
 
@@ -744,36 +733,24 @@ const runBacklogAction = async (key) => {
       ElMessage.success(`K8s巡检完成：成功 ${summary.ok}，失败 ${summary.fail}`)
     } else if (key === 'delivery') {
       const executionIds = backlogSource.longRunningExecutionIds.slice(0, 3)
-      if (!executionIds.length) {
-        ElMessage.info('当前没有运行超时的执行记录')
-        return
-      }
-      await ElMessageBox.confirm(
-        `将取消 ${executionIds.length} 条运行超时(>=120m)的执行记录，确认执行吗？`,
-        '交付中心一键处置',
-        { type: 'warning' }
-      )
-      const jobs = executionIds.map((id) => axios.post(`/api/v1/cicd/executions/${id}/cancel`, {}, { headers: authHeaders() }))
-      const summary = summarizeSettled(await Promise.allSettled(jobs))
-      ElMessage.success(`交付处置完成：成功 ${summary.ok}，失败 ${summary.fail}`)
-    } else if (key === 'collab') {
       const workflowIds = backlogSource.longRunningWorkflowIds.slice(0, 3)
       const failedSessions = backlogSource.failedTerminalSessionIds.slice(0, 10)
-      if (!workflowIds.length && !failedSessions.length) {
-        ElMessage.info('当前没有可自动收敛的协同积压')
+      if (!executionIds.length && !workflowIds.length && !failedSessions.length) {
+        ElMessage.info('当前没有可自动处置的服务管理积压')
         return
       }
       await ElMessageBox.confirm(
-        `将取消超时流程(${workflowIds.length})并清理失败终端会话(${failedSessions.length})，确认执行吗？`,
-        '协同中心一键处置',
+        `将取消超时执行(${executionIds.length})、超时流程(${workflowIds.length})，并清理失败会话(${failedSessions.length})，确认执行吗？`,
+        '服务管理一键处置',
         { type: 'warning' }
       )
       const jobs = [
+        ...executionIds.map((id) => axios.post(`/api/v1/cicd/executions/${id}/cancel`, {}, { headers: authHeaders() })),
         ...workflowIds.map((id) => axios.post(`/api/v1/workflow/executions/${id}/cancel`, {}, { headers: authHeaders() })),
         ...failedSessions.map((id) => axios.delete(`/api/v1/terminal/sessions/${id}/purge`, { headers: authHeaders() }))
       ]
       const summary = summarizeSettled(await Promise.allSettled(jobs))
-      ElMessage.success(`协同处置完成：成功 ${summary.ok}，失败 ${summary.fail}`)
+      ElMessage.success(`服务管理处置完成：成功 ${summary.ok}，失败 ${summary.fail}`)
     }
     await refreshDashboard()
   } catch (err) {
@@ -1140,7 +1117,6 @@ const refreshDashboard = async () => {
       return nextTs < nowMs() - 5 * 60 * 1000
     }).length
     backlog.delivery = deliveryOrderTimeout + deliveryExecutionLong + deliveryScheduleStale
-    backlog.deliveryOverdue = backlog.delivery
 
     const collabOrderTimeout = workorders.filter((item) => {
       const status = Number(item.status)
@@ -1156,16 +1132,14 @@ const refreshDashboard = async () => {
     }).length
     const failedTerminalSessions = terminalSessions.filter((item) => Number(item.status) === 3)
     const collabTerminalFailed = failedTerminalSessions.length
-    backlog.collab = collabOrderTimeout + collabWorkflowLong + collabTerminalPending + collabTerminalFailed
-    backlog.collabOverdue = collabOrderTimeout + collabWorkflowLong + collabTerminalPending
-
-    backlog.total = backlog.asset + backlog.monitor + backlog.k8s + backlog.delivery + backlog.collab
+    backlog.delivery += collabOrderTimeout + collabWorkflowLong + collabTerminalPending + collabTerminalFailed
+    backlog.deliveryOverdue = deliveryOrderTimeout + deliveryExecutionLong + deliveryScheduleStale + collabOrderTimeout + collabWorkflowLong + collabTerminalPending
+    backlog.total = backlog.asset + backlog.monitor + backlog.k8s + backlog.delivery
     backlog.overdue =
       backlog.assetOverdue +
       backlog.monitorOverdue +
       backlog.k8sOverdue +
-      backlog.deliveryOverdue +
-      backlog.collabOverdue
+      backlog.deliveryOverdue
 
     backlogSource.offlineHostIds = offlineHosts.map((item) => item.id).filter(Boolean)
     backlogSource.offlineNetworkDeviceIds = offlineNetworks.map((item) => item.id).filter(Boolean)

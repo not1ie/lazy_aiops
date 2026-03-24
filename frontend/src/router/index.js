@@ -440,17 +440,6 @@ const routes = [
         meta: { title: '同步记录', icon: 'List', perm: 'gitops' }
       },
 
-      // Collaboration
-      {
-        path: 'collab',
-        redirect: '/collab/center'
-      },
-      {
-        path: 'collab/center',
-        name: 'CollabCenter',
-        component: () => import('@/views/hub/collab.vue'),
-        meta: { title: '协作中心', icon: 'User' }
-      },
       {
         path: 'oncall/schedule',
         name: 'OncallSchedule',
