@@ -118,6 +118,7 @@
             <el-menu-item v-if="canAny(['cicd','workorder'])" index="/delivery/center">交付中心</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/pipelines">流水线管理</el-menu-item>
             <el-menu-item v-if="can('cicd')" index="/cicd/releases">发布管理</el-menu-item>
+            <el-menu-item v-if="can('workflow')" index="/workflow/orchestrator">编排中心</el-menu-item>
             <el-menu-item v-if="can('workflow')" index="/workflow/designer">工作流编排</el-menu-item>
             <el-menu-item v-if="can('task')" index="/task/schedules">任务调度</el-menu-item>
             <el-sub-menu
@@ -762,7 +763,7 @@ const workspacePresets = [
     key: 'automation-warroom',
     label: '自动化协同视图',
     category: 'automation',
-    paths: ['/ai', '/workflow/designer', '/task/schedules', '/oncall/schedule']
+    paths: ['/ai', '/workflow/orchestrator', '/workflow/designer', '/task/schedules', '/oncall/schedule']
   }
 ]
 
@@ -1705,6 +1706,7 @@ const moduleQuickLinks = [
     links: [
       { label: '交付中心', path: '/delivery/center', permAny: ['cicd', 'workorder'] },
       { label: 'AI运维助手', path: '/ai', permAny: ['ai'] },
+      { label: '编排中心', path: '/workflow/orchestrator', permAny: ['workflow'] },
       { label: '工作流编排', path: '/workflow/designer', permAny: ['workflow'] },
       { label: '任务调度', path: '/task/schedules', permAny: ['task'] },
       { label: '流水线管理', path: '/cicd/pipelines', permAny: ['cicd'] },

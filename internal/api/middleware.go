@@ -310,6 +310,10 @@ func permissionForRequest(c *gin.Context) string {
 		}
 	}
 
+	if strings.HasPrefix(path, "/api/v1/orchestrator/") {
+		return "workflow"
+	}
+
 	module := strings.TrimPrefix(path, "/api/v1/")
 	module = strings.SplitN(module, "/", 2)[0]
 	if module == "" {

@@ -28,6 +28,7 @@ import (
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/nacos"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/notify"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/oncall"
+	_ "github.com/lazyautoops/lazy-auto-ops/plugins/orchestrator"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/rbac"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/remediation"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/sqlaudit"

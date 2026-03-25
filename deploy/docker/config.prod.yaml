@@ -107,6 +107,9 @@ plugins:
   # 运维编排
   workflow:
     enabled: true
+  # 编排中心（事件总线）
+  orchestrator:
+    enabled: true
 
   # 批量执行
   executor:

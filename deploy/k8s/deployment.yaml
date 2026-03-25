@@ -129,6 +129,8 @@ data:
         enabled: true
       workflow:
         enabled: true
+      orchestrator:
+        enabled: true
       executor:
         enabled: true
       cicd:

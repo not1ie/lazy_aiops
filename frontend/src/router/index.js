@@ -326,6 +326,12 @@ const routes = [
 
       // Automation
       {
+        path: 'workflow/orchestrator',
+        name: 'WorkflowOrchestrator',
+        component: () => import('@/views/workflow/orchestrator.vue'),
+        meta: { title: '编排中心', icon: 'Operation', perm: 'workflow' }
+      },
+      {
         path: 'workflow/designer',
         name: 'WorkflowDesigner',
         component: () => import('@/views/workflow/designer.vue'),
