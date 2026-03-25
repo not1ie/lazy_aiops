@@ -411,11 +411,11 @@ const trendRecords = ref([])
 const backlogCards = computed(() => [
   {
     key: 'asset',
-    label: '资产作战台',
+    label: '资产管理中心',
     value: backlog.asset,
     overdue: backlog.assetOverdue,
     desc: '主机/网络/防火墙/堡垒机',
-    path: '/asset/ops'
+    path: '/host'
   },
   {
     key: 'monitor',

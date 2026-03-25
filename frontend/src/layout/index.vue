@@ -32,26 +32,9 @@
               <el-icon><Monitor /></el-icon>
               <span>资产管理</span>
             </template>
-            <el-menu-item v-if="canAny(['cmdb','firewall','jump'])" index="/asset/ops">资产作战台</el-menu-item>
             <el-menu-item v-if="can('cmdb')" index="/asset/overview">资产总览</el-menu-item>
             <el-menu-item v-if="can('cmdb')" index="/host">主机管理</el-menu-item>
             <el-menu-item v-if="can('terminal')" index="/terminal">WebTerminal</el-menu-item>
-            <el-sub-menu
-              v-if="canAny(['cmdb','firewall','jump','jump:asset','jump:policy','jump:rule','jump:session'])"
-              index="/cmdb/more"
-            >
-              <template #title>更多功能</template>
-              <el-menu-item v-if="can('cmdb')" index="/cmdb/group">主机分组</el-menu-item>
-              <el-menu-item v-if="can('cmdb')" index="/cmdb/credential">凭据管理</el-menu-item>
-              <el-menu-item v-if="can('cmdb')" index="/cmdb/database">数据库资产</el-menu-item>
-              <el-menu-item v-if="can('cmdb')" index="/cmdb/cloud">云资源</el-menu-item>
-              <el-menu-item v-if="can('cmdb')" index="/cmdb/network-devices">网络设备</el-menu-item>
-              <el-menu-item v-if="canAny(['cmdb','firewall'])" index="/firewall">防火墙管理</el-menu-item>
-              <el-menu-item v-if="can('jump:asset')" index="/jump/assets">堡垒机资产</el-menu-item>
-              <el-menu-item v-if="can('jump:policy')" index="/jump/policies">授权策略</el-menu-item>
-              <el-menu-item v-if="can('jump:rule')" index="/jump/command-rules">命令风控</el-menu-item>
-              <el-menu-item v-if="can('jump:session')" index="/jump/sessions">会话审计</el-menu-item>
-            </el-sub-menu>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
@@ -737,9 +720,9 @@ const formatDateTime = (value) => {
 const workspacePresets = [
   {
     key: 'asset-ops',
-    label: '资产排障视图',
+    label: '资产管理视图',
     category: 'asset',
-    paths: ['/asset/ops', '/host', '/jump/sessions', '/firewall', '/terminal']
+    paths: ['/asset/overview', '/host', '/terminal']
   },
   {
     key: 'k8s-oncall',
@@ -1668,12 +1651,8 @@ const moduleQuickLinks = [
     prefixes: ['/asset', '/host', '/cmdb', '/firewall', '/jump', '/terminal'],
     links: [
       { label: '资产总览', path: '/asset/overview', permAny: ['cmdb'] },
-      { label: '资产作战台', path: '/asset/ops', permAny: ['cmdb', 'firewall', 'jump'] },
       { label: '主机管理', path: '/host', permAny: ['cmdb'] },
-      { label: '网络设备', path: '/cmdb/network-devices', permAny: ['cmdb'], hiddenByDefault: true },
-      { label: '防火墙管理', path: '/firewall', permAny: ['cmdb', 'firewall'], hiddenByDefault: true },
-      { label: 'WebTerminal', path: '/terminal', permAny: ['terminal'] },
-      { label: '堡垒机会话', path: '/jump/sessions', permAny: ['jump', 'jump:session'], hiddenByDefault: true }
+      { label: 'WebTerminal', path: '/terminal', permAny: ['terminal'] }
     ]
   },
   {

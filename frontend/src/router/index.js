@@ -62,12 +62,6 @@ const routes = [
         meta: { title: '资产总览', icon: 'DataBoard', perm: 'cmdb' }
       },
       {
-        path: 'asset/ops',
-        name: 'AssetOps',
-        component: () => import('@/views/hub/asset-ops.vue'),
-        meta: { title: '资产作战台', icon: 'Monitor' }
-      },
-      {
         path: 'host',
         name: 'Host',
         component: () => import('@/views/cmdb/host.vue'),
