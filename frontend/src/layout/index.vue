@@ -70,9 +70,14 @@
               <el-icon><Setting /></el-icon>
               <span>系统管理</span>
             </template>
-            <el-menu-item v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system/users">
-              系统设置中心
-            </el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:user'])" index="/system/users">用户管理</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:role'])" index="/system/roles">角色管理</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:permission'])" index="/system/menus">权限管理</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:dept'])" index="/system/dept">部门管理</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:post'])" index="/system/posts">岗位管理</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:loginlog'])" index="/system/login-logs">登录日志</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:log'])" index="/system/audit-logs">操作日志</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:captcha'])" index="/system/captcha">验证码配置</el-menu-item>
           </el-sub-menu>
         </el-menu>
       </el-scrollbar>
