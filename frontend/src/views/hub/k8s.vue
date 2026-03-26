@@ -25,6 +25,15 @@
         <el-check-tag :checked="false" @click="go('/k8s/deployments')">Deployments</el-check-tag>
         <el-check-tag :checked="false" @click="go('/k8s/pods')">Pods</el-check-tag>
         <el-check-tag :checked="false" @click="go('/k8s/services')">服务与Ingress</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/workloads')">工作负载</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/clusters')">K8s集群</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/namespaces')">命名空间</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/configs')">Config/Secret</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/storage')">存储管理</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/nodes')">节点管理</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/events')">事件与诊断</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/k8s/terminal')">K8s WebShell</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/docker')">Docker管理</el-check-tag>
       </div>
       <div class="workbench-toolbar-right">
         <el-tag type="warning" effect="light">待处置 {{ pendingBacklog }}</el-tag>

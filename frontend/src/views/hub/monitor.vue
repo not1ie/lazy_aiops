@@ -10,6 +10,32 @@
       </div>
     </div>
 
+    <div class="workbench-toolbar">
+      <div class="workbench-toolbar-left">
+        <span class="workbench-toolbar-label">场景工作台</span>
+        <el-check-tag checked @click="go('/monitor/center')">监控告警中心</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/domain/center')">域名监控中心</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/alert/events')">告警事件</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/alert/rules')">告警规则</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/alert/silences')">告警静默</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/alert/aggregation')">告警聚合</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/alert/history')">告警复盘</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/notify/channels')">通知渠道</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/notify/groups')">通知组</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/notify/templates')">通知模板</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/domain/ssl')">域名与证书</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/monitor/overview')">监控概览</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/monitor/hosts')">主机监控</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/monitor/metrics')">指标采集</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/monitor/containers')">容器监控</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/monitor/pods')">Pod监控</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/monitor/agents')">Agent心跳</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/topology')">服务拓扑</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/cost/overview')">成本概览</el-check-tag>
+        <el-check-tag :checked="false" @click="go('/cost/budget')">预算告警</el-check-tag>
+      </div>
+    </div>
+
     <el-row :gutter="12" class="summary-row">
       <el-col :xl="3" :lg="6" :md="6" :sm="12" :xs="12">
         <el-card><div class="metric-title">告警总量</div><div class="metric-value">{{ stats.alertTotal }}</div></el-card>
@@ -734,6 +760,29 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
+.workbench-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--el-fill-color) 86%, transparent);
+}
+
+.workbench-toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workbench-toolbar-label {
+  color: var(--muted-text);
+  font-size: 12px;
+  margin-right: 2px;
+}
 .risk-header {
   display: flex;
   align-items: center;
