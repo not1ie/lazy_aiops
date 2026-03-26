@@ -52,6 +52,10 @@
               <span>监控中心</span>
             </template>
             <el-menu-item v-if="canAny(['monitor','alert','notify','domain'])" index="/monitor/center">监控告警中心</el-menu-item>
+            <el-menu-item v-if="canAny(['domain'])" index="/domain/center">域名监控中心</el-menu-item>
+            <el-menu-item v-if="canAny(['alert'])" index="/alert/events">告警事件</el-menu-item>
+            <el-menu-item v-if="canAny(['notify'])" index="/notify/channels">通知渠道</el-menu-item>
+            <el-menu-item v-if="canAny(['domain'])" index="/domain/ssl">域名与证书</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu
@@ -63,6 +67,17 @@
               <span>服务管理</span>
             </template>
             <el-menu-item v-if="canAny(['cicd','workorder'])" index="/delivery/center">交付中心</el-menu-item>
+            <el-menu-item v-if="canAny(['workflow'])" index="/workflow/orchestrator">编排中心</el-menu-item>
+            <el-menu-item v-if="canAny(['workflow'])" index="/workflow/designer">工作流编排</el-menu-item>
+            <el-menu-item v-if="canAny(['task'])" index="/task/schedules">任务调度</el-menu-item>
+            <el-menu-item v-if="canAny(['cicd'])" index="/cicd/pipelines">流水线管理</el-menu-item>
+            <el-menu-item v-if="canAny(['cicd'])" index="/cicd/executions">执行记录</el-menu-item>
+            <el-menu-item v-if="canAny(['cicd'])" index="/cicd/releases">发布管理</el-menu-item>
+            <el-menu-item v-if="canAny(['executor'])" index="/executor">批量执行</el-menu-item>
+            <el-menu-item v-if="canAny(['oncall'])" index="/oncall/schedule">值班排班</el-menu-item>
+            <el-menu-item v-if="canAny(['oncall'])" index="/oncall/escalation">升级策略</el-menu-item>
+            <el-menu-item v-if="canAny(['workorder'])" index="/workorder/tickets">工单管理</el-menu-item>
+            <el-menu-item v-if="canAny(['application'])" index="/application">应用中心</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system">
