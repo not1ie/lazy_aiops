@@ -99,14 +99,16 @@
               <strong>{{ username }}</strong>
               <span>{{ roleCode || 'user' }}</span>
             </div>
-            <el-dropdown>
+            <el-dropdown @command="handleUserCommand">
               <span class="el-dropdown-link">
                 操作
                 <el-icon class="el-icon--right"><arrow-down /></el-icon>
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
+                  <el-dropdown-item command="profile">账号信息</el-dropdown-item>
+                  <el-dropdown-item command="password">修改密码</el-dropdown-item>
+                  <el-dropdown-item command="logout">退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -364,6 +366,62 @@
             </div>
           </template>
         </el-dialog>
+
+        <el-dialog v-model="accountProfileVisible" title="账号信息" width="520px">
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="用户名">{{ currentUser?.username || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="昵称">{{ currentUser?.nickname || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="角色">{{ roleCode || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="邮箱">{{ currentUser?.email || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="手机号">{{ currentUser?.phone || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <el-tag :type="Number(currentUser?.status ?? 1) === 1 ? 'success' : 'danger'">
+                {{ Number(currentUser?.status ?? 1) === 1 ? '启用' : '禁用' }}
+              </el-tag>
+            </el-descriptions-item>
+          </el-descriptions>
+          <template #footer>
+            <el-button @click="accountProfileVisible = false">关闭</el-button>
+            <el-button type="primary" @click="openChangePasswordDialog">修改密码</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="changePasswordVisible" title="修改密码" width="520px">
+          <el-form ref="changePasswordFormRef" :model="changePasswordForm" label-width="96px">
+            <el-form-item label="当前密码">
+              <el-input
+                v-model="changePasswordForm.old_password"
+                type="password"
+                show-password
+                placeholder="请输入当前密码"
+                autocomplete="current-password"
+              />
+            </el-form-item>
+            <el-form-item label="新密码">
+              <el-input
+                v-model="changePasswordForm.new_password"
+                type="password"
+                show-password
+                placeholder="请输入新密码（至少6位）"
+                autocomplete="new-password"
+              />
+            </el-form-item>
+            <el-form-item label="确认密码">
+              <el-input
+                v-model="changePasswordForm.confirm_password"
+                type="password"
+                show-password
+                placeholder="请再次输入新密码"
+                autocomplete="new-password"
+              />
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="changePasswordVisible = false">取消</el-button>
+            <el-button type="primary" :loading="changePasswordSubmitting" @click="submitChangePassword">确认修改</el-button>
+          </template>
+        </el-dialog>
+
         <router-view v-slot="{ Component, route }">
           <transition name="app-route-fade" mode="out-in">
             <div class="page-view app-fade-in" :key="route.fullPath">
@@ -411,6 +469,16 @@ const draggingTeamPresetId = ref('')
 const lastWorkspacePresetKey = ref('')
 const workspaceAppliedFromQuery = ref(false)
 const currentUserID = ref('')
+const currentUser = ref(null)
+const accountProfileVisible = ref(false)
+const changePasswordVisible = ref(false)
+const changePasswordSubmitting = ref(false)
+const changePasswordFormRef = ref(null)
+const changePasswordForm = ref({
+  old_password: '',
+  new_password: '',
+  confirm_password: ''
+})
 const isAdmin = computed(() => roleCode.value === 'admin')
 
 const readTabsFromStorage = () => {
@@ -1850,6 +1918,7 @@ const fetchUserInfo = async () => {
     const res = await axios.get('/api/v1/user/info', { headers: authHeaders() })
     if (res.data.code === 0) {
       const user = res.data.data
+      currentUser.value = user
       currentUserID.value = user.id || ''
       username.value = user.nickname || user.username || 'Admin'
       roleCode.value = user.role?.code || ''
@@ -1858,7 +1927,92 @@ const fetchUserInfo = async () => {
       localStorage.setItem('user_info', JSON.stringify(user))
     }
   } catch {
-    // keep local cache
+    try {
+      const cached = JSON.parse(localStorage.getItem('user_info') || '{}')
+      if (cached && typeof cached === 'object') {
+        currentUser.value = cached
+        currentUserID.value = cached.id || currentUserID.value
+      }
+    } catch {
+      // ignore cache parse errors
+    }
+  }
+}
+
+const openProfileDialog = async () => {
+  if (!currentUser.value) await fetchUserInfo()
+  accountProfileVisible.value = true
+}
+
+const openChangePasswordDialog = async () => {
+  if (!currentUserID.value) await fetchUserInfo()
+  changePasswordForm.value = {
+    old_password: '',
+    new_password: '',
+    confirm_password: ''
+  }
+  changePasswordVisible.value = true
+}
+
+const submitChangePassword = async () => {
+  const userID = currentUserID.value || currentUser.value?.id
+  if (!userID) {
+    ElMessage.error('无法获取当前用户信息，请重新登录后重试')
+    return
+  }
+
+  const payload = changePasswordForm.value
+  if (!payload.old_password) {
+    ElMessage.warning('请输入当前密码')
+    return
+  }
+  if (!payload.new_password || payload.new_password.length < 6) {
+    ElMessage.warning('新密码至少 6 位')
+    return
+  }
+  if (payload.new_password !== payload.confirm_password) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  if (payload.new_password === payload.old_password) {
+    ElMessage.warning('新密码不能与当前密码相同')
+    return
+  }
+
+  changePasswordSubmitting.value = true
+  try {
+    const res = await axios.put(
+      `/api/v1/rbac/users/${userID}/password`,
+      {
+        old_password: payload.old_password,
+        new_password: payload.new_password
+      },
+      { headers: authHeaders() }
+    )
+    if (res.data.code !== 0) {
+      ElMessage.error(res.data.message || '修改密码失败')
+      return
+    }
+    ElMessage.success('密码修改成功')
+    changePasswordVisible.value = false
+  } catch (error) {
+    ElMessage.error(parseAxiosErrorMessage(error, '修改密码失败'))
+  } finally {
+    changePasswordSubmitting.value = false
+  }
+}
+
+const handleUserCommand = async (command) => {
+  if (command === 'profile') {
+    await openProfileDialog()
+    return
+  }
+  if (command === 'password') {
+    await openChangePasswordDialog()
+    return
+  }
+  if (command === 'logout') {
+    logout()
   }
 }
 
