@@ -47,9 +47,12 @@ func isMissingSansColumnError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "no such column: sans") ||
-		strings.Contains(msg, "unknown column 'sans'") ||
-		strings.Contains(msg, "column \"sans\" does not exist")
+	if !strings.Contains(msg, "sans") {
+		return false
+	}
+	return strings.Contains(msg, "no such column") ||
+		strings.Contains(msg, "unknown column") ||
+		strings.Contains(msg, "does not exist")
 }
 
 func (h *DomainHandler) fallbackCertSansColumn() {
