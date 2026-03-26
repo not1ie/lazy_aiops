@@ -64,7 +64,7 @@
               <el-icon><Setting /></el-icon>
               <span>系统管理</span>
             </template>
-            <el-menu-item v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system/users">用户管理</el-menu-item>
+            <el-menu-item v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system/center">系统管理中心</el-menu-item>
           </el-sub-menu>
         </el-menu>
       </el-scrollbar>
@@ -1734,6 +1734,7 @@ const moduleQuickLinks = [
     key: 'system',
     prefixes: ['/system'],
     links: [
+      { label: '系统管理中心', path: '/system/center', permAny: ['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'] },
       { label: '用户管理', path: '/system/users', permAny: ['system', 'system:user'] },
       { label: '角色管理', path: '/system/roles', permAny: ['system', 'system:role'] },
       { label: '权限管理', path: '/system/menus', permAny: ['system', 'system:permission'] },

@@ -53,6 +53,10 @@ const routes = [
         path: 'delivery',
         redirect: '/delivery/center'
       },
+      {
+        path: 'system',
+        redirect: '/system/center'
+      },
 
       // CMDB / Asset
       {
@@ -518,6 +522,12 @@ const routes = [
       },
 
       // System
+      {
+        path: 'system/center',
+        name: 'SystemCenter',
+        component: () => import('@/views/hub/system.vue'),
+        meta: { title: '系统管理中心', icon: 'Setting' }
+      },
       {
         path: 'system/users',
         name: 'SystemUsers',

@@ -1133,7 +1133,7 @@ const refreshAll = async ({ silent = false } = {}) => {
     renderHealthChart()
 
     const failedCount = [domainRes, certRes, accountRes, alertRes].filter((r) => r.status === 'rejected').length
-    if (failedCount > 0) {
+    if (!silent && failedCount > 0) {
       ElMessage.warning(`部分域名中心数据加载失败（${failedCount}项），已展示可用数据`)
     }
   } catch (err) {

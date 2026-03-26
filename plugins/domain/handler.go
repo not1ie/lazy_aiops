@@ -97,10 +97,9 @@ func (h *DomainHandler) certReadQuery(base *gorm.DB) *gorm.DB {
 	if h.certSansColumn == "s_a_ns" {
 		return query.Select("ssl_certificates.*, s_a_ns AS sans")
 	}
-	if h.certSansColumn == "" {
-		return query.Select("ssl_certificates.*")
-	}
-	return query
+	// Always read from table columns directly to avoid hard dependency on ORM field mapping.
+	// This keeps old schemas (without `sans`) readable and prevents runtime `no such column: sans`.
+	return query.Select("ssl_certificates.*")
 }
 
 func (h *DomainHandler) applyCertSansUpdate(updates map[string]interface{}, sansValue interface{}) map[string]interface{} {
