@@ -2049,6 +2049,18 @@ const handleUserCommand = async (command) => {
   }
 }
 
+const handleSystemAccountAction = async (event) => {
+  const action = String(event?.detail?.action || '').trim()
+  if (!action) return
+  if (action === 'profile') {
+    await openProfileDialog()
+    return
+  }
+  if (action === 'password') {
+    await openChangePasswordDialog()
+  }
+}
+
 const logout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('permissions')
@@ -2076,6 +2088,7 @@ onMounted(async () => {
   window.addEventListener('resize', closeModuleContextMenu)
   window.addEventListener('scroll', closeModuleContextMenu, true)
   window.addEventListener('lao:apply-workspace-category', handleApplyWorkspaceCategoryEvent)
+  window.addEventListener('lao:system-account-action', handleSystemAccountAction)
   await applyWorkspaceFromQuery()
 })
 
@@ -2097,6 +2110,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', closeModuleContextMenu)
   window.removeEventListener('scroll', closeModuleContextMenu, true)
   window.removeEventListener('lao:apply-workspace-category', handleApplyWorkspaceCategoryEvent)
+  window.removeEventListener('lao:system-account-action', handleSystemAccountAction)
 })
 </script>
 

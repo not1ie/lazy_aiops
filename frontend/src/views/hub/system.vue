@@ -6,6 +6,8 @@
         <p class="page-desc">账号、角色、权限与审计统一管理入口，减少分散切页。</p>
       </div>
       <div class="page-actions">
+        <el-button @click="openProfile">账号信息</el-button>
+        <el-button type="primary" plain @click="openPassword">修改密码</el-button>
         <el-button plain @click="refreshCurrentTab">刷新当前</el-button>
       </div>
     </div>
@@ -138,6 +140,19 @@ const activeComponent = computed(() => {
 
 const refreshCurrentTab = () => {
   renderKey.value += 1
+}
+
+const emitAccountAction = (action) => {
+  if (!action || typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('lao:system-account-action', { detail: { action } }))
+}
+
+const openProfile = () => {
+  emitAccountAction('profile')
+}
+
+const openPassword = () => {
+  emitAccountAction('password')
 }
 
 watch(
