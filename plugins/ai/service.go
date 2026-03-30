@@ -45,18 +45,21 @@ func (s *AIService) ApplyProviderConfig(cfg *AIProviderConfig) {
 }
 
 // Chat 对话
-func (s *AIService) Chat(sessionID, userID, message, context string) (*ChatResponse, error) {
+func (s *AIService) Chat(req *ChatRequest, userID string) (*ChatResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("empty chat request")
+	}
 	// 获取或创建会话
 	var session ChatSession
-	if sessionID != "" {
-		s.db.First(&session, "id = ?", sessionID)
+	if req.SessionID != "" {
+		s.db.First(&session, "id = ?", req.SessionID)
 	}
 	if session.ID == "" {
 		session = ChatSession{
 			UserID:  userID,
-			Title:   truncate(message, 50),
+			Title:   truncate(req.Message, 50),
 			Type:    "chat",
-			Context: context,
+			Context: req.Context,
 		}
 		s.db.Create(&session)
 	}
@@ -65,7 +68,7 @@ func (s *AIService) Chat(sessionID, userID, message, context string) (*ChatRespo
 	userMsg := ChatMessage{
 		SessionID: session.ID,
 		Role:      "user",
-		Content:   message,
+		Content:   req.Message,
 	}
 	s.db.Create(&userMsg)
 
@@ -79,9 +82,30 @@ func (s *AIService) Chat(sessionID, userID, message, context string) (*ChatRespo
 		messages = append(messages, map[string]string{"role": msg.Role, "content": msg.Content})
 	}
 
-	systemPrompt := "你是Lazy Auto Ops运维平台的AI助手，专注于帮助用户解决运维问题、分析日志、诊断故障。请用中文回答。"
-	if context != "" {
-		systemPrompt += "\n\n上下文信息:\n" + context
+	systemPrompt := strings.Join([]string{
+		"你是 Lazy Auto Ops 运维平台的 AI 助手，专注于帮助用户解决运维问题、分析日志、诊断故障。",
+		"请用中文回答，并优先给出可执行、可验证、低风险的建议。",
+		"默认按以下结构回答：1. 结论摘要 2. 根因假设（按概率排序） 3. 证据与待核实项 4. 下一步只读检查 5. 如需变更则给出风险、回滚与审批建议。",
+	}, "\n")
+
+	var pack *AIContextPack
+	if req.AutoContext {
+		builtPack, err := s.BuildContextPack(req.ContextHint)
+		if err != nil {
+			return nil, err
+		}
+		pack = builtPack
+		if builtPack != nil {
+			systemPrompt += "\n\n系统自动拼接的运维上下文:\n" + formatContextPack(builtPack)
+		}
+	}
+	if req.Context != "" {
+		systemPrompt += "\n\n用户补充上下文:\n" + req.Context
+	}
+
+	toolTraces, toolContext := s.maybeUseTools(req, pack, history)
+	if toolContext != "" {
+		systemPrompt += "\n\n" + toolContext
 	}
 
 	reply, tokens, err := s.core.AI.CallLLM(systemPrompt, messages)
@@ -89,19 +113,43 @@ func (s *AIService) Chat(sessionID, userID, message, context string) (*ChatRespo
 		return nil, err
 	}
 
+	executionPlan, err := s.buildExecutionPlan(req, pack, toolTraces, reply)
+	if err != nil {
+		return nil, err
+	}
+
+	meta := ChatMessageMeta{
+		ToolCalls:     toolTraces,
+		ExecutionPlan: executionPlan,
+	}
+	if pack != nil {
+		meta.ContextSummary = pack.Summary
+		meta.ContextScope = pack.Scope
+	}
+
 	// 保存助手回复
 	assistantMsg := ChatMessage{
 		SessionID: session.ID,
 		Role:      "assistant",
 		Content:   reply,
+		Meta:      marshalMessageMeta(meta),
 		TokenUsed: tokens,
 	}
 	s.db.Create(&assistantMsg)
 
 	return &ChatResponse{
-		SessionID: session.ID,
-		Reply:     reply,
-		TokenUsed: tokens,
+		SessionID:     session.ID,
+		Reply:         reply,
+		TokenUsed:     tokens,
+		ContextPack:   pack,
+		ToolCalls:     toolTraces,
+		ExecutionPlan: executionPlan,
+		ContextSummary: func() string {
+			if pack == nil {
+				return ""
+			}
+			return pack.Summary
+		}(),
 	}, nil
 }
 

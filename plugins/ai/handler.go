@@ -123,13 +123,58 @@ func (h *AIHandler) Chat(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
 		return
 	}
-	resp, err := h.service.Chat(req.SessionID, userID, req.Message, req.Context)
+	resp, err := h.service.Chat(&req, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resp})
+}
+
+// BuildContextPack 预览自动上下文包
+func (h *AIHandler) BuildContextPack(c *gin.Context) {
+	var req struct {
+		ContextHint *AIContextHint `json:"context_hint"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+
+	pack, err := h.service.BuildContextPack(req.ContextHint)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": pack})
+}
+
+// CreateApprovalWorkOrderFromMessage 从 AI 助手消息创建审批工单
+func (h *AIHandler) CreateApprovalWorkOrderFromMessage(c *gin.Context) {
+	messageID := strings.TrimSpace(c.Param("id"))
+	if messageID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "消息ID不能为空"})
+		return
+	}
+	userID := h.currentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未提供认证信息"})
+		return
+	}
+	username := strings.TrimSpace(c.GetString("username"))
+	order, plan, err := h.service.CreateWorkOrderFromMessage(messageID, userID, username)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"order": order,
+			"plan":  plan,
+		},
+	})
 }
 
 // CreateSession 显式创建会话

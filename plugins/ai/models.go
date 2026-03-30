@@ -36,6 +36,7 @@ type ChatMessage struct {
 	SessionID string `gorm:"size:36;index" json:"session_id"`
 	Role      string `gorm:"size:32" json:"role"` // user, assistant, system
 	Content   string `gorm:"type:text" json:"content"`
+	Meta      string `gorm:"type:text" json:"meta"`
 	TokenUsed int    `json:"token_used"`
 }
 
@@ -64,16 +65,101 @@ type Issue struct {
 
 // ChatRequest 对话请求
 type ChatRequest struct {
-	SessionID string `json:"session_id"`
-	Message   string `json:"message" binding:"required"`
-	Context   string `json:"context"` // 可选的上下文
+	SessionID   string         `json:"session_id"`
+	Message     string         `json:"message" binding:"required"`
+	Context     string         `json:"context"` // 可选的上下文
+	AutoContext bool           `json:"auto_context"`
+	ContextHint *AIContextHint `json:"context_hint"`
 }
 
 // ChatResponse 对话响应
 type ChatResponse struct {
-	SessionID string `json:"session_id"`
-	Reply     string `json:"reply"`
-	TokenUsed int    `json:"token_used"`
+	SessionID      string           `json:"session_id"`
+	Reply          string           `json:"reply"`
+	TokenUsed      int              `json:"token_used"`
+	ContextSummary string           `json:"context_summary,omitempty"`
+	ContextPack    *AIContextPack   `json:"context_pack,omitempty"`
+	ToolCalls      []AIToolTrace    `json:"tool_calls,omitempty"`
+	ExecutionPlan  *AIExecutionPlan `json:"execution_plan,omitempty"`
+}
+
+// AIContextHint 聊天上下文线索
+type AIContextHint struct {
+	Path     string            `json:"path"`
+	FullPath string            `json:"full_path"`
+	Title    string            `json:"title"`
+	Query    map[string]string `json:"query"`
+}
+
+// AIContextPack 自动构建的运维上下文包
+type AIContextPack struct {
+	Scope       string            `json:"scope"`
+	Title       string            `json:"title"`
+	Summary     string            `json:"summary"`
+	Highlights  []string          `json:"highlights"`
+	Facts       map[string]string `json:"facts"`
+	Route       *AIContextHint    `json:"route,omitempty"`
+	GeneratedAt time.Time         `json:"generated_at"`
+}
+
+// AIToolPlan 模型规划出的工具调用请求
+type AIToolPlan struct {
+	UseTools  bool                `json:"use_tools"`
+	Focus     string              `json:"focus"`
+	ToolCalls []AIToolCallRequest `json:"tool_calls"`
+}
+
+// AIToolCallRequest 单次工具调用请求
+type AIToolCallRequest struct {
+	Name      string            `json:"name"`
+	Reason    string            `json:"reason"`
+	Arguments map[string]string `json:"arguments"`
+}
+
+// AIToolTrace 工具调用轨迹
+type AIToolTrace struct {
+	Name      string            `json:"name"`
+	Reason    string            `json:"reason,omitempty"`
+	Arguments map[string]string `json:"arguments,omitempty"`
+	Summary   string            `json:"summary,omitempty"`
+	Status    string            `json:"status"`
+}
+
+// ChatMessageMeta 消息扩展元信息
+type ChatMessageMeta struct {
+	ContextSummary string           `json:"context_summary,omitempty"`
+	ContextScope   string           `json:"context_scope,omitempty"`
+	ToolCalls      []AIToolTrace    `json:"tool_calls,omitempty"`
+	ExecutionPlan  *AIExecutionPlan `json:"execution_plan,omitempty"`
+}
+
+// AIExecutionPlan 审批前执行计划
+type AIExecutionPlan struct {
+	NeedApproval       bool              `json:"need_approval"`
+	Title              string            `json:"title"`
+	Objective          string            `json:"objective"`
+	Summary            string            `json:"summary"`
+	RiskLevel          string            `json:"risk_level"`
+	WorkOrderTypeCode  string            `json:"workorder_type_code"`
+	ApprovalReason     string            `json:"approval_reason"`
+	Prechecks          []string          `json:"prechecks"`
+	Steps              []AIExecutionStep `json:"steps"`
+	RollbackSteps      []string          `json:"rollback_steps"`
+	ValidationSteps    []string          `json:"validation_steps"`
+	CreatedWorkOrderID string            `json:"created_workorder_id,omitempty"`
+}
+
+// AIExecutionStep 执行步骤
+type AIExecutionStep struct {
+	Title                string `json:"title"`
+	Action               string `json:"action"`
+	Risk                 string `json:"risk"`
+	NodeType             string `json:"node_type,omitempty"`
+	CommandHint          string `json:"command_hint,omitempty"`
+	Method               string `json:"method,omitempty"`
+	URL                  string `json:"url,omitempty"`
+	Body                 string `json:"body,omitempty"`
+	RequiresConfirmation bool   `json:"requires_confirmation,omitempty"`
 }
 
 // LogAnalysis 日志分析记录

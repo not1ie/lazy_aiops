@@ -50,9 +50,11 @@ func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// 对话
 	g.POST("/chat", h.Chat)
+	g.POST("/context-pack", h.BuildContextPack)
 	g.GET("/sessions", h.ListSessions)
 	g.POST("/sessions", h.CreateSession)
 	g.GET("/sessions/:id/messages", h.GetSessionMessages)
+	g.POST("/messages/:id/create-workorder", h.CreateApprovalWorkOrderFromMessage)
 	g.DELETE("/sessions/:id", h.DeleteSession)
 
 	// 模型接入配置

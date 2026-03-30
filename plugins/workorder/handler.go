@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/workflow"
 	"gorm.io/gorm"
 )
 
@@ -149,19 +150,25 @@ func (h *WorkOrderHandler) CreateOrder(c *gin.Context) {
 		order.AISuggestion = suggestion
 		order.AIRisk = risk
 	}
-
-	if err := h.db.Create(&order).Error; err != nil {
+	createdOrder, err := CreateOrderWithDefaults(h.db, CreateOrderInput{
+		TypeCode:     orderType.Code,
+		Title:        order.Title,
+		Content:      order.Content,
+		FormData:     order.FormData,
+		Priority:     order.Priority,
+		Submitter:    order.Submitter,
+		SubmitterID:  order.SubmitterID,
+		Assignee:     order.Assignee,
+		AssigneeID:   order.AssigneeID,
+		AISuggestion: order.AISuggestion,
+		AIRisk:       order.AIRisk,
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 
-	// 创建审批步骤
-	h.createApprovalSteps(&order, &orderType)
-
-	// 添加系统评论
-	h.addComment(order.ID, "", "system", "工单已创建，等待审批")
-
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": order})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": createdOrder})
 }
 
 // GetOrder 获取工单详情
@@ -235,23 +242,39 @@ func (h *WorkOrderHandler) ApproveOrder(c *gin.Context) {
 
 	// 更新工单状态
 	if req.Approved {
+		var generatedWorkflow *workflow.Workflow
 		if order.CurrentStep >= order.TotalSteps {
 			// 审批完成
 			h.db.Model(&order).Updates(map[string]interface{}{
 				"status": 2,
 			})
-			h.addComment(id, username, "system", "审批通过")
+			addComment(h.db, id, username, "system", "审批通过")
+			_ = h.db.First(&order, "id = ?", id)
+			workflowDraft, err := maybeCreateRunbookWorkflow(h.db, &order, username)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+				return
+			}
+			generatedWorkflow = workflowDraft
+			c.JSON(http.StatusOK, gin.H{
+				"code":    0,
+				"message": "审批完成",
+				"data": gin.H{
+					"workflow": generatedWorkflow,
+				},
+			})
+			return
 		} else {
 			// 进入下一步
 			h.db.Model(&order).Updates(map[string]interface{}{
 				"current_step": order.CurrentStep + 1,
 				"status":       1,
 			})
-			h.addComment(id, username, "system", "审批通过，进入下一步")
+			addComment(h.db, id, username, "system", "审批通过，进入下一步")
 		}
 	} else {
 		h.db.Model(&order).Update("status", 3)
-		h.addComment(id, username, "system", "审批拒绝: "+req.Comment)
+		addComment(h.db, id, username, "system", "审批拒绝: "+req.Comment)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "审批完成"})
@@ -276,7 +299,7 @@ func (h *WorkOrderHandler) ExecuteOrder(c *gin.Context) {
 		"status":   4,
 		"assignee": username,
 	})
-	h.addComment(id, username, "system", "开始执行")
+	addComment(h.db, id, username, "system", "开始执行")
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "开始执行"})
 }
@@ -304,7 +327,7 @@ func (h *WorkOrderHandler) CompleteOrder(c *gin.Context) {
 		"status":       5,
 		"completed_at": now,
 	})
-	h.addComment(id, username, "system", "工单已完成: "+req.Result)
+	addComment(h.db, id, username, "system", "工单已完成: "+req.Result)
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "工单已完成"})
 }
@@ -315,7 +338,7 @@ func (h *WorkOrderHandler) CancelOrder(c *gin.Context) {
 	username := c.GetString("username")
 
 	h.db.Model(&WorkOrder{}).Where("id = ?", id).Update("status", 6)
-	h.addComment(id, username, "system", "工单已取消")
+	addComment(h.db, id, username, "system", "工单已取消")
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "工单已取消"})
 }
@@ -331,7 +354,7 @@ func (h *WorkOrderHandler) AddComment(c *gin.Context) {
 		return
 	}
 
-	h.addComment(id, c.GetString("username"), "comment", req.Content)
+	addComment(h.db, id, c.GetString("username"), "comment", req.Content)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "评论成功"})
 }
 
@@ -355,12 +378,12 @@ func (h *WorkOrderHandler) GetStats(c *gin.Context) {
 }
 
 // 辅助方法
-func (h *WorkOrderHandler) createApprovalSteps(order *WorkOrder, orderType *WorkOrderType) {
-	if orderType.FlowID == "" {
+func createApprovalSteps(db *gorm.DB, order *WorkOrder, orderType *WorkOrderType) {
+	if orderType == nil || orderType.FlowID == "" {
 		order.TotalSteps = 1
 		order.CurrentStep = 1
-		h.db.Save(order)
-		h.db.Create(&WorkOrderStep{
+		db.Save(order)
+		db.Create(&WorkOrderStep{
 			OrderID: order.ID,
 			Step:    1,
 			Name:    "默认审批",
@@ -370,11 +393,11 @@ func (h *WorkOrderHandler) createApprovalSteps(order *WorkOrder, orderType *Work
 	}
 
 	var flow WorkOrderFlow
-	if err := h.db.First(&flow, "id = ?", orderType.FlowID).Error; err != nil {
+	if err := db.First(&flow, "id = ?", orderType.FlowID).Error; err != nil {
 		order.TotalSteps = 1
 		order.CurrentStep = 1
-		h.db.Save(order)
-		h.db.Create(&WorkOrderStep{
+		db.Save(order)
+		db.Create(&WorkOrderStep{
 			OrderID: order.ID,
 			Step:    1,
 			Name:    "默认审批",
@@ -387,8 +410,8 @@ func (h *WorkOrderHandler) createApprovalSteps(order *WorkOrder, orderType *Work
 	if err := json.Unmarshal([]byte(flow.Steps), &steps); err != nil {
 		order.TotalSteps = 1
 		order.CurrentStep = 1
-		h.db.Save(order)
-		h.db.Create(&WorkOrderStep{
+		db.Save(order)
+		db.Create(&WorkOrderStep{
 			OrderID: order.ID,
 			Step:    1,
 			Name:    "默认审批",
@@ -399,8 +422,8 @@ func (h *WorkOrderHandler) createApprovalSteps(order *WorkOrder, orderType *Work
 	if len(steps) == 0 {
 		order.TotalSteps = 1
 		order.CurrentStep = 1
-		h.db.Save(order)
-		h.db.Create(&WorkOrderStep{
+		db.Save(order)
+		db.Create(&WorkOrderStep{
 			OrderID: order.ID,
 			Step:    1,
 			Name:    "默认审批",
@@ -411,7 +434,7 @@ func (h *WorkOrderHandler) createApprovalSteps(order *WorkOrder, orderType *Work
 
 	order.TotalSteps = len(steps)
 	order.CurrentStep = 1
-	h.db.Save(order)
+	db.Save(order)
 
 	for i, s := range steps {
 		step := WorkOrderStep{
@@ -423,16 +446,16 @@ func (h *WorkOrderHandler) createApprovalSteps(order *WorkOrder, orderType *Work
 		if approver, ok := s["approver"].(string); ok {
 			step.Approver = approver
 		}
-		h.db.Create(&step)
+		db.Create(&step)
 	}
 }
 
-func (h *WorkOrderHandler) addComment(orderID, username, commentType, content string) {
+func addComment(db *gorm.DB, orderID, username, commentType, content string) {
 	comment := WorkOrderComment{
 		OrderID:  orderID,
 		Username: username,
 		Type:     commentType,
 		Content:  content,
 	}
-	h.db.Create(&comment)
+	db.Create(&comment)
 }

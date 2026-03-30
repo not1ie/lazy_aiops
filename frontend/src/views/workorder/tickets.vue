@@ -134,6 +134,21 @@
         <div class="pre-wrap">{{ detail.order?.content || '-' }}</div>
       </el-card>
 
+      <el-card v-if="aiWorkflowMeta" shadow="never" class="mb-3">
+        <template #header>
+          <div class="section-header">
+            <span>AI Runbook</span>
+            <div class="page-actions">
+              <el-tag :type="riskTagType(aiWorkflowMeta.plan?.risk_level)">{{ aiWorkflowMeta.plan?.risk_level || 'unknown' }}</el-tag>
+              <el-button v-if="aiWorkflowMeta.generated_workflow_id" type="primary" plain @click="openGeneratedWorkflow(aiWorkflowMeta.generated_workflow_id)">打开工作流</el-button>
+            </div>
+          </div>
+        </template>
+        <div class="pre-wrap">{{ aiWorkflowMeta.plan?.summary || '该工单来自 AI 执行计划。' }}</div>
+        <div class="muted workflow-meta" v-if="aiWorkflowMeta.context_summary">场景上下文：{{ aiWorkflowMeta.context_summary }}</div>
+        <div class="muted workflow-meta" v-if="aiWorkflowMeta.generated_workflow_id">Runbook ID：{{ aiWorkflowMeta.generated_workflow_id }}</div>
+      </el-card>
+
       <el-card shadow="never" class="mb-3">
         <template #header>审批步骤</template>
         <el-steps :active="detail.order?.current_step || 1" finish-status="success" align-center>
@@ -167,9 +182,10 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
@@ -197,6 +213,7 @@ const detailVisible = ref(false)
 const detailOrderId = ref('')
 const detail = ref({ order: null, steps: [], comments: [] })
 const commentInput = ref('')
+const router = useRouter()
 
 const statusOptions = [
   { label: '待审批', value: 0 },
@@ -253,9 +270,33 @@ const statusText = (v) => ({
 
 const statusType = (v) => ({ 0: 'warning', 1: 'primary', 2: 'success', 3: 'danger', 4: 'primary', 5: 'success', 6: 'info' }[v] || 'info')
 const stepStatusText = (v) => ({ 0: '待审批', 1: '通过', 2: '拒绝' }[v] || '-')
+const riskTagType = (v) => ({ high: 'danger', medium: 'warning', low: 'success' }[String(v || '').toLowerCase()] || 'info')
+
+const aiWorkflowMeta = computed(() => {
+  if (!detail.value?.order?.form_data) return null
+  try {
+    const data = JSON.parse(detail.value.order.form_data)
+    if (String(data?.source || '') !== 'ai_execution_plan') return null
+    return data
+  } catch (_) {
+    return null
+  }
+})
 
 const canApprove = (row) => row.status === 0 || row.status === 1
 const canCancel = (row) => [0, 1, 2, 4].includes(row.status)
+
+const openGeneratedWorkflow = (workflowID) => {
+  if (!workflowID) return
+  router.push({
+    path: '/workflow/designer',
+    query: {
+      workflow_id: workflowID,
+      auto_open: '1',
+      order_id: detail.value?.order?.id || ''
+    }
+  })
+}
 
 const fetchTypes = async () => {
   try {
@@ -323,11 +364,24 @@ const openApprove = (row, approved) => {
 
 const submitApprove = async () => {
   try {
-    await axios.post(`/api/v1/workorder/orders/${approveOrderId.value}/approve`, approveForm.value, { headers: authHeaders() })
-    ElMessage.success('审批完成')
+    const res = await axios.post(`/api/v1/workorder/orders/${approveOrderId.value}/approve`, approveForm.value, { headers: authHeaders() })
+    const generatedWorkflow = res.data?.data?.workflow
+    ElMessage.success(generatedWorkflow?.id ? '审批完成，已生成 AI Runbook' : '审批完成')
     approveVisible.value = false
     await reloadAll()
     if (detailOrderId.value === approveOrderId.value) await fetchDetail(detailOrderId.value)
+    if (generatedWorkflow?.id) {
+      try {
+        await ElMessageBox.confirm('审批通过后系统已自动生成可编辑的 AI Runbook，是否现在打开工作流继续补充执行细节？', '已生成 Runbook', {
+          type: 'success',
+          confirmButtonText: '打开工作流',
+          cancelButtonText: '稍后再看'
+        })
+        openGeneratedWorkflow(generatedWorkflow.id)
+      } catch (err) {
+        if (!isCancelError(err)) ElMessage.error(getErrorMessage(err, '打开工作流失败'))
+      }
+    }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '审批失败'))
   }
@@ -434,4 +488,5 @@ onMounted(reloadAll)
 .pre-wrap { white-space: pre-wrap; line-height: 1.5; }
 .comment-user { font-weight: 600; margin-right: 6px; }
 .comment-type { color: #909399; margin-right: 8px; }
+.workflow-meta { margin-top: 8px; }
 </style>

@@ -102,7 +102,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog append-to-body v-model="workflowDialogVisible" :title="workflowEditing ? '编辑流程' : '新建流程'" width="860px" @closed="handleWorkflowDialogClosed">
+    <el-dialog append-to-body v-model="workflowDialogVisible" :title="workflowEditing ? '编辑流程' : '新建流程'" width="980px" @closed="handleWorkflowDialogClosed">
       <el-form :model="workflowForm" label-width="96px">
         <el-row :gutter="12">
           <el-col :span="12"><el-form-item label="流程名称" required><el-input v-model="workflowForm.name" /></el-form-item></el-col>
@@ -111,6 +111,61 @@
           <el-col :span="12"><el-form-item label="状态"><el-switch v-model="workflowForm.enabled" /></el-form-item></el-col>
           <el-col :span="24"><el-form-item label="描述"><el-input v-model="workflowForm.description" /></el-form-item></el-col>
           <el-col :span="24"><el-form-item label="流程定义" required><el-input v-model="workflowForm.definition" type="textarea" :rows="10" /></el-form-item></el-col>
+          <el-col :span="24">
+            <el-form-item label="节点编辑器">
+              <div class="node-editor-wrap">
+                <div class="node-editor-toolbar">
+                  <el-button size="small" @click="syncEditorFromDefinition">从 JSON 同步</el-button>
+                  <el-button size="small" @click="formatDefinition">格式化 JSON</el-button>
+                  <el-button size="small" type="primary" plain @click="appendNode('shell')">新增 Shell</el-button>
+                  <el-button size="small" plain @click="appendNode('notify')">新增通知</el-button>
+                  <el-button size="small" plain @click="appendNode('http')">新增 HTTP</el-button>
+                  <el-button size="small" plain @click="appendNode('approval')">新增审批</el-button>
+                </div>
+                <el-alert v-if="definitionParseError" type="warning" :closable="false" show-icon class="mb-12" :title="definitionParseError" />
+                <div v-if="definitionNodes.length" class="node-editor-list">
+                  <el-card v-for="(node, index) in definitionNodes" :key="`${node.id || 'node'}-${index}`" shadow="never" class="node-editor-card">
+                    <template #header>
+                      <div class="node-editor-card__header">
+                        <span>{{ node.name || node.id || `节点 ${index + 1}` }}</span>
+                        <div class="node-editor-card__actions">
+                          <el-tag size="small" effect="plain">{{ node.type || 'notify' }}</el-tag>
+                          <el-button size="small" type="danger" text :disabled="['start', 'end'].includes(node.type)" @click="removeNode(index)">移除</el-button>
+                        </div>
+                      </div>
+                    </template>
+                    <el-row :gutter="12">
+                      <el-col :span="8"><el-form-item label="ID" label-width="72px"><el-input v-model="node.id" /></el-form-item></el-col>
+                      <el-col :span="8"><el-form-item label="名称" label-width="72px"><el-input v-model="node.name" /></el-form-item></el-col>
+                      <el-col :span="8"><el-form-item label="类型" label-width="72px"><el-select v-model="node.type" style="width: 100%" @change="handleNodeTypeChange(node)"><el-option v-for="item in nodeTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+                      <el-col :span="24"><el-form-item label="下一节点" label-width="72px"><el-input v-model="node.nextText" placeholder="多个节点用逗号分隔" /></el-form-item></el-col>
+
+                      <el-col v-if="node.type === 'shell'" :span="24"><el-form-item label="脚本" label-width="72px"><el-input v-model="node.config.script" type="textarea" :rows="6" placeholder="sh 脚本内容" /></el-form-item></el-col>
+                      <el-col v-if="node.type === 'shell'" :span="8"><el-form-item label="超时" label-width="72px"><el-input-number v-model="node.config.timeout" :min="1" :max="3600" /></el-form-item></el-col>
+
+                      <el-col v-if="node.type === 'notify' || node.type === 'approval'" :span="24"><el-form-item label="标题" label-width="72px"><el-input v-model="node.config.title" /></el-form-item></el-col>
+                      <el-col v-if="node.type === 'notify' || node.type === 'approval'" :span="24"><el-form-item label="内容" label-width="72px"><el-input v-model="node.config.content" type="textarea" :rows="4" /></el-form-item></el-col>
+                      <el-col v-if="node.type === 'notify' || node.type === 'approval'" :span="12"><el-form-item label="渠道ID" label-width="72px"><el-input v-model="node.config.channel_id" placeholder="可选" /></el-form-item></el-col>
+
+                      <el-col v-if="node.type === 'http'" :span="8"><el-form-item label="方法" label-width="72px"><el-select v-model="node.config.method" style="width: 100%"><el-option label="GET" value="GET" /><el-option label="POST" value="POST" /><el-option label="PUT" value="PUT" /><el-option label="DELETE" value="DELETE" /></el-select></el-form-item></el-col>
+                      <el-col v-if="node.type === 'http'" :span="16"><el-form-item label="URL" label-width="72px"><el-input v-model="node.config.url" /></el-form-item></el-col>
+                      <el-col v-if="node.type === 'http'" :span="24"><el-form-item label="Body" label-width="72px"><el-input v-model="node.config.body" type="textarea" :rows="4" /></el-form-item></el-col>
+
+                      <el-col v-if="node.type === 'wait'" :span="8"><el-form-item label="等待秒数" label-width="72px"><el-input-number v-model="node.config.seconds" :min="1" :max="86400" /></el-form-item></el-col>
+                      <el-col v-if="node.type === 'ai'" :span="24"><el-form-item label="Prompt" label-width="72px"><el-input v-model="node.config.prompt" type="textarea" :rows="4" /></el-form-item></el-col>
+
+                      <el-col v-if="!['start', 'end', 'shell', 'notify', 'approval', 'http', 'wait', 'ai'].includes(node.type)" :span="24">
+                        <el-form-item label="配置JSON" label-width="72px">
+                          <el-input v-model="node.configJson" type="textarea" :rows="4" @blur="applyRawConfig(node)" />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+                  </el-card>
+                </div>
+                <el-empty v-else description="当前流程没有可编辑节点" />
+              </div>
+            </el-form-item>
+          </el-col>
           <el-col :span="24"><el-form-item label="默认变量"><el-input v-model="workflowForm.variables" type="textarea" :rows="4" placeholder='{"service":"nginx"}' /></el-form-item></el-col>
         </el-row>
       </el-form>
@@ -161,9 +216,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
@@ -181,9 +237,29 @@ const workflowDialogVisible = ref(false)
 const workflowEditing = ref(false)
 const executeDialogVisible = ref(false)
 const executionDetailVisible = ref(false)
+const route = useRoute()
+const router = useRouter()
 
 const executeWorkflow = ref(null)
 const executionDetail = ref({ execution: null, nodes: [] })
+const definitionNodes = ref([])
+const definitionParseError = ref('')
+const openingWorkflowID = ref('')
+let syncingFromEditor = false
+let syncingFromText = false
+
+const nodeTypeOptions = [
+  { label: 'start', value: 'start' },
+  { label: 'end', value: 'end' },
+  { label: 'shell', value: 'shell' },
+  { label: 'notify', value: 'notify' },
+  { label: 'approval', value: 'approval' },
+  { label: 'http', value: 'http' },
+  { label: 'wait', value: 'wait' },
+  { label: 'ai', value: 'ai' },
+  { label: 'condition', value: 'condition' },
+  { label: 'parallel', value: 'parallel' }
+]
 
 const executionFilter = reactive({ workflow_id: '', status: '' })
 
@@ -192,7 +268,7 @@ const workflowForm = reactive({
   name: '',
   description: '',
   category: 'custom',
-  definition: '{"nodes":[{"id":"start","type":"start","name":"开始","next":["end"]},{"id":"end","type":"end","name":"结束"}]}',
+  definition: '',
   variables: '{}',
   trigger: 'manual',
   enabled: true
@@ -204,8 +280,149 @@ const executeForm = reactive({
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const defaultDefinitionObject = () => ({
+  nodes: [
+    { id: 'start', type: 'start', name: '开始', next: ['end'] },
+    { id: 'end', type: 'end', name: '结束' }
+  ]
+})
+
+const stringifyDefinition = (value) => JSON.stringify(value, null, 2)
+
+const defaultNodeConfig = (type) => {
+  if (type === 'shell') return { script: '', timeout: 300 }
+  if (type === 'notify' || type === 'approval') return { title: '', content: '', channel_id: '' }
+  if (type === 'http') return { method: 'GET', url: '', body: '' }
+  if (type === 'wait') return { seconds: 10 }
+  if (type === 'ai') return { prompt: '' }
+  return {}
+}
+
+const normalizeConfig = (type, config) => ({ ...defaultNodeConfig(type), ...((config && typeof config === 'object') ? config : {}) })
+
+const normalizeNode = (node = {}, index = 0) => {
+  const type = node.type || 'notify'
+  const config = normalizeConfig(type, node.config)
+  return {
+    id: String(node.id || `${type}_${index + 1}`),
+    type,
+    name: String(node.name || `节点 ${index + 1}`),
+    nextText: Array.isArray(node.next) ? node.next.join(', ') : '',
+    config,
+    configJson: JSON.stringify(config, null, 2)
+  }
+}
+
+const buildNodePayload = (node, index) => {
+  const id = String(node.id || `node_${index + 1}`).trim()
+  const type = String(node.type || 'notify').trim() || 'notify'
+  let config = {}
+  if (!['start', 'end'].includes(type)) {
+    if (!['start', 'end', 'shell', 'notify', 'approval', 'http', 'wait', 'ai'].includes(type) && node.configJson?.trim()) {
+      try {
+        config = JSON.parse(node.configJson)
+      } catch (_) {
+        config = normalizeConfig(type, node.config)
+      }
+    } else {
+      config = normalizeConfig(type, node.config)
+    }
+  }
+  const payload = {
+    id,
+    type,
+    name: String(node.name || id).trim() || id
+  }
+  if (Object.keys(config).length > 0) payload.config = config
+  const next = String(node.nextText || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  if (next.length > 0) payload.next = next
+  return payload
+}
+
+const syncEditorFromDefinition = () => {
+  try {
+    const parsed = JSON.parse(workflowForm.definition || '{}')
+    const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : []
+    syncingFromText = true
+    definitionNodes.value = nodes.map((node, index) => normalizeNode(node, index))
+    definitionParseError.value = ''
+    Promise.resolve().then(() => {
+      syncingFromText = false
+    })
+  } catch (err) {
+    definitionParseError.value = '流程定义 JSON 解析失败，节点编辑器保留上一次可用内容。'
+  }
+}
+
+const syncDefinitionFromEditor = () => {
+  const nodes = definitionNodes.value.map((node, index) => buildNodePayload(node, index))
+  syncingFromEditor = true
+  workflowForm.definition = stringifyDefinition({ nodes })
+  Promise.resolve().then(() => {
+    syncingFromEditor = false
+  })
+}
+
+const formatDefinition = () => {
+  try {
+    workflowForm.definition = stringifyDefinition(JSON.parse(workflowForm.definition || '{}'))
+    syncEditorFromDefinition()
+    ElMessage.success('JSON 已格式化')
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '格式化失败'))
+  }
+}
+
+const appendNode = (type) => {
+  const index = definitionNodes.value.length + 1
+  definitionNodes.value.push(normalizeNode({
+    id: `${type}_${Date.now().toString(36)}`,
+    type,
+    name: `新${type}节点`,
+    config: defaultNodeConfig(type)
+  }, index))
+}
+
+const removeNode = (index) => {
+  definitionNodes.value.splice(index, 1)
+}
+
+const handleNodeTypeChange = (node) => {
+  node.config = normalizeConfig(node.type, {})
+  node.configJson = JSON.stringify(node.config, null, 2)
+}
+
+const applyRawConfig = (node) => {
+  if (!node.configJson?.trim()) {
+    node.config = {}
+    return
+  }
+  try {
+    node.config = JSON.parse(node.configJson)
+  } catch (err) {
+    ElMessage.error('配置 JSON 非法，已保留原值')
+    node.configJson = JSON.stringify(node.config || {}, null, 2)
+  }
+}
+
+const openWorkflowFromRoute = () => {
+  const workflowID = String(route.query.workflow_id || '').trim()
+  if (!workflowID || openingWorkflowID.value === workflowID) return
+  const row = workflows.value.find((item) => item.id === workflowID)
+  if (!row) return
+  openingWorkflowID.value = workflowID
+  openWorkflowDialog(row)
+  if (String(route.query.auto_open || '') === '1') {
+    ElMessage.success('已打开 AI Runbook，可在节点编辑器中补充为可执行流程。')
+  }
+}
+
 const handleWorkflowDialogClosed = () => {
   workflowEditing.value = false
+  openingWorkflowID.value = ''
   resetWorkflowForm()
 }
 
@@ -314,10 +531,12 @@ const resetWorkflowForm = () => {
   workflowForm.name = ''
   workflowForm.description = ''
   workflowForm.category = 'custom'
-  workflowForm.definition = '{"nodes":[{"id":"start","type":"start","name":"开始","next":["end"]},{"id":"end","type":"end","name":"结束"}]}'
+  workflowForm.definition = stringifyDefinition(defaultDefinitionObject())
   workflowForm.variables = '{}'
   workflowForm.trigger = 'manual'
   workflowForm.enabled = true
+  definitionNodes.value = defaultDefinitionObject().nodes.map((node, index) => normalizeNode(node, index))
+  definitionParseError.value = ''
 }
 
 const openWorkflowDialog = (row) => {
@@ -333,6 +552,7 @@ const openWorkflowDialog = (row) => {
     workflowForm.trigger = row.trigger || 'manual'
     workflowForm.enabled = !!row.enabled
   }
+  syncEditorFromDefinition()
   workflowDialogVisible.value = true
 }
 
@@ -367,6 +587,7 @@ const saveWorkflow = async () => {
 
   workflowSaving.value = true
   try {
+    let savedWorkflowID = workflowForm.id
     const payload = {
       name: workflowForm.name.trim(),
       description: workflowForm.description,
@@ -377,14 +598,19 @@ const saveWorkflow = async () => {
       enabled: workflowForm.enabled
     }
     if (workflowEditing.value && workflowForm.id) {
-      await axios.put(`/api/v1/workflow/workflows/${workflowForm.id}`, payload, { headers: authHeaders() })
+      const res = await axios.put(`/api/v1/workflow/workflows/${workflowForm.id}`, payload, { headers: authHeaders() })
+      savedWorkflowID = res.data?.data?.id || workflowForm.id
       ElMessage.success('更新成功')
     } else {
-      await axios.post('/api/v1/workflow/workflows', payload, { headers: authHeaders() })
+      const res = await axios.post('/api/v1/workflow/workflows', payload, { headers: authHeaders() })
+      savedWorkflowID = res.data?.data?.id || ''
       ElMessage.success('创建成功')
     }
     workflowDialogVisible.value = false
     await fetchWorkflows()
+    if (savedWorkflowID) {
+      router.replace({ query: { ...route.query, workflow_id: savedWorkflowID } })
+    }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '保存失败'))
   } finally {
@@ -481,7 +707,26 @@ const refreshAll = async () => {
   await Promise.all([fetchStats(), fetchWorkflows(), fetchTemplates(), fetchExecutions()])
 }
 
-onMounted(refreshAll)
+watch(definitionNodes, () => {
+  if (syncingFromText) return
+  syncDefinitionFromEditor()
+}, { deep: true })
+
+watch(() => workflowForm.definition, () => {
+  if (!workflowDialogVisible.value) return
+  if (syncingFromEditor) return
+  syncEditorFromDefinition()
+})
+
+watch(() => [route.query.workflow_id, workflows.value.length], () => {
+  openWorkflowFromRoute()
+})
+
+onMounted(async () => {
+  resetWorkflowForm()
+  await refreshAll()
+  openWorkflowFromRoute()
+})
 </script>
 
 <style scoped>
@@ -503,4 +748,10 @@ onMounted(refreshAll)
 .tpl-meta { font-size: 12px; color: #909399; margin-bottom: 8px; }
 .muted { color: #909399; font-size: 12px; }
 .node-title { font-weight: 600; margin-bottom: 4px; }
+.node-editor-wrap { width: 100%; }
+.node-editor-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.node-editor-list { display: flex; flex-direction: column; gap: 12px; }
+.node-editor-card { border-radius: 10px; }
+.node-editor-card__header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.node-editor-card__actions { display: flex; align-items: center; gap: 8px; }
 </style>

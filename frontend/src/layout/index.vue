@@ -350,6 +350,7 @@ const TABS_STORAGE_KEY = 'layout_view_tabs'
 const MODULE_LINKS_STORAGE_KEY = 'layout_module_links_state_v2'
 const CUSTOM_WORKSPACE_PRESETS_KEY = 'layout_custom_workspace_presets_v1'
 const LAST_WORKSPACE_PRESET_KEY = 'layout_last_workspace_preset_v1'
+const LAST_BUSINESS_CONTEXT_KEY = 'lao:last-business-context'
 const WORKSPACE_SHARE_QUERY_KEY = 'workspace'
 const TAB_LIMIT = 18
 const viewTabs = ref([{ path: '/dashboard', title: '仪表盘', pinned: false, closable: false }])
@@ -700,6 +701,21 @@ const readLastWorkspacePresetKey = () => {
 const persistLastWorkspacePresetKey = (key) => {
   lastWorkspacePresetKey.value = key || ''
   localStorage.setItem(LAST_WORKSPACE_PRESET_KEY, lastWorkspacePresetKey.value)
+}
+
+const persistLastBusinessContext = () => {
+  const path = route.path || ''
+  if (!path || path === '/login' || path === '/ai') return
+  localStorage.setItem(
+    LAST_BUSINESS_CONTEXT_KEY,
+    JSON.stringify({
+      path,
+      full_path: route.fullPath || path,
+      title: route.meta?.title || '',
+      query: Object.fromEntries(Object.entries(route.query || {}).map(([key, value]) => [key, Array.isArray(value) ? String(value[0] || '') : String(value || '')])),
+      captured_at: new Date().toISOString()
+    })
+  )
 }
 
 const canAccessPath = (path) => {
@@ -2015,6 +2031,7 @@ watch(
   () => {
     closeModuleContextMenu()
     ensureTab(route)
+    persistLastBusinessContext()
     if (activeModuleGroup.value) {
       ensureModuleState(activeModuleGroup.value)
       persistModuleLinkState()

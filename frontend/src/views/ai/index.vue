@@ -64,6 +64,75 @@
                         <span class="msg-time">{{ formatTime(msg.created_at) }}</span>
                       </div>
                       <div class="msg-content">{{ msg.content }}</div>
+                      <div v-if="messageMeta(msg).context_summary || messageMeta(msg).tool_calls?.length" class="msg-evidence">
+                        <div v-if="messageMeta(msg).context_summary" class="msg-evidence-line">
+                          <strong>场景摘要：</strong>{{ messageMeta(msg).context_summary }}
+                        </div>
+                        <div v-if="messageMeta(msg).tool_calls?.length" class="msg-evidence-line">
+                          <strong>已调用工具：</strong>
+                          <span
+                            v-for="tool in messageMeta(msg).tool_calls"
+                            :key="`${msg.id}-${tool.name}-${tool.status}`"
+                            class="tool-chip"
+                          >
+                            {{ tool.name }} · {{ tool.status === 'success' ? '只读成功' : tool.status }}
+                          </span>
+                        </div>
+                      </div>
+                      <div v-if="messageMeta(msg).execution_plan?.need_approval" class="execution-plan-card">
+                        <div class="execution-plan-header">
+                          <div>
+                            <div class="execution-plan-title">{{ messageMeta(msg).execution_plan.title }}</div>
+                            <div class="execution-plan-meta">
+                              <span>风险：{{ messageMeta(msg).execution_plan.risk_level || 'medium' }}</span>
+                              <span>工单类型：{{ messageMeta(msg).execution_plan.workorder_type_code || 'change_apply' }}</span>
+                            </div>
+                          </div>
+                          <el-button
+                            size="small"
+                            type="warning"
+                            plain
+                            :disabled="Boolean(messageMeta(msg).execution_plan.created_workorder_id)"
+                            @click="createApprovalWorkOrder(msg)"
+                          >
+                            {{ messageMeta(msg).execution_plan.created_workorder_id ? '已生成审批工单' : '生成审批工单' }}
+                          </el-button>
+                        </div>
+                        <div class="execution-plan-summary">{{ messageMeta(msg).execution_plan.summary }}</div>
+                        <div v-if="messageMeta(msg).execution_plan.approval_reason" class="execution-plan-section">
+                          <strong>审批原因：</strong>{{ messageMeta(msg).execution_plan.approval_reason }}
+                        </div>
+                        <div v-if="messageMeta(msg).execution_plan.prechecks?.length" class="execution-plan-section">
+                          <strong>前置检查：</strong>
+                          <div v-for="item in messageMeta(msg).execution_plan.prechecks" :key="item" class="execution-plan-item">{{ item }}</div>
+                        </div>
+                        <div v-if="messageMeta(msg).execution_plan.steps?.length" class="execution-plan-section">
+                          <strong>执行步骤：</strong>
+                          <div v-for="(step, index) in messageMeta(msg).execution_plan.steps" :key="`${msg.id}-step-${index}`" class="execution-plan-step">
+                            <div class="execution-plan-step-title">
+                              {{ index + 1 }}. {{ step.title }}
+                              <span v-if="step.node_type" class="execution-plan-step-type">{{ step.node_type }}</span>
+                              <span v-if="step.requires_confirmation" class="execution-plan-step-type manual">manual-confirm</span>
+                            </div>
+                            <div class="execution-plan-item">{{ step.action }}</div>
+                            <div v-if="step.command_hint" class="execution-plan-code">{{ step.command_hint }}</div>
+                            <div v-if="step.url" class="execution-plan-code">{{ (step.method || 'POST').toUpperCase() }} {{ step.url }}</div>
+                            <div v-if="step.body" class="execution-plan-code">{{ step.body }}</div>
+                            <div v-if="step.risk" class="execution-plan-risk">风险：{{ step.risk }}</div>
+                          </div>
+                        </div>
+                        <div v-if="messageMeta(msg).execution_plan.rollback_steps?.length" class="execution-plan-section">
+                          <strong>回滚步骤：</strong>
+                          <div v-for="item in messageMeta(msg).execution_plan.rollback_steps" :key="item" class="execution-plan-item">{{ item }}</div>
+                        </div>
+                        <div v-if="messageMeta(msg).execution_plan.validation_steps?.length" class="execution-plan-section">
+                          <strong>验证步骤：</strong>
+                          <div v-for="item in messageMeta(msg).execution_plan.validation_steps" :key="item" class="execution-plan-item">{{ item }}</div>
+                        </div>
+                        <div v-if="messageMeta(msg).execution_plan.created_workorder_id" class="execution-plan-workorder">
+                          审批工单已创建：{{ messageMeta(msg).execution_plan.created_workorder_id }}
+                        </div>
+                      </div>
                       <div class="msg-actions">
                         <el-button link size="small" icon="DocumentCopy" @click="copyMessage(msg.content)">复制</el-button>
                         <el-button
@@ -111,6 +180,39 @@
                     <el-option v-for="item in runbookTemplates" :key="item.value" :label="item.label" :value="item.value" />
                   </el-select>
                   <el-button size="small" plain @click="applyRunbookTemplate">生成排障 Runbook 提示词</el-button>
+                </div>
+                <div class="context-pack-shell">
+                  <div class="context-pack-header">
+                    <div>
+                      <div class="section-title">自动场景上下文</div>
+                      <div class="section-meta">把最近浏览的业务页面摘要自动带给 AI，减少重复描述环境。</div>
+                    </div>
+                    <div class="context-pack-actions">
+                      <el-button link :disabled="contextPackLoading" @click="refreshContextPackPreview">刷新上下文</el-button>
+                      <el-switch v-model="autoContextEnabled" active-text="启用" inactive-text="关闭" />
+                    </div>
+                  </div>
+                  <div v-if="lastBusinessContext" class="context-pack-card" :class="{ 'is-disabled': !autoContextEnabled }">
+                    <div class="context-pack-title">{{ lastBusinessContext.title || '最近业务页面' }}</div>
+                    <div class="context-pack-route">{{ lastBusinessContext.full_path || lastBusinessContext.path }}</div>
+                    <div class="context-pack-summary">
+                      {{ contextPackLoading ? '正在同步最近页面的运维摘要…' : (contextPackPreview?.summary || '最近页面已识别，发送时会自动拼接运维上下文。') }}
+                    </div>
+                    <div class="context-pack-tags">
+                      <el-tag size="small" effect="plain">{{ contextScopeLabel }}</el-tag>
+                      <el-tag v-if="lastBusinessContext.captured_at" size="small" effect="plain" type="info">{{ formatTime(lastBusinessContext.captured_at) }}</el-tag>
+                      <el-tag
+                        v-for="item in (contextPackPreview?.highlights || []).slice(0, 2)"
+                        :key="item"
+                        size="small"
+                        effect="plain"
+                        type="success"
+                      >
+                        {{ item }}
+                      </el-tag>
+                    </div>
+                  </div>
+                  <el-empty v-else description="暂未捕获最近业务页面，请先浏览主机、K8s、监控或交付页面。" :image-size="56" />
                 </div>
                 <el-input
                   ref="chatInputRef"
@@ -483,6 +585,11 @@ const chatQuickPrompts = [
 ]
 const chatRunbookTemplate = ref('k8s_crashloop')
 const chatProgressText = ref('等待发送请求')
+const LAST_BUSINESS_CONTEXT_KEY = 'lao:last-business-context'
+const autoContextEnabled = ref(true)
+const lastBusinessContext = ref(null)
+const contextPackPreview = ref(null)
+const contextPackLoading = ref(false)
 const runbookTemplates = [
   { value: 'k8s_crashloop', label: 'K8s CrashLoopBackOff' },
   { value: 'k8s_notready', label: 'K8s Pod NotReady' },
@@ -536,6 +643,17 @@ const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('toke
 
 const activeSessionTitle = computed(() => sessions.value.find(item => item.id === activeSessionId.value)?.title || '新会话')
 const analyzeTargets = computed(() => (analyzeForm.sourceType === 'service' ? dockerServices.value : dockerContainers.value))
+const contextScopeLabel = computed(() => {
+  const scope = contextPackPreview.value?.scope
+  switch (scope) {
+    case 'asset': return '资产上下文'
+    case 'k8s': return '容器/K8s上下文'
+    case 'monitor': return '监控上下文'
+    case 'delivery': return '交付上下文'
+    case 'system': return '系统上下文'
+    default: return '通用上下文'
+  }
+})
 
 const formatTime = (value) => {
   if (!value) return '-'
@@ -580,12 +698,101 @@ const focusChatInput = async () => {
   chatInputRef.value?.focus?.()
 }
 
+const messageMeta = (msg) => {
+  try {
+    if (!msg?.meta) return {}
+    return typeof msg.meta === 'string' ? JSON.parse(msg.meta) : (msg.meta || {})
+  } catch {
+    return {}
+  }
+}
+
+const setMessageMeta = (messageId, nextMeta) => {
+  const idx = messages.value.findIndex((item) => item.id === messageId)
+  if (idx < 0) return
+  messages.value[idx] = {
+    ...messages.value[idx],
+    meta: JSON.stringify(nextMeta || {})
+  }
+}
+
+const readLastBusinessContext = () => {
+  try {
+    const raw = localStorage.getItem(LAST_BUSINESS_CONTEXT_KEY)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+const buildContextHintPayload = () => {
+  const item = lastBusinessContext.value
+  if (!item?.path) return null
+  return {
+    path: item.path || '',
+    full_path: item.full_path || item.path || '',
+    title: item.title || '',
+    query: item.query || {}
+  }
+}
+
+const syncLastBusinessContext = () => {
+  lastBusinessContext.value = readLastBusinessContext()
+}
+
+const refreshContextPackPreview = async () => {
+  syncLastBusinessContext()
+  const hint = buildContextHintPayload()
+  if (!hint || !autoContextEnabled.value) {
+    contextPackPreview.value = null
+    return
+  }
+  contextPackLoading.value = true
+  try {
+    const res = await axios.post('/api/v1/ai/context-pack', { context_hint: hint }, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      contextPackPreview.value = res.data.data || null
+    }
+  } catch (err) {
+    contextPackPreview.value = null
+    ElMessage.error(getErrorMessage(err, '获取自动上下文失败'))
+  } finally {
+    contextPackLoading.value = false
+  }
+}
+
 const copyMessage = async (content) => {
   try {
     await navigator.clipboard.writeText(String(content || ''))
     ElMessage.success('已复制到剪贴板')
   } catch {
     ElMessage.error('复制失败，请检查浏览器权限')
+  }
+}
+
+const createApprovalWorkOrder = async (msg) => {
+  const meta = messageMeta(msg)
+  if (meta.execution_plan?.created_workorder_id) {
+    ElMessage.success(`审批工单已存在：${meta.execution_plan.created_workorder_id}`)
+    return
+  }
+  try {
+    const res = await axios.post(`/api/v1/ai/messages/${msg.id}/create-workorder`, {}, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      const workorderId = res.data.data?.order?.id || ''
+      const nextMeta = {
+        ...meta,
+        execution_plan: {
+          ...(meta.execution_plan || {}),
+          created_workorder_id: workorderId
+        }
+      }
+      setMessageMeta(msg.id, nextMeta)
+      ElMessage.success(`审批工单已创建${workorderId ? `：${workorderId}` : ''}`)
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '创建审批工单失败'))
   }
 }
 
@@ -683,14 +890,18 @@ const sendChat = async () => {
   startChatProgress()
   await scrollChatToBottom()
   try {
+    const contextHint = buildContextHintPayload()
     const res = await axios.post('/api/v1/ai/chat', {
       session_id: activeSessionId.value || '',
       message,
-      context: chatContext.value?.trim() || ''
+      context: chatContext.value?.trim() || '',
+      auto_context: Boolean(autoContextEnabled.value && contextHint),
+      context_hint: autoContextEnabled.value ? contextHint : null
     }, { headers: authHeaders() })
 
     if (res.data?.code === 0 && res.data.data) {
       activeSessionId.value = res.data.data.session_id || activeSessionId.value
+      contextPackPreview.value = res.data.data.context_pack || contextPackPreview.value
       chatInput.value = ''
       await fetchSessions()
       await fetchMessages()
@@ -1236,8 +1447,10 @@ const removeConfig = async (row) => {
 }
 
 const refreshAll = async () => {
+  syncLastBusinessContext()
   await Promise.all([fetchSessions(), fetchHistory(), fetchConfigs(), fetchDockerHosts(), fetchK8sClusters()])
   await loadAnalyzeTargets()
+  await refreshContextPackPreview()
   await fetchMessages()
   await scrollChatToBottom()
 }
@@ -1247,6 +1460,14 @@ watch(() => analyzeForm.sourceType, async () => {
   analyzeForm.podName = ''
   analyzeForm.containerName = ''
   await loadAnalyzeTargets()
+})
+
+watch(autoContextEnabled, async (value) => {
+  if (!value) {
+    contextPackPreview.value = null
+    return
+  }
+  await refreshContextPackPreview()
 })
 
 onMounted(refreshAll)
@@ -1318,6 +1539,107 @@ onBeforeUnmount(() => {
 .msg-role { font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
 .msg-content { white-space: pre-wrap; line-height: 1.75; font-size: 14px; }
 .msg-time { color: var(--muted-text); font-size: 12px; }
+.msg-evidence {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--el-border-color);
+}
+.msg-evidence-line {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted-text);
+}
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin: 4px 6px 0 0;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #15803d;
+}
+.execution-plan-card {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.06);
+}
+.execution-plan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.execution-plan-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+.execution-plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted-text);
+}
+.execution-plan-summary {
+  margin-top: 10px;
+  line-height: 1.7;
+}
+.execution-plan-section {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.execution-plan-item {
+  margin-top: 4px;
+  color: var(--muted-text);
+}
+.execution-plan-step {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.65);
+}
+.execution-plan-step-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.execution-plan-step-type {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 600;
+}
+.execution-plan-step-type.manual {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+.execution-plan-code {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.08);
+  font-family: Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+.execution-plan-risk {
+  margin-top: 6px;
+  color: #b45309;
+  font-size: 12px;
+}
+.execution-plan-workorder {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #b45309;
+}
 .msg-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .msg-progress { color: var(--muted-text); font-size: 12px; margin-top: 8px; }
 .pending-content { color: var(--el-text-color-secondary); }
@@ -1332,6 +1654,50 @@ onBeforeUnmount(() => {
 .prompt-tag { cursor: pointer; border-radius: 999px; }
 .runbook-assist { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .runbook-select { min-width: 240px; }
+.context-pack-shell {
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid var(--el-border-color-light);
+  background: rgba(59, 130, 246, 0.05);
+}
+.context-pack-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.context-pack-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.context-pack-card {
+  border-radius: 16px;
+  padding: 12px;
+  border: 1px dashed rgba(59, 130, 246, 0.28);
+  background: rgba(255, 255, 255, 0.72);
+}
+.context-pack-card.is-disabled { opacity: 0.64; }
+.context-pack-title { font-size: 14px; font-weight: 700; }
+.context-pack-route {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted-text);
+  word-break: break-all;
+}
+.context-pack-summary {
+  margin-top: 8px;
+  line-height: 1.65;
+  font-size: 13px;
+}
+.context-pack-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
 .composer-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .actions-right { display: flex; justify-content: flex-end; }
 .log-source-row { display: flex; width: 100%; gap: 8px; align-items: center; }
@@ -1344,12 +1710,26 @@ onBeforeUnmount(() => {
 :global(html[data-theme='dark'] .session-item),
 :global(html[data-theme='dark'] .chat-area),
 :global(html[data-theme='dark'] .chat-input-shell),
-:global(html[data-theme='dark'] .msg-bubble) {
+:global(html[data-theme='dark'] .msg-bubble),
+:global(html[data-theme='dark'] .context-pack-card) {
   background: rgba(15, 23, 42, 0.58);
 }
 
 :global(html[data-theme='dark'] .role-user .msg-bubble) {
   background: linear-gradient(180deg, rgba(36, 146, 255, 0.2) 0%, rgba(36, 146, 255, 0.12) 100%);
+}
+
+:global(html[data-theme='dark'] .tool-chip) {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+:global(html[data-theme='dark'] .execution-plan-step) {
+  background: rgba(15, 23, 42, 0.52);
+}
+
+:global(html[data-theme='dark'] .execution-plan-code) {
+  background: rgba(15, 23, 42, 0.72);
 }
 
 @media (max-width: 1200px) {
@@ -1360,5 +1740,8 @@ onBeforeUnmount(() => {
   .msg-bubble { max-width: 100%; }
   .composer-footer { flex-direction: column; align-items: stretch; }
   .runbook-select { min-width: 100%; }
+  .context-pack-header { flex-direction: column; align-items: stretch; }
+  .context-pack-actions { justify-content: space-between; }
+  .execution-plan-header { flex-direction: column; align-items: stretch; }
 }
 </style>
