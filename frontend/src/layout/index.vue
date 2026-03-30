@@ -11,7 +11,7 @@
       <el-scrollbar class="sider-scroll">
         <el-menu
           router
-          :default-active="$route.path"
+          :default-active="activeMenuIndex"
           background-color="transparent"
           text-color="var(--sider-text)"
           active-text-color="var(--sider-active)"
@@ -27,45 +27,30 @@
             <span>AI运维助手</span>
           </el-menu-item>
 
-          <el-sub-menu v-if="canAny(['cmdb','firewall','jump','jump:asset','jump:policy','jump:rule','jump:session','terminal'])" index="/cmdb">
-            <template #title>
-              <el-icon><Monitor /></el-icon>
-              <span>资产管理</span>
-            </template>
-            <el-menu-item v-if="canAny(['cmdb','firewall','jump','terminal'])" index="/host">主机管理</el-menu-item>
-          </el-sub-menu>
+          <el-menu-item v-if="canAny(['cmdb','firewall','jump','jump:asset','jump:policy','jump:rule','jump:session','terminal'])" index="/host">
+            <el-icon><Monitor /></el-icon>
+            <span>资产管理</span>
+          </el-menu-item>
 
-          <el-sub-menu v-if="canAny(['docker','k8s'])" index="/k8s">
-            <template #title>
-              <el-icon><Platform /></el-icon>
-              <span>容器管理</span>
-            </template>
-            <el-menu-item v-if="canAny(['docker','k8s'])" index="/k8s/overview">容器平台总览</el-menu-item>
-          </el-sub-menu>
+          <el-menu-item v-if="canAny(['docker','k8s'])" index="/k8s/overview">
+            <el-icon><Platform /></el-icon>
+            <span>容器管理</span>
+          </el-menu-item>
 
-          <el-sub-menu v-if="canAny(['monitor','alert','notify','domain','topology','cost'])" index="/monitor">
-            <template #title>
-              <el-icon><Histogram /></el-icon>
-              <span>监控中心</span>
-            </template>
-            <el-menu-item v-if="canAny(['monitor','alert','notify','domain','topology','cost'])" index="/monitor/center">监控告警中心</el-menu-item>
-          </el-sub-menu>
+          <el-menu-item v-if="canAny(['monitor','alert','notify','domain','topology','cost'])" index="/monitor/center">
+            <el-icon><Histogram /></el-icon>
+            <span>监控中心</span>
+          </el-menu-item>
 
-          <el-sub-menu v-if="canAny(['cicd','application','workorder','workflow','executor','task','ansible','oncall','nacos','sqlaudit','gitops'])" index="/cicd">
-            <template #title>
-              <el-icon><Connection /></el-icon>
-              <span>服务管理</span>
-            </template>
-            <el-menu-item v-if="canAny(['cicd','application','workorder','workflow','executor','task','ansible','oncall','nacos','sqlaudit','gitops'])" index="/delivery/center">交付中心</el-menu-item>
-          </el-sub-menu>
+          <el-menu-item v-if="canAny(['cicd','application','workorder','workflow','executor','task','ansible','oncall','nacos','sqlaudit','gitops'])" index="/delivery/center">
+            <el-icon><Connection /></el-icon>
+            <span>服务管理</span>
+          </el-menu-item>
 
-          <el-sub-menu v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system">
-            <template #title>
-              <el-icon><Setting /></el-icon>
-              <span>系统管理</span>
-            </template>
-            <el-menu-item v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system/center">系统管理中心</el-menu-item>
-          </el-sub-menu>
+          <el-menu-item v-if="canAny(['system','system:user','system:role','system:permission','system:dept','system:post','system:loginlog','system:captcha','system:log'])" index="/system/center">
+            <el-icon><Setting /></el-icon>
+            <span>系统管理</span>
+          </el-menu-item>
         </el-menu>
       </el-scrollbar>
     </el-aside>
@@ -149,84 +134,6 @@
             </template>
           </el-dropdown>
         </div>
-
-        <div
-          v-if="showModuleContext && activeModuleGroup"
-          :class="['module-context-wrap', `module-context-${activeModuleGroup.key}`]"
-        >
-          <div class="module-context-label">模块页签</div>
-          <el-scrollbar>
-            <div class="module-context-links">
-              <el-tag
-                v-for="link in activeModuleLinks"
-                :key="link.path"
-                class="module-context-tag"
-                :class="{
-                  'is-active': isContextLinkActive(link.path),
-                  'is-pinned': link.pinned
-                }"
-                effect="plain"
-                draggable="true"
-                @click="openTab(link.path)"
-                @contextmenu.prevent.stop="openModuleLinkContextMenu($event, link.path)"
-                @auxclick="onModuleLinkAuxClick($event, link.path)"
-                @dragstart="onModuleLinkDragStart(link.path)"
-                @dragover.prevent
-                @drop.prevent="onModuleLinkDrop(link.path)"
-                @dragend="onModuleLinkDragEnd"
-              >
-                <span class="module-context-tag-inner">
-                  <span class="module-context-tag-title">{{ link.label }}</span>
-                  <span class="module-context-tag-actions">
-                    <el-icon class="module-pin-icon" @click.stop="toggleModuleLinkPin(link.path)"><Star /></el-icon>
-                    <el-icon class="module-close-icon" @click.stop="hideModuleLink(link.path)"><Close /></el-icon>
-                  </span>
-                </span>
-              </el-tag>
-              <span v-if="!activeModuleLinks.length" class="module-context-empty">当前模块暂无可用页签</span>
-            </div>
-          </el-scrollbar>
-          <el-dropdown trigger="click" @command="handleModuleLinksCommand">
-            <el-button class="module-context-action" link>页签管理</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="openAll">全部打开到顶部页签</el-dropdown-item>
-                <el-dropdown-item command="reset">重置模块页签</el-dropdown-item>
-                <el-dropdown-item
-                  v-for="item in hiddenModuleLinks"
-                  :key="`show-${item.path}`"
-                  :command="`show:${item.path}`"
-                >
-                  显示：{{ item.label }}
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-
-        <transition name="module-context-menu-fade">
-          <div
-            v-if="moduleContextMenu.visible"
-            class="module-context-menu"
-            :style="{ left: `${moduleContextMenu.x}px`, top: `${moduleContextMenu.y}px` }"
-            @click.stop
-          >
-            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('open')">打开页面</button>
-            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('togglePin')">
-              {{ moduleContextMenuLink?.pinned ? '取消固定' : '固定页签' }}
-            </button>
-            <button
-              type="button"
-              class="module-context-menu-item"
-              :disabled="activeModuleLinks.length <= 1"
-              @click="handleModuleContextMenuCommand('closeCurrent')"
-            >
-              隐藏当前
-            </button>
-            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('closeOthers')">仅保留当前</button>
-            <button type="button" class="module-context-menu-item" @click="handleModuleContextMenuCommand('reset')">重置模块页签</button>
-          </div>
-        </transition>
 
         <el-dialog
           v-model="teamWorkspacePanelVisible"
@@ -665,6 +572,17 @@ const hasAnyPerm = (codes = []) => {
   if (!codes?.length) return true
   return codes.some((code) => can(code))
 }
+const activeMenuIndex = computed(() => {
+  const path = route.path || ''
+  if (path === '/dashboard') return '/dashboard'
+  if (path === '/ai') return '/ai'
+  if (['/asset', '/host', '/cmdb', '/firewall', '/jump', '/terminal'].some((prefix) => path.startsWith(prefix))) return '/host'
+  if (['/k8s', '/docker'].some((prefix) => path.startsWith(prefix))) return '/k8s/overview'
+  if (['/monitor', '/alert', '/notify', '/domain', '/topology', '/cost'].some((prefix) => path.startsWith(prefix))) return '/monitor/center'
+  if (['/delivery', '/cicd', '/workorder', '/application', '/sqlaudit', '/gitops', '/workflow', '/executor', '/task', '/oncall', '/ansible', '/nacos'].some((prefix) => path.startsWith(prefix))) return '/delivery/center'
+  if (path.startsWith('/system')) return '/system/center'
+  return path
+})
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const parseAxiosErrorMessage = (error, fallback = '请求失败') =>
   error?.response?.data?.message || error?.response?.data?.msg || error?.message || fallback
