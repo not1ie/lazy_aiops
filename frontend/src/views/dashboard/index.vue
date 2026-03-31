@@ -32,14 +32,14 @@
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">主机总数</div>
           <div class="kpi-value">{{ stats.hostTotal }}</div>
-          <div class="kpi-sub">在线 {{ stats.hostOnline }}</div>
+          <div class="kpi-sub">在线 {{ stats.hostOnline }} / 离线 {{ stats.hostOffline }}</div>
         </el-card>
       </el-col>
       <el-col :span="4">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">Docker 环境</div>
           <div class="kpi-value">{{ stats.dockerTotal }}</div>
-          <div class="kpi-sub">在线 {{ stats.dockerOnline }}</div>
+          <div class="kpi-sub">在线 {{ stats.dockerOnline }} / 离线 {{ stats.dockerOffline }}</div>
         </el-card>
       </el-col>
       <el-col :span="4">
@@ -186,6 +186,20 @@
             <el-tag :type="moduleTagType(moduleStatus.task)">{{ moduleTagText(moduleStatus.task) }}</el-tag>
             <el-button link @click="go('/task/schedules')">进入</el-button>
           </div>
+          <div class="module-row">
+            <span>主机状态时效</span>
+            <el-tag :type="stats.hostStale > 0 ? 'warning' : 'success'">
+              {{ stats.hostStale > 0 ? `过期 ${stats.hostStale}` : '实时' }}
+            </el-tag>
+            <el-button link @click="go('/host')">巡检</el-button>
+          </div>
+          <div class="module-row">
+            <span>Docker状态时效</span>
+            <el-tag :type="stats.dockerStale > 0 ? 'warning' : 'success'">
+              {{ stats.dockerStale > 0 ? `过期 ${stats.dockerStale}` : '实时' }}
+            </el-tag>
+            <el-button link @click="go('/docker')">巡检</el-button>
+          </div>
         </el-card>
 
         <el-card shadow="never" class="stack-card risk-card">
@@ -315,8 +329,12 @@ const realtime = reactive({
 const stats = reactive({
   hostTotal: 0,
   hostOnline: 0,
+  hostOffline: 0,
+  hostStale: 0,
   dockerTotal: 0,
   dockerOnline: 0,
+  dockerOffline: 0,
+  dockerStale: 0,
   k8sTotal: 0,
   k8sHealthy: 0,
   alertTotal: 0,
@@ -487,6 +505,18 @@ const elapsedMinutes = (value) => {
   if (!ts) return 0
   const diff = Math.floor((nowMs() - ts) / 60000)
   return diff > 0 ? diff : 0
+}
+
+const statusFreshnessTs = (row) =>
+  row?.last_check_at ||
+  row?.last_seen_at ||
+  row?.last_heartbeat_at ||
+  row?.updated_at
+
+const isStatusStale = (row, minutes = 3) => {
+  const ts = parseTimestamp(statusFreshnessTs(row))
+  if (!ts) return true
+  return nowMs() - ts > minutes * 60 * 1000
 }
 
 const isOnlineStatus = (status) => {
@@ -773,12 +803,14 @@ const formatTime = (val) => {
 
 const moduleTagType = (status) => {
   if (status === 'ok') return 'success'
+  if (status === 'warning') return 'warning'
   if (status === 'error') return 'danger'
   return 'info'
 }
 
 const moduleTagText = (status) => {
   if (status === 'ok') return '正常'
+  if (status === 'warning') return '预警'
   if (status === 'error') return '异常'
   return '未知'
 }
@@ -907,8 +939,8 @@ const refreshDashboard = async () => {
   refreshing.value = true
   try {
     const calls = await Promise.allSettled([
-      axios.get('/api/v1/cmdb/hosts', { headers: authHeaders() }),
-      axios.get('/api/v1/docker/hosts', { headers: authHeaders() }),
+      axios.get('/api/v1/cmdb/hosts', { headers: authHeaders(), params: { live: 1 } }),
+      axios.get('/api/v1/docker/hosts', { headers: authHeaders(), params: { sync: 1 } }),
       axios.get('/api/v1/k8s/clusters', { headers: authHeaders() }),
       axios.get('/api/v1/monitor/alerts', { headers: authHeaders() }),
       axios.get('/api/v1/task/tasks', { headers: authHeaders() }),
@@ -935,8 +967,12 @@ const refreshDashboard = async () => {
     if (hostsPayload !== null) {
       stats.hostTotal = hosts.length
       stats.hostOnline = hosts.filter((h) => toNumber(h.status, -1) === 1 || normalizeText(h.status) === 'online').length
-      moduleStatus.cmdb = 'ok'
+      stats.hostOffline = hosts.filter((h) => !isOnlineStatus(h.status)).length
+      stats.hostStale = hosts.filter((h) => isStatusStale(h, 3)).length
+      moduleStatus.cmdb = stats.hostStale > 0 ? 'warning' : 'ok'
     } else {
+      stats.hostOffline = 0
+      stats.hostStale = 0
       moduleStatus.cmdb = 'error'
       failures.push(extractFailure(calls[0], 'CMDB') || 'CMDB')
     }
@@ -946,8 +982,12 @@ const refreshDashboard = async () => {
     if (dockerPayload !== null) {
       stats.dockerTotal = dockerHosts.length
       stats.dockerOnline = dockerHosts.filter((h) => normalizeText(h.status) === 'online').length
-      moduleStatus.docker = 'ok'
+      stats.dockerOffline = dockerHosts.filter((h) => normalizeText(h.status) !== 'online').length
+      stats.dockerStale = dockerHosts.filter((h) => isStatusStale(h, 3)).length
+      moduleStatus.docker = stats.dockerStale > 0 ? 'warning' : 'ok'
     } else {
+      stats.dockerOffline = 0
+      stats.dockerStale = 0
       moduleStatus.docker = 'error'
       failures.push(extractFailure(calls[1], 'Docker') || 'Docker')
     }

@@ -13,7 +13,8 @@
           <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
             批量删除 ({{ selectedRows.length }})
           </el-button>
-          <el-button icon="Refresh" @click="fetchData">刷新</el-button>
+          <el-button type="success" plain icon="Promotion" :loading="syncingStatus" @click="syncStatuses()">巡检状态</el-button>
+          <el-button icon="Refresh" @click="fetchData">刷新列表</el-button>
         </div>
       </div>
     </template>
@@ -46,11 +47,17 @@
       <el-table-column prop="os" label="操作系统" width="150" />
       <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : row.status === 2 ? 'warning' : 'danger'">
-            {{ row.status === 1 ? '在线' : row.status === 2 ? '维护' : '离线' }}
+          <el-tag :type="statusTag(row)">
+            {{ statusText(row) }}
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column prop="last_check_at" label="最后检测" width="180">
+        <template #default="{ row }">
+          {{ formatTime(row.last_check_at) }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="status_reason" label="状态说明" min-width="220" show-overflow-tooltip />
       <el-table-column prop="group.name" label="分组" width="150" />
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
@@ -168,6 +175,7 @@ const importText = ref('')
 const batchStatusVisible = ref(false)
 const batchStatusLoading = ref(false)
 const batchStatus = ref(null)
+const syncingStatus = ref(false)
 
 const form = reactive({
   name: '',
@@ -187,6 +195,37 @@ const getErrorMessage = (e, fallback) => {
   return fallback
 }
 
+const toTime = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+
+const isStatusStale = (row) => {
+  const ts = toTime(row?.last_check_at)
+  if (!ts) return true
+  return Date.now() - ts > 3 * 60 * 1000
+}
+
+const statusTag = (row) => {
+  if (Number(row?.status) === 2) return 'warning'
+  if (Number(row?.status) === 1) return isStatusStale(row) ? 'warning' : 'success'
+  return 'danger'
+}
+
+const statusText = (row) => {
+  const status = Number(row?.status)
+  if (status === 2) return '维护'
+  if (status === 1) return isStatusStale(row) ? '在线(过期)' : '在线'
+  return '离线'
+}
+
+const formatTime = (value) => {
+  const ts = toTime(value)
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString()
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
@@ -201,6 +240,22 @@ const fetchData = async () => {
     ElMessage.error(getErrorMessage(e, '加载失败'))
   } finally {
     loading.value = false
+  }
+}
+
+const syncStatuses = async (silent = false) => {
+  syncingStatus.value = true
+  try {
+    const res = await axios.post('/api/v1/cmdb/hosts/sync-status', {}, { headers: authHeaders() })
+    if (res.data?.code === 0 && !silent) {
+      const info = res.data?.data || {}
+      ElMessage.success(`巡检完成：在线 ${info.online ?? 0}，离线 ${info.offline ?? 0}，维护 ${info.maintenance ?? 0}`)
+    }
+  } catch (e) {
+    if (!silent) ElMessage.error(getErrorMessage(e, '巡检失败'))
+  } finally {
+    syncingStatus.value = false
+    await fetchData()
   }
 }
 
@@ -437,12 +492,13 @@ const handleTest = async (row) => {
     testError.value = getErrorMessage(e, '测试失败')
   } finally {
     testLoading.value = false
+    await fetchData()
   }
 }
 
 onMounted(() => {
   fetchGroups()
-  fetchData()
+  syncStatuses(true)
 })
 </script>
 

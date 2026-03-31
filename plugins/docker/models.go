@@ -24,12 +24,16 @@ func (b *BaseModel) BeforeCreate(tx *gorm.DB) error {
 // DockerHost Docker主机
 type DockerHost struct {
 	BaseModel
-	Name           string `gorm:"size:128" json:"name"`
-	HostID         string `gorm:"size:36" json:"host_id"` // 关联CMDB Host
-	Status         string `gorm:"size:32" json:"status"`  // online, offline
-	Version        string `gorm:"size:64" json:"version"`
-	ContainerCount int    `json:"container_count"`
-	ImageCount     int    `json:"image_count"`
+	Name           string     `gorm:"size:128" json:"name"`
+	HostID         string     `gorm:"size:36" json:"host_id"` // 关联CMDB Host
+	Status         string     `gorm:"size:32" json:"status"`  // online, offline, error, unknown
+	Version        string     `gorm:"size:128" json:"version"`
+	ContainerCount int        `json:"container_count"`
+	ImageCount     int        `json:"image_count"`
+	LastCheckAt    *time.Time `json:"last_check_at"`
+	LastOnlineAt   *time.Time `json:"last_online_at"`
+	LastError      string     `gorm:"size:512" json:"last_error"`
+	LatencyMs      int64      `json:"latency_ms"`
 }
 
 // DockerRegistry 镜像仓库
@@ -45,11 +49,11 @@ type DockerRegistry struct {
 // DockerRegistryLogin 仓库登录记录（按主机）
 type DockerRegistryLogin struct {
 	BaseModel
-	RegistryID  string    `gorm:"size:36;index" json:"registry_id"`
-	DockerHostID string   `gorm:"size:36;index" json:"docker_host_id"`
-	Status      string    `gorm:"size:32" json:"status"` // success, failed
-	Message     string    `gorm:"size:512" json:"message"`
-	LastLoginAt time.Time `json:"last_login_at"`
+	RegistryID   string    `gorm:"size:36;index" json:"registry_id"`
+	DockerHostID string    `gorm:"size:36;index" json:"docker_host_id"`
+	Status       string    `gorm:"size:32" json:"status"` // success, failed
+	Message      string    `gorm:"size:512" json:"message"`
+	LastLoginAt  time.Time `json:"last_login_at"`
 }
 
 // DockerContainer 容器信息

@@ -29,6 +29,9 @@ type Host struct {
 	Port         int         `gorm:"default:22" json:"port"`
 	OS           string      `gorm:"size:64" json:"os"`
 	Status       int         `gorm:"default:1" json:"status"` // 1:在线 0:离线 2:维护
+	LastCheckAt  *time.Time  `json:"last_check_at"`
+	LastOnlineAt *time.Time  `json:"last_online_at"`
+	StatusReason string      `gorm:"size:256" json:"status_reason"`
 	GroupID      string      `gorm:"size:36" json:"group_id"`
 	Group        *HostGroup  `gorm:"foreignKey:GroupID" json:"group,omitempty"`
 	CredentialID string      `gorm:"size:36" json:"credential_id"`

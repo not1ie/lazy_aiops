@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,12 +21,26 @@ type HostHandler struct {
 	secretKey string
 }
 
+type hostStatusSyncSummary struct {
+	Total       int   `json:"total"`
+	Online      int   `json:"online"`
+	Offline     int   `json:"offline"`
+	Maintenance int   `json:"maintenance"`
+	Changed     int   `json:"changed"`
+	Failed      int   `json:"failed"`
+	DurationMs  int64 `json:"duration_ms"`
+}
+
 func NewHostHandler(db *gorm.DB, secretKey string) *HostHandler {
 	return &HostHandler{db: db, secretKey: secretKey}
 }
 
 // List 主机列表
 func (h *HostHandler) List(c *gin.Context) {
+	if queryTruthy(c.Query("live")) {
+		_, _ = h.syncHostStatuses(nil, 2*time.Second)
+	}
+
 	var hosts []Host
 	query := h.db.Preload("Group").Preload("Credential")
 
@@ -45,6 +60,170 @@ func (h *HostHandler) List(c *gin.Context) {
 		h.sanitizeHostForResponse(&hosts[i])
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": hosts})
+}
+
+// SyncHostStatuses 主机状态批量巡检
+func (h *HostHandler) SyncHostStatuses(c *gin.Context) {
+	var req struct {
+		IDs       []string `json:"ids"`
+		TimeoutMs int      `json:"timeout_ms"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	if req.TimeoutMs <= 0 {
+		if v := c.Query("timeout_ms"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil {
+				req.TimeoutMs = parsed
+			}
+		}
+	}
+
+	timeout := clampDuration(req.TimeoutMs, 2*time.Second)
+	summary, err := h.syncHostStatuses(req.IDs, timeout)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "状态巡检失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "巡检完成", "data": summary})
+}
+
+func queryTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on", "y":
+		return true
+	default:
+		return false
+	}
+}
+
+func clampDuration(raw int, fallback time.Duration) time.Duration {
+	if raw <= 0 {
+		return fallback
+	}
+	if raw < 200 {
+		raw = 200
+	}
+	if raw > 10000 {
+		raw = 10000
+	}
+	return time.Duration(raw) * time.Millisecond
+}
+
+func truncateReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if len(reason) <= 240 {
+		return reason
+	}
+	return reason[:240]
+}
+
+func (h *HostHandler) probeHostTCP(host Host, timeout time.Duration) (bool, string) {
+	ip := strings.TrimSpace(host.IP)
+	if ip == "" {
+		return false, "IP 为空"
+	}
+	port := host.Port
+	if port == 0 {
+		port = 22
+	}
+	addr := net.JoinHostPort(ip, strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return false, truncateReason(err.Error())
+	}
+	_ = conn.Close()
+	return true, ""
+}
+
+func (h *HostHandler) syncHostStatuses(ids []string, timeout time.Duration) (hostStatusSyncSummary, error) {
+	startedAt := time.Now()
+	summary := hostStatusSyncSummary{}
+
+	query := h.db.Model(&Host{})
+	if len(ids) > 0 {
+		query = query.Where("id IN ?", ids)
+	}
+	var hosts []Host
+	if err := query.Find(&hosts).Error; err != nil {
+		return summary, err
+	}
+	summary.Total = len(hosts)
+	if len(hosts) == 0 {
+		return summary, nil
+	}
+
+	workerCount := 12
+	if len(hosts) < workerCount {
+		workerCount = len(hosts)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	jobs := make(chan Host)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	worker := func() {
+		defer wg.Done()
+		for host := range jobs {
+			now := time.Now()
+			online, reason := h.probeHostTCP(host, timeout)
+			updates := map[string]interface{}{
+				"last_check_at": &now,
+			}
+
+			nextStatus := host.Status
+			if host.Status != 2 {
+				if online {
+					nextStatus = 1
+				} else {
+					nextStatus = 0
+				}
+				updates["status"] = nextStatus
+			}
+			if online {
+				updates["last_online_at"] = &now
+				updates["status_reason"] = ""
+			} else {
+				updates["status_reason"] = reason
+			}
+
+			err := h.db.Model(&Host{}).Where("id = ?", host.ID).Updates(updates).Error
+
+			mu.Lock()
+			if err != nil {
+				summary.Failed++
+				mu.Unlock()
+				continue
+			}
+			if nextStatus != host.Status {
+				summary.Changed++
+			}
+			switch nextStatus {
+			case 1:
+				summary.Online++
+			case 2:
+				summary.Maintenance++
+			default:
+				summary.Offline++
+			}
+			mu.Unlock()
+		}
+	}
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go worker()
+	}
+	for _, host := range hosts {
+		jobs <- host
+	}
+	close(jobs)
+	wg.Wait()
+
+	summary.DurationMs = time.Since(startedAt).Milliseconds()
+	return summary, nil
 }
 
 // detectOS 探测主机操作系统
@@ -292,6 +471,34 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 		"uname":      gin.H{"out": uname, "err": unameErr},
 		"os_release": gin.H{"out": osrel, "err": osErr},
 	}
+
+	now := time.Now()
+	isOnline := strings.TrimSpace(uname) != "" || strings.TrimSpace(osrel) != ""
+	reason := strings.TrimSpace(unameErr)
+	if reason == "" {
+		reason = strings.TrimSpace(osErr)
+	}
+	if reason == "" && !isOnline {
+		reason = "SSH 探测失败"
+	}
+	updates := map[string]interface{}{
+		"last_check_at": &now,
+	}
+	if host.Status != 2 {
+		if isOnline {
+			updates["status"] = 1
+		} else {
+			updates["status"] = 0
+		}
+	}
+	if isOnline {
+		updates["last_online_at"] = &now
+		updates["status_reason"] = ""
+	} else {
+		updates["status_reason"] = truncateReason(reason)
+	}
+	_ = h.db.Model(&Host{}).Where("id = ?", host.ID).Updates(updates).Error
+
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
 }
 

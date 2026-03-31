@@ -8,6 +8,7 @@
             <el-tag effect="plain">总环境 {{ tableData.length }}</el-tag>
             <el-tag type="success" effect="plain">在线 {{ onlineHosts }}</el-tag>
             <el-tag type="danger" effect="plain">离线 {{ offlineHosts }}</el-tag>
+            <el-tag type="warning" effect="plain">状态过期 {{ staleHosts }}</el-tag>
           </div>
         </div>
         <div class="header-actions">
@@ -29,14 +30,20 @@
       </el-table-column>
       <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="row.status === 'online' ? 'success' : 'danger'">
-            {{ row.status || 'unknown' }}
+          <el-tag :type="hostStatusTag(row)">
+            {{ hostStatusText(row) }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="last_check_at" label="最后检测" width="180">
+        <template #default="{ row }">
+          {{ formatTime(row.last_check_at) }}
         </template>
       </el-table-column>
       <el-table-column prop="container_count" label="容器数" width="120" align="center" />
       <el-table-column prop="image_count" label="镜像数" width="120" align="center" />
       <el-table-column prop="version" label="版本" />
+      <el-table-column prop="last_error" label="错误信息" min-width="220" show-overflow-tooltip />
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
           <el-space size="8">
@@ -1593,6 +1600,31 @@ const submitting = ref(false)
 const hosts = ref([])
 const onlineHosts = computed(() => (tableData.value || []).filter((item) => item.status === 'online').length)
 const offlineHosts = computed(() => Math.max(0, (tableData.value || []).length - onlineHosts.value))
+const hostLastCheckTs = (row) => {
+  if (!row?.last_check_at) return null
+  const ts = new Date(row.last_check_at).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+const isHostStatusStale = (row) => {
+  const ts = hostLastCheckTs(row)
+  if (!ts) return true
+  return Date.now() - ts > 3 * 60 * 1000
+}
+const staleHosts = computed(() => (tableData.value || []).filter((item) => isHostStatusStale(item)).length)
+const hostStatusTag = (row) => {
+  const status = String(row?.status || '').toLowerCase()
+  if (status === 'online') return isHostStatusStale(row) ? 'warning' : 'success'
+  if (status === 'error') return 'warning'
+  if (status === 'offline') return 'danger'
+  return 'info'
+}
+const hostStatusText = (row) => {
+  const status = String(row?.status || '').toLowerCase()
+  if (status === 'online') return isHostStatusStale(row) ? 'online(stale)' : 'online'
+  if (status === 'offline') return 'offline'
+  if (status === 'error') return 'error'
+  return status || 'unknown'
+}
 
 const manageVisible = ref(false)
 const manageTab = ref('overview')
@@ -1823,6 +1855,7 @@ const logTail = ref('100')
 const logContainerId = ref('')
 const logFollow = ref(false)
 let logTimer = null
+let listSyncTimer = null
 let logSince = 0
 
 const inspectVisible = ref(false)
@@ -2275,12 +2308,17 @@ const fetchData = async () => {
   }
 }
 
-const syncAll = async () => {
+const syncAll = async (silent = false) => {
+  if (loading.value) return
   loading.value = true
   try {
-    await axios.post('/api/v1/docker/hosts/sync', {}, { headers: authHeaders() })
+    const res = await axios.post('/api/v1/docker/hosts/sync', {}, { headers: authHeaders() })
+    if (res.data?.code === 0 && !silent) {
+      const info = res.data?.data || {}
+      ElMessage.success(`同步完成：成功 ${info.synced ?? 0}，失败 ${info.failed ?? 0}`)
+    }
   } catch (e) {
-    ElMessage.error(extractErrorMessage(e, '同步失败'))
+    if (!silent) ElMessage.error(extractErrorMessage(e, '同步失败'))
   } finally {
     await fetchData()
   }
@@ -5476,7 +5514,11 @@ watch(manageTab, (tab) => {
 })
 
 onMounted(() => {
-  fetchData()
+  syncAll(true)
+  listSyncTimer = setInterval(() => {
+    if (document.hidden) return
+    syncAll(true)
+  }, 60000)
   window.addEventListener('resize', handleWindowResize)
 })
 
@@ -5492,6 +5534,10 @@ onUnmounted(() => {
   if (serviceLogTimer) {
     clearInterval(serviceLogTimer)
     serviceLogTimer = null
+  }
+  if (listSyncTimer) {
+    clearInterval(listSyncTimer)
+    listSyncTimer = null
   }
   if (statsChartInstance.value) {
     statsChartInstance.value.dispose()

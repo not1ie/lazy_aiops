@@ -1,6 +1,11 @@
 package cmdb
 
 import (
+	"log"
+	"strconv"
+	"sync"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
@@ -13,8 +18,11 @@ func init() {
 }
 
 type CMDBPlugin struct {
-	core *core.Core
-	cfg  map[string]interface{}
+	core         *core.Core
+	cfg          map[string]interface{}
+	statusTicker *time.Ticker
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
 }
 
 func (p *CMDBPlugin) Name() string    { return "cmdb" }
@@ -29,8 +37,76 @@ func (p *CMDBPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	return nil
 }
 
-func (p *CMDBPlugin) Start() error { return nil }
-func (p *CMDBPlugin) Stop() error  { return nil }
+func (p *CMDBPlugin) Start() error {
+	handler := NewHostHandler(p.core.DB, p.core.Config.JWT.Secret)
+	interval := p.statusSyncInterval()
+	p.statusTicker = time.NewTicker(interval)
+	p.stopCh = make(chan struct{})
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		for {
+			select {
+			case <-p.stopCh:
+				return
+			case <-p.statusTicker.C:
+				if _, err := handler.syncHostStatuses(nil, 2*time.Second); err != nil {
+					log.Printf("[CMDB] host status auto-sync failed: %v", err)
+				}
+			}
+		}
+	}()
+	return nil
+}
+
+func (p *CMDBPlugin) Stop() error {
+	if p.statusTicker != nil {
+		p.statusTicker.Stop()
+		p.statusTicker = nil
+	}
+	if p.stopCh != nil {
+		close(p.stopCh)
+		p.stopCh = nil
+	}
+	p.wg.Wait()
+	return nil
+}
+
+func (p *CMDBPlugin) statusSyncInterval() time.Duration {
+	const fallback = 45 * time.Second
+	if p.cfg == nil {
+		return fallback
+	}
+	value, ok := p.cfg["status_sync_interval_seconds"]
+	if !ok {
+		return fallback
+	}
+	parse := func(raw string) time.Duration {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return fallback
+		}
+		if n < 10 {
+			n = 10
+		}
+		if n > 300 {
+			n = 300
+		}
+		return time.Duration(n) * time.Second
+	}
+	switch v := value.(type) {
+	case int:
+		return parse(strconv.Itoa(v))
+	case int64:
+		return parse(strconv.FormatInt(v, 10))
+	case float64:
+		return parse(strconv.Itoa(int(v)))
+	case string:
+		return parse(v)
+	default:
+		return fallback
+	}
+}
 
 func (p *CMDBPlugin) Migrate() error {
 	return p.core.DB.AutoMigrate(
@@ -52,6 +128,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	{
 		hosts.GET("", h.List)
 		hosts.POST("", h.Create)
+		hosts.POST("/sync-status", h.SyncHostStatuses)
 		hosts.GET("/:id", h.Get)
 		hosts.POST("/:id/test", h.TestHost)
 		hosts.PUT("/:id", h.Update)

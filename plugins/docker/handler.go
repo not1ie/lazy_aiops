@@ -33,6 +33,13 @@ type DockerHandler struct {
 	secretKey string
 }
 
+type dockerHostSyncSummary struct {
+	Total      int   `json:"total"`
+	Synced     int   `json:"synced"`
+	Failed     int   `json:"failed"`
+	DurationMs int64 `json:"duration_ms"`
+}
+
 var dockerUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
@@ -45,6 +52,10 @@ func NewDockerHandler(db *gorm.DB, auth *core.AuthService, secretKey string) *Do
 
 // ListHosts 主机列表
 func (h *DockerHandler) ListHosts(c *gin.Context) {
+	if isTruthy(c.Query("sync")) {
+		_, _ = h.syncAllHostsStatus()
+	}
+
 	var hosts []DockerHost
 	if err := h.db.Find(&hosts).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -127,23 +138,48 @@ func (h *DockerHandler) TestConnection(c *gin.Context) {
 
 // SyncHosts 强制同步所有主机状态
 func (h *DockerHandler) SyncHosts(c *gin.Context) {
+	summary, err := h.syncAllHostsStatus()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "同步失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "同步完成", "data": summary})
+}
+
+func (h *DockerHandler) syncAllHostsStatus() (dockerHostSyncSummary, error) {
+	startedAt := time.Now()
+	summary := dockerHostSyncSummary{}
+
 	var hosts []DockerHost
 	if err := h.db.Find(&hosts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
-		return
+		return summary, err
+	}
+	summary.Total = len(hosts)
+	if len(hosts) == 0 {
+		return summary, nil
 	}
 
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	for _, host := range hosts {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			h.syncHostInternal(id)
+			if err := h.syncHostInternal(id); err != nil {
+				mu.Lock()
+				summary.Failed++
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			summary.Synced++
+			mu.Unlock()
 		}(host.ID)
 	}
 	wg.Wait()
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "同步完成"})
+	summary.DurationMs = time.Since(startedAt).Milliseconds()
+	return summary, nil
 }
 
 // GetHostInfo 获取主机概览信息 (Docker Info)
@@ -165,9 +201,23 @@ func (h *DockerHandler) GetHostInfo(c *gin.Context) {
 
 // syncHostInternal 内部同步逻辑
 func (h *DockerHandler) syncHostInternal(id string) error {
+	var dHost DockerHost
+	if err := h.db.First(&dHost, "id = ?", id).Error; err != nil {
+		return err
+	}
+
+	startedAt := time.Now()
 	client, err := h.getClient(id)
 	if err != nil {
-		h.db.Model(&DockerHost{}).Where("id = ?", id).Update("status", "offline")
+		now := time.Now()
+		updates := map[string]interface{}{
+			"status":        "offline",
+			"last_check_at": &now,
+			"last_error":    truncateDockerError(err.Error()),
+			"latency_ms":    time.Since(startedAt).Milliseconds(),
+		}
+		_ = h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(updates).Error
+		h.updateLinkedCMDBStatus(dHost.HostID, false, err.Error())
 		return err
 	}
 
@@ -177,25 +227,44 @@ func (h *DockerHandler) syncHostInternal(id string) error {
 	// 即使 err != nil，有时候 stdout 也有内容（比如有警告）
 	// 但如果 err != nil 且 stderr 有严重错误，那肯定是挂了
 	if err != nil && stdout == "" {
-		h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
-			"status":  "error",
-			"version": fmt.Sprintf("Error: %s", stderr),
-		})
+		now := time.Now()
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		_ = h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"status":        "error",
+			"version":       fmt.Sprintf("Error: %s", truncateDockerError(msg)),
+			"last_check_at": &now,
+			"last_error":    truncateDockerError(msg),
+			"latency_ms":    time.Since(startedAt).Milliseconds(),
+		}).Error
+		h.updateLinkedCMDBStatus(dHost.HostID, false, msg)
 		return err
 	}
 
 	var info map[string]interface{}
 	if err := json.Unmarshal([]byte(stdout), &info); err != nil {
 		// JSON 解析失败
-		h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
-			"status":  "error",
-			"version": "JSON Parse Error",
-		})
+		now := time.Now()
+		_ = h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"status":        "error",
+			"version":       "JSON Parse Error",
+			"last_check_at": &now,
+			"last_error":    truncateDockerError(err.Error()),
+			"latency_ms":    time.Since(startedAt).Milliseconds(),
+		}).Error
+		h.updateLinkedCMDBStatus(dHost.HostID, false, err.Error())
 		return fmt.Errorf("JSON parse failed: %v | Output: %s", err, stdout)
 	}
 
+	now := time.Now()
 	updates := map[string]interface{}{
-		"status": "online",
+		"status":         "online",
+		"last_check_at":  &now,
+		"last_online_at": &now,
+		"last_error":     "",
+		"latency_ms":     time.Since(startedAt).Milliseconds(),
 	}
 
 	if v, ok := info["Containers"].(float64); ok {
@@ -208,7 +277,39 @@ func (h *DockerHandler) syncHostInternal(id string) error {
 		updates["version"] = v
 	}
 
-	return h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(updates).Error
+	if err := h.db.Model(&DockerHost{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return err
+	}
+	h.updateLinkedCMDBStatus(dHost.HostID, true, "")
+	return nil
+}
+
+func truncateDockerError(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) <= 480 {
+		return raw
+	}
+	return raw[:480]
+}
+
+func (h *DockerHandler) updateLinkedCMDBStatus(hostID string, online bool, reason string) {
+	hostID = strings.TrimSpace(hostID)
+	if hostID == "" || hostID == "local" {
+		return
+	}
+	now := time.Now()
+	updates := map[string]interface{}{
+		"last_check_at": &now,
+	}
+	if online {
+		updates["status"] = 1
+		updates["last_online_at"] = &now
+		updates["status_reason"] = ""
+	} else {
+		updates["status"] = 0
+		updates["status_reason"] = truncateDockerError(reason)
+	}
+	_ = h.db.Model(&cmdb.Host{}).Where("id = ? AND status <> 2", hostID).Updates(updates).Error
 }
 
 // ContainerLogs 获取容器日志

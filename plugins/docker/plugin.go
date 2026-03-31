@@ -1,6 +1,11 @@
 package docker
 
 import (
+	"log"
+	"strconv"
+	"sync"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
@@ -13,7 +18,11 @@ func init() {
 }
 
 type DockerPlugin struct {
-	core *core.Core
+	core         *core.Core
+	cfg          map[string]interface{}
+	statusTicker *time.Ticker
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
 }
 
 func (p *DockerPlugin) Name() string        { return "docker" }
@@ -22,11 +31,80 @@ func (p *DockerPlugin) Description() string { return "Docker管理 - 远程容�
 
 func (p *DockerPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
+	p.cfg = cfg
 	return nil
 }
 
-func (p *DockerPlugin) Start() error { return nil }
-func (p *DockerPlugin) Stop() error  { return nil }
+func (p *DockerPlugin) Start() error {
+	handler := NewDockerHandler(p.core.DB, p.core.Auth, p.core.Config.JWT.Secret)
+	interval := p.statusSyncInterval()
+	p.statusTicker = time.NewTicker(interval)
+	p.stopCh = make(chan struct{})
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		for {
+			select {
+			case <-p.stopCh:
+				return
+			case <-p.statusTicker.C:
+				if _, err := handler.syncAllHostsStatus(); err != nil {
+					log.Printf("[Docker] host status auto-sync failed: %v", err)
+				}
+			}
+		}
+	}()
+	return nil
+}
+
+func (p *DockerPlugin) Stop() error {
+	if p.statusTicker != nil {
+		p.statusTicker.Stop()
+		p.statusTicker = nil
+	}
+	if p.stopCh != nil {
+		close(p.stopCh)
+		p.stopCh = nil
+	}
+	p.wg.Wait()
+	return nil
+}
+
+func (p *DockerPlugin) statusSyncInterval() time.Duration {
+	const fallback = 60 * time.Second
+	if p.cfg == nil {
+		return fallback
+	}
+	value, ok := p.cfg["status_sync_interval_seconds"]
+	if !ok {
+		return fallback
+	}
+	parse := func(raw string) time.Duration {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return fallback
+		}
+		if n < 10 {
+			n = 10
+		}
+		if n > 300 {
+			n = 300
+		}
+		return time.Duration(n) * time.Second
+	}
+	switch v := value.(type) {
+	case int:
+		return parse(strconv.Itoa(v))
+	case int64:
+		return parse(strconv.FormatInt(v, 10))
+	case float64:
+		return parse(strconv.Itoa(int(v)))
+	case string:
+		return parse(v)
+	default:
+		return fallback
+	}
+}
 
 func (p *DockerPlugin) Migrate() error {
 	return p.core.DB.AutoMigrate(&DockerHost{}, &DockerRegistry{}, &DockerRegistryLogin{})
