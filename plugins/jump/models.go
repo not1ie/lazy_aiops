@@ -60,6 +60,8 @@ type JumpPermissionPolicy struct {
 // JumpSession 会话记录
 type JumpSession struct {
 	core.BaseModel
+	Source         string     `gorm:"size:32;index:idx_jump_session_source_ref,priority:1" json:"source"`      // local, jumpserver
+	SourceRef      string     `gorm:"size:128;index:idx_jump_session_source_ref,priority:2" json:"source_ref"` // 外部会话ID
 	SessionNo      string     `gorm:"size:64;uniqueIndex" json:"session_no"`
 	UserID         string     `gorm:"size:36;index:idx_jump_session_user_started,priority:1" json:"user_id"`
 	Username       string     `gorm:"size:128;index" json:"username"`
@@ -103,6 +105,8 @@ type JumpCommandRule struct {
 // JumpCommand 命令审计
 type JumpCommand struct {
 	core.BaseModel
+	Source        string    `gorm:"size:32;index:idx_jump_command_source_ref,priority:1" json:"source"`      // local, jumpserver
+	SourceRef     string    `gorm:"size:128;index:idx_jump_command_source_ref,priority:2" json:"source_ref"` // 外部命令ID
 	SessionID     string    `gorm:"size:36;index:idx_jump_command_session_time,priority:1" json:"session_id"`
 	Username      string    `gorm:"size:128;index:idx_jump_command_user_time,priority:1" json:"username"`
 	CommandType   string    `gorm:"size:16;default:shell;index" json:"command_type"` // shell, sql

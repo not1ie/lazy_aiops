@@ -8,6 +8,7 @@
         </div>
         <div class="actions">
           <el-button type="primary" icon="VideoPlay" @click="openStartDialog">发起会话</el-button>
+          <el-button plain @click="syncJumpServerSessions">同步JumpServer会话</el-button>
           <el-button icon="Refresh" @click="loadSessions">刷新</el-button>
         </div>
       </div>
@@ -516,6 +517,18 @@ const connectSession = async (row) => {
     window.open(openUrl, '_blank')
   } catch (error) {
     ElMessage.error(getErrorMessage(error, '连接失败'))
+  }
+}
+
+const syncJumpServerSessions = async () => {
+  try {
+    const res = await axios.post('/api/v1/jump/sync/jumpserver-sessions', {}, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data?.message || 'JumpServer 会话同步完成')
+      await loadSessions()
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '同步 JumpServer 会话失败'))
   }
 }
 

@@ -107,6 +107,7 @@ func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/sync/k8s-clusters", p.handler.SyncFromK8sClusters)
 	r.POST("/sync/docker-hosts", p.handler.SyncFromDockerHosts)
 	r.POST("/sync/jumpserver", p.handler.SyncFromJumpServer)
+	r.POST("/sync/jumpserver-sessions", p.handler.SyncJumpServerSessions)
 	r.POST("/sync/all", p.handler.SyncAllAssets)
 
 	// 外部集成配置（JumpServer）

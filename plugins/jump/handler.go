@@ -881,6 +881,7 @@ func (h *JumpHandler) StartSession(c *gin.Context) {
 		needApprove = true
 	}
 	session := JumpSession{
+		Source:       "local",
 		SessionNo:    fmt.Sprintf("JMP-%s-%s", now.Format("20060102150405"), strings.ToUpper(uuid.NewString()[:8])),
 		UserID:       userID,
 		Username:     c.GetString("username"),
@@ -1139,6 +1140,7 @@ func (h *JumpHandler) RecordCommand(c *gin.Context) {
 	}
 	matchedRules, _ := json.Marshal(decision.MatchedRules)
 	cmd := JumpCommand{
+		Source:        "local",
 		SessionID:     session.ID,
 		Username:      session.Username,
 		CommandType:   "shell",
@@ -1237,6 +1239,7 @@ func (h *JumpHandler) ExecuteSQL(c *gin.Context) {
 	}
 
 	cmd := JumpCommand{
+		Source:       "local",
 		SessionID:    session.ID,
 		Username:     session.Username,
 		CommandType:  "sql",
@@ -1936,15 +1939,22 @@ func (h *JumpHandler) SyncAllAssets(c *gin.Context) {
 		return
 	}
 	jumpServerStat, jumpServerErr := h.syncFromJumpServerAssets(false)
+	jumpServerSessionStat, jumpServerSessionErr := h.syncFromJumpServerSessions(false)
 
 	data := gin.H{
-		"cmdb_hosts":   cmdbStat,
-		"k8s_clusters": k8sStat,
-		"docker_hosts": dockerStat,
-		"jumpserver":   jumpServerStat,
+		"cmdb_hosts":            cmdbStat,
+		"k8s_clusters":          k8sStat,
+		"docker_hosts":          dockerStat,
+		"jumpserver":            jumpServerStat,
+		"jumpserver_sessions":   jumpServerSessionStat.Sessions,
+		"jumpserver_commands":   jumpServerSessionStat.Commands,
+		"jumpserver_sync_total": jumpServerSessionStat.Total,
 	}
 	if jumpServerErr != nil {
 		data["jumpserver_error"] = jumpServerErr.Error()
+	}
+	if jumpServerSessionErr != nil {
+		data["jumpserver_session_error"] = jumpServerSessionErr.Error()
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": data})

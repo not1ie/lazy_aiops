@@ -22,6 +22,8 @@ const (
 	jumpAuthBearerToken    = "bearer_token"
 	jumpAuthPrivateToken   = "private_token"
 	jumpAuthPassword       = "password"
+	jumpSourceLocal        = "local"
+	jumpSourceJumpServer   = "jumpserver"
 
 	defaultJumpOrgID = "00000000-0000-0000-0000-000000000002"
 )
@@ -45,6 +47,8 @@ type jumpIntegrationUpdateRequest struct {
 type jumpServerSyncResult struct {
 	Hosts     syncStat `json:"hosts"`
 	Databases syncStat `json:"databases"`
+	Sessions  syncStat `json:"sessions"`
+	Commands  syncStat `json:"commands"`
 	Total     syncStat `json:"total"`
 }
 
@@ -175,6 +179,23 @@ func (h *JumpHandler) SyncFromJumpServer(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result, "message": fmt.Sprintf("JumpServer 同步完成，新增%d，更新%d", result.Total.Created, result.Total.Updated)})
 }
 
+func (h *JumpHandler) SyncJumpServerSessions(c *gin.Context) {
+	result, err := h.syncFromJumpServerSessions(true)
+	if err != nil {
+		status := http.StatusBadRequest
+		if !errors.Is(err, errJumpIntegrationNotConfigured) && !errors.Is(err, errJumpIntegrationDisabled) {
+			status = http.StatusBadGateway
+		}
+		c.JSON(status, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"data":    result,
+		"message": fmt.Sprintf("JumpServer 会话同步完成，会话新增%d更新%d，命令新增%d更新%d", result.Sessions.Created, result.Sessions.Updated, result.Commands.Created, result.Commands.Updated),
+	})
+}
+
 func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResult, error) {
 	client, err := h.newJumpServerClient(strict)
 	if err != nil {
@@ -240,6 +261,118 @@ func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResul
 	}
 	if dbErr != nil {
 		return result, fmt.Errorf("同步 JumpServer 数据库失败: %w", dbErr)
+	}
+	return result, nil
+}
+
+func (h *JumpHandler) syncFromJumpServerSessions(strict bool) (jumpServerSyncResult, error) {
+	client, err := h.newJumpServerClient(strict)
+	if err != nil {
+		return jumpServerSyncResult{}, err
+	}
+	if client == nil {
+		return jumpServerSyncResult{}, nil
+	}
+
+	result := jumpServerSyncResult{}
+	sessionItems, _, sessionErr := client.listByCandidates([]string{
+		"/api/v1/terminal/sessions/",
+		"/api/v1/audits/sessions/",
+		"/api/v1/terminal/session/",
+	})
+	if sessionErr != nil {
+		return result, fmt.Errorf("同步 JumpServer 会话失败: %w", sessionErr)
+	}
+
+	localSessionIDByRemote := make(map[string]string, len(sessionItems))
+	for i := range sessionItems {
+		session := buildJumpSessionFromJumpServer(sessionItems[i])
+		if strings.TrimSpace(session.SourceRef) == "" {
+			continue
+		}
+		if strings.TrimSpace(session.SessionNo) == "" {
+			session.SessionNo = "JMS-" + strings.ToUpper(shortHash(session.SourceRef, 12))
+		}
+		if strings.TrimSpace(session.Source) == "" {
+			session.Source = jumpSourceJumpServer
+		}
+		if strings.TrimSpace(session.Status) == "" {
+			session.Status = "closed"
+		}
+		id, upsertErr := h.upsertJumpSession(session, &result.Sessions)
+		if upsertErr != nil {
+			return result, upsertErr
+		}
+		if id != "" {
+			localSessionIDByRemote[session.SourceRef] = id
+		}
+	}
+
+	commandItems, _, commandErr := client.listByCandidates([]string{
+		"/api/v1/terminal/commands/",
+		"/api/v1/audits/commands/",
+		"/api/v1/terminal/session-commands/",
+	})
+	if commandErr == nil {
+		for i := range commandItems {
+			cmd := buildJumpCommandFromJumpServer(commandItems[i])
+			if strings.TrimSpace(cmd.SourceRef) == "" {
+				continue
+			}
+			remoteSessionID := strings.TrimSpace(extractSessionSourceRef(commandItems[i]))
+			if remoteSessionID == "" {
+				continue
+			}
+			localSessionID := localSessionIDByRemote[remoteSessionID]
+			if localSessionID == "" {
+				localSessionID = h.findLocalSessionIDByRemote(remoteSessionID)
+				if localSessionID != "" {
+					localSessionIDByRemote[remoteSessionID] = localSessionID
+				}
+			}
+			if localSessionID == "" {
+				continue
+			}
+			cmd.SessionID = localSessionID
+			if strings.TrimSpace(cmd.Source) == "" {
+				cmd.Source = jumpSourceJumpServer
+			}
+			if upsertErr := h.upsertJumpCommand(cmd, &result.Commands); upsertErr != nil {
+				return result, upsertErr
+			}
+		}
+	}
+
+	result.Total.Created = result.Sessions.Created + result.Commands.Created
+	result.Total.Updated = result.Sessions.Updated + result.Commands.Updated
+
+	cfg := client.config
+	now := time.Now()
+	if cfg != nil {
+		if commandErr != nil {
+			_ = h.db.Model(cfg).Updates(map[string]interface{}{
+				"last_sync_at":     now,
+				"last_sync_status": "ok",
+				"last_sync_msg": fmt.Sprintf(
+					"sessions +%d/%d, commands skipped: %s",
+					result.Sessions.Created,
+					result.Sessions.Updated,
+					truncateJumpText(commandErr.Error(), 220),
+				),
+			}).Error
+		} else {
+			_ = h.db.Model(cfg).Updates(map[string]interface{}{
+				"last_sync_at":     now,
+				"last_sync_status": "ok",
+				"last_sync_msg": fmt.Sprintf(
+					"sessions +%d/%d, commands +%d/%d",
+					result.Sessions.Created,
+					result.Sessions.Updated,
+					result.Commands.Created,
+					result.Commands.Updated,
+				),
+			}).Error
+		}
 	}
 	return result, nil
 }
@@ -387,6 +520,25 @@ func (c *jumpServerClient) listAssets(endpoint string) ([]map[string]interface{}
 		break
 	}
 	return all, nil
+}
+
+func (c *jumpServerClient) listByCandidates(candidates []string) ([]map[string]interface{}, string, error) {
+	var lastErr error
+	for i := range candidates {
+		endpoint := strings.TrimSpace(candidates[i])
+		if endpoint == "" {
+			continue
+		}
+		items, err := c.listAssets(endpoint)
+		if err == nil {
+			return items, endpoint, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, "", lastErr
+	}
+	return []map[string]interface{}{}, "", errors.New("未配置可用的 JumpServer 列表接口")
 }
 
 func (c *jumpServerClient) request(method, path string, payload interface{}, withAuth bool) (interface{}, int, error) {
@@ -604,6 +756,405 @@ func buildJumpAssetFromJumpServerDatabase(item map[string]interface{}) JumpAsset
 		Description: strings.TrimSpace(firstNonEmpty(item, "comment", "description")),
 		Enabled:     anyToBool(item["is_active"], true),
 	}
+}
+
+func buildJumpSessionFromJumpServer(item map[string]interface{}) JumpSession {
+	sourceRef := strings.TrimSpace(firstNonEmpty(item, "id", "uuid", "session_id", "sid"))
+	sessionNo := strings.TrimSpace(firstNonEmpty(item, "session", "session_id", "id"))
+	startedAt := parseAnyTime(lookupString(item, "date_start"), parseAnyTime(lookupString(item, "created_at"), time.Now()))
+	endedAt := parseNullableTime(
+		lookupString(item, "date_end"),
+		lookupString(item, "finished_at"),
+		lookupString(item, "end_time"),
+	)
+
+	status := normalizeJumpSessionStatus(firstNonEmpty(
+		item,
+		"status",
+		"state",
+		"is_finished",
+		"is_success",
+	))
+	if status == "" {
+		if endedAt != nil {
+			status = "closed"
+		} else {
+			status = "active"
+		}
+	}
+
+	protocol := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+		item,
+		"protocol",
+		"asset_protocol",
+		"type",
+		"terminal_type",
+	)))
+	if protocol == "" {
+		protocol = "ssh"
+	}
+
+	assetRemoteID := lookupString(item, "asset.id")
+	accountRemoteID := lookupString(item, "system_user.id")
+	assetName := firstNonEmpty(item, "asset_name", "asset")
+	if assetName == "" {
+		assetName = lookupString(item, "asset.name")
+	}
+	accountName := firstNonEmpty(item, "account_name", "system_user")
+	if accountName == "" {
+		accountName = lookupString(item, "system_user.name")
+	}
+	username := firstNonEmpty(item, "username", "user")
+	if username == "" {
+		username = lookupString(item, "user.username")
+	}
+	if username == "" {
+		username = lookupString(item, "user.name")
+	}
+	commandCount := anyToInt(lookupAny(item, "command_count", "cmd_count", "command_amount"))
+	duration := anyToInt(lookupAny(item, "duration", "duration_sec"))
+	if duration <= 0 && endedAt != nil {
+		duration = int(endedAt.Sub(startedAt).Seconds())
+		if duration < 0 {
+			duration = 0
+		}
+	}
+
+	result := JumpSession{
+		Source:       jumpSourceJumpServer,
+		SourceRef:    sourceRef,
+		SessionNo:    sessionNo,
+		UserID:       "",
+		Username:     truncateJumpText(strings.TrimSpace(username), 128),
+		RoleCode:     "",
+		AssetID:      "",
+		AssetName:    truncateJumpText(strings.TrimSpace(assetName), 128),
+		AccountID:    "",
+		AccountName:  truncateJumpText(strings.TrimSpace(accountName), 128),
+		PolicyID:     "",
+		Protocol:     truncateJumpText(protocol, 32),
+		SourceIP:     truncateJumpText(firstNonEmpty(item, "remote_addr", "remote_ip", "addr", "client_ip"), 64),
+		Status:       status,
+		StartedAt:    startedAt,
+		CommandCount: commandCount,
+		DurationSec:  duration,
+		CloseReason:  truncateJumpText(firstNonEmpty(item, "close_reason", "reason"), 256),
+		ApprovedBy:   truncateJumpText(firstNonEmpty(item, "approved_by", "reviewer"), 128),
+	}
+	if endedAt != nil {
+		result.EndedAt = endedAt
+	}
+	if t := parseNullableTime(lookupString(item, "approved_at")); t != nil {
+		result.ApprovedAt = t
+	}
+	if t := parseNullableTime(lookupString(item, "last_command_at")); t != nil {
+		result.LastCommandAt = t
+	}
+	if sourceRef != "" {
+		result.RelaySessionID = ""
+	}
+	result.AssetID = strings.TrimSpace(assetRemoteID)
+	result.AccountID = strings.TrimSpace(accountRemoteID)
+	return result
+}
+
+func (h *JumpHandler) upsertJumpSession(session JumpSession, stat *syncStat) (string, error) {
+	localAssetID := h.findLocalAssetIDByRemote(session.AssetID)
+	if localAssetID != "" {
+		session.AssetID = localAssetID
+	} else {
+		session.AssetID = ""
+	}
+	session.AccountID = ""
+
+	var existing JumpSession
+	err := h.db.Where("source = ? AND source_ref = ?", jumpSourceJumpServer, session.SourceRef).First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if strings.TrimSpace(session.SessionNo) == "" {
+				session.SessionNo = "JMS-" + strings.ToUpper(shortHash(session.SourceRef, 12))
+			}
+			if h.db.Where("session_no = ?", session.SessionNo).First(&JumpSession{}).Error == nil {
+				session.SessionNo = "JMS-" + strings.ToUpper(shortHash(session.SourceRef+time.Now().String(), 16))
+			}
+			if err := h.db.Create(&session).Error; err != nil {
+				return "", err
+			}
+			if stat != nil {
+				stat.Created++
+			}
+			return session.ID, nil
+		}
+		return "", err
+	}
+
+	updates := map[string]interface{}{
+		"session_no":      session.SessionNo,
+		"username":        session.Username,
+		"asset_name":      session.AssetName,
+		"account_name":    session.AccountName,
+		"protocol":        session.Protocol,
+		"source_ip":       session.SourceIP,
+		"status":          session.Status,
+		"started_at":      session.StartedAt,
+		"last_command_at": session.LastCommandAt,
+		"approved_by":     session.ApprovedBy,
+		"approved_at":     session.ApprovedAt,
+		"ended_at":        session.EndedAt,
+		"duration_sec":    session.DurationSec,
+		"command_count":   session.CommandCount,
+		"close_reason":    session.CloseReason,
+	}
+	if err := h.db.Model(&existing).Updates(updates).Error; err != nil {
+		return "", err
+	}
+	if stat != nil {
+		stat.Updated++
+	}
+	return existing.ID, nil
+}
+
+func buildJumpCommandFromJumpServer(item map[string]interface{}) JumpCommand {
+	cmd := strings.TrimSpace(firstNonEmpty(item, "command", "input", "cmd", "content"))
+	if cmd == "" {
+		cmd = strings.TrimSpace(lookupString(item, "body"))
+	}
+	riskLevel := normalizeRuleSeverity(firstNonEmpty(item, "risk_level", "severity", "level"))
+	riskAction := normalizeRuleAction(firstNonEmpty(item, "risk_action", "action", "risk_action_display"))
+	if riskAction == "" {
+		riskAction = "alert"
+	}
+	outputSnippet := strings.TrimSpace(firstNonEmpty(item, "output", "output_snippet", "result", "response"))
+	if len(outputSnippet) > 2000 {
+		outputSnippet = outputSnippet[:2000]
+	}
+	return JumpCommand{
+		Source:        jumpSourceJumpServer,
+		SourceRef:     strings.TrimSpace(firstNonEmpty(item, "id", "uuid", "command_id")),
+		Username:      truncateJumpText(strings.TrimSpace(firstNonEmpty(item, "username", "user")), 128),
+		CommandType:   normalizeCommandType(firstNonEmpty(item, "command_type", "type")),
+		Command:       truncateJumpText(cmd, 4000),
+		ResultCode:    anyToInt(lookupAny(item, "result_code", "exit_code", "code")),
+		OutputSnippet: outputSnippet,
+		RuleID:        truncateJumpText(strings.TrimSpace(firstNonEmpty(item, "rule_id", "strategy_id")), 256),
+		RuleName:      truncateJumpText(strings.TrimSpace(firstNonEmpty(item, "rule_name", "strategy_name")), 512),
+		WhitelistHit:  anyToBool(lookupAny(item, "whitelist_hit", "is_allow"), false),
+		RiskLevel:     riskLevel,
+		RiskAction:    riskAction,
+		RiskReason:    truncateJumpText(strings.TrimSpace(firstNonEmpty(item, "risk_reason", "reason", "message")), 512),
+		Blocked:       anyToBool(lookupAny(item, "blocked", "is_blocked"), false) || riskAction == "block",
+		AlertID:       truncateJumpText(strings.TrimSpace(firstNonEmpty(item, "alert_id")), 36),
+		ExecutedAt: parseAnyTime(
+			lookupString(item, "executed_at"),
+			parseAnyTime(lookupString(item, "date_created"), time.Now()),
+		),
+	}
+}
+
+func (h *JumpHandler) upsertJumpCommand(cmd JumpCommand, stat *syncStat) error {
+	if strings.TrimSpace(cmd.SourceRef) == "" {
+		return nil
+	}
+	var existing JumpCommand
+	err := h.db.Where("source = ? AND source_ref = ?", jumpSourceJumpServer, cmd.SourceRef).First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := h.db.Create(&cmd).Error; err != nil {
+				return err
+			}
+			if stat != nil {
+				stat.Created++
+			}
+			return nil
+		}
+		return err
+	}
+	updates := map[string]interface{}{
+		"session_id":     cmd.SessionID,
+		"username":       cmd.Username,
+		"command_type":   cmd.CommandType,
+		"command":        cmd.Command,
+		"result_code":    cmd.ResultCode,
+		"output_snippet": cmd.OutputSnippet,
+		"rule_id":        cmd.RuleID,
+		"rule_name":      cmd.RuleName,
+		"whitelist_hit":  cmd.WhitelistHit,
+		"risk_level":     cmd.RiskLevel,
+		"risk_action":    cmd.RiskAction,
+		"risk_reason":    cmd.RiskReason,
+		"blocked":        cmd.Blocked,
+		"alert_id":       cmd.AlertID,
+		"executed_at":    cmd.ExecutedAt,
+	}
+	if err := h.db.Model(&existing).Updates(updates).Error; err != nil {
+		return err
+	}
+	if stat != nil {
+		stat.Updated++
+	}
+	return nil
+}
+
+func (h *JumpHandler) findLocalSessionIDByRemote(sourceRef string) string {
+	sourceRef = strings.TrimSpace(sourceRef)
+	if sourceRef == "" {
+		return ""
+	}
+	var session JumpSession
+	if err := h.db.Select("id").Where("source = ? AND source_ref = ?", jumpSourceJumpServer, sourceRef).First(&session).Error; err != nil {
+		return ""
+	}
+	return session.ID
+}
+
+func (h *JumpHandler) findLocalAssetIDByRemote(sourceRef string) string {
+	sourceRef = strings.TrimSpace(sourceRef)
+	if sourceRef == "" {
+		return ""
+	}
+	var asset JumpAsset
+	if err := h.db.Select("id").Where("source_ref = ? AND source IN ?", sourceRef, []string{"jumpserver_host", "jumpserver_database"}).First(&asset).Error; err != nil {
+		return ""
+	}
+	return asset.ID
+}
+
+func extractSessionSourceRef(item map[string]interface{}) string {
+	if item == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(firstNonEmpty(item, "session_id", "sid")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(lookupString(item, "session.id")); v != "" {
+		return v
+	}
+	return ""
+}
+
+func normalizeJumpSessionStatus(raw string) string {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "pending", "pending_approval", "waiting", "wait":
+		return "pending_approval"
+	case "active", "running", "connected", "online":
+		return "active"
+	case "rejected", "deny", "denied":
+		return "rejected"
+	case "blocked", "forbidden":
+		return "blocked"
+	case "closed", "finished", "done", "success", "failed", "disconnected":
+		return "closed"
+	case "true":
+		return "closed"
+	case "false":
+		return "active"
+	default:
+		return ""
+	}
+}
+
+func normalizeCommandType(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "sql":
+		return "sql"
+	default:
+		return "shell"
+	}
+}
+
+func parseAnyTime(raw string, fallback time.Time) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04:05.000000Z",
+	}
+	for i := range layouts {
+		if t, err := time.Parse(layouts[i], raw); err == nil {
+			return t
+		}
+	}
+	if ts, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if ts > 1e12 {
+			return time.UnixMilli(ts)
+		}
+		return time.Unix(ts, 0)
+	}
+	return fallback
+}
+
+func parseNullableTime(values ...string) *time.Time {
+	for i := range values {
+		v := strings.TrimSpace(values[i])
+		if v == "" {
+			continue
+		}
+		t := parseAnyTime(v, time.Time{})
+		if !t.IsZero() {
+			tt := t
+			return &tt
+		}
+	}
+	return nil
+}
+
+func lookupAny(item map[string]interface{}, keys ...string) interface{} {
+	for i := range keys {
+		key := strings.TrimSpace(keys[i])
+		if key == "" {
+			continue
+		}
+		if strings.Contains(key, ".") {
+			parts := strings.Split(key, ".")
+			var current interface{} = item
+			ok := true
+			for _, p := range parts {
+				m, isMap := current.(map[string]interface{})
+				if !isMap {
+					ok = false
+					break
+				}
+				next, exists := m[p]
+				if !exists {
+					ok = false
+					break
+				}
+				current = next
+			}
+			if ok && current != nil {
+				return current
+			}
+			continue
+		}
+		if v, ok := item[key]; ok && v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func lookupString(item map[string]interface{}, key string) string {
+	return strings.TrimSpace(anyToString(lookupAny(item, key)))
+}
+
+func shortHash(raw string, max int) string {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return ""
+	}
+	v = strings.ReplaceAll(v, "-", "")
+	v = strings.ReplaceAll(v, "_", "")
+	if len(v) > max {
+		return v[:max]
+	}
+	return v
 }
 
 func normalizeDBProtocol(v string) string {
