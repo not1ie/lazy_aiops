@@ -279,6 +279,7 @@ func permissionForRequest(c *gin.Context) string {
 		switch {
 		case strings.HasPrefix(rest, "assets"),
 			strings.HasPrefix(rest, "accounts"),
+			strings.HasPrefix(rest, "integration/"),
 			strings.HasPrefix(rest, "sync/"):
 			return "jump:asset"
 		case strings.HasPrefix(rest, "policies"):

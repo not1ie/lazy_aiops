@@ -44,6 +44,7 @@ func (p *JumpPlugin) Migrate() error {
 		&JumpCommandRule{},
 		&JumpCommand{},
 		&JumpRiskEvent{},
+		&JumpIntegrationConfig{},
 	); err != nil {
 		return err
 	}
@@ -105,7 +106,13 @@ func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/sync/cmdb-hosts", p.handler.SyncFromCMDBHosts)
 	r.POST("/sync/k8s-clusters", p.handler.SyncFromK8sClusters)
 	r.POST("/sync/docker-hosts", p.handler.SyncFromDockerHosts)
+	r.POST("/sync/jumpserver", p.handler.SyncFromJumpServer)
 	r.POST("/sync/all", p.handler.SyncAllAssets)
+
+	// 外部集成配置（JumpServer）
+	r.GET("/integration/config", p.handler.GetIntegrationConfig)
+	r.PUT("/integration/config", p.handler.UpdateIntegrationConfig)
+	r.POST("/integration/test", p.handler.TestIntegrationConnection)
 }
 
 func ensureDefaultJumpCommandRules(c *core.Core) error {

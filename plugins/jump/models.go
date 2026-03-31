@@ -139,6 +139,41 @@ type JumpRiskEvent struct {
 	FiredAt     time.Time `gorm:"index:idx_jump_risk_session_time,priority:2;index:idx_jump_risk_user_time,priority:2;index:idx_jump_risk_severity_time,priority:2" json:"fired_at"`
 }
 
+// JumpIntegrationConfig 外部堡垒机（如 JumpServer）接入配置
+type JumpIntegrationConfig struct {
+	core.BaseModel
+	Provider       string     `gorm:"size:32;index" json:"provider"` // jumpserver
+	Enabled        bool       `gorm:"default:false;index" json:"enabled"`
+	BaseURL        string     `gorm:"size:512" json:"base_url"`
+	OrgID          string     `gorm:"size:64" json:"org_id"`
+	AuthType       string     `gorm:"size:32" json:"auth_type"` // bearer_token, private_token, password
+	AuthUsername   string     `gorm:"size:128" json:"auth_username"`
+	AuthSecret     string     `gorm:"type:text" json:"-"`
+	VerifyTLS      bool       `gorm:"default:true" json:"verify_tls"`
+	AutoSync       bool       `gorm:"default:false" json:"auto_sync"`
+	LastSyncAt     *time.Time `json:"last_sync_at"`
+	LastSyncStatus string     `gorm:"size:32" json:"last_sync_status"` // ok, failed
+	LastSyncMsg    string     `gorm:"size:512" json:"last_sync_msg"`
+}
+
+type JumpIntegrationConfigView struct {
+	ID             string     `json:"id"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	Provider       string     `json:"provider"`
+	Enabled        bool       `json:"enabled"`
+	BaseURL        string     `json:"base_url"`
+	OrgID          string     `json:"org_id"`
+	AuthType       string     `json:"auth_type"`
+	AuthUsername   string     `json:"auth_username"`
+	HasAuthSecret  bool       `json:"has_auth_secret"`
+	VerifyTLS      bool       `json:"verify_tls"`
+	AutoSync       bool       `json:"auto_sync"`
+	LastSyncAt     *time.Time `json:"last_sync_at"`
+	LastSyncStatus string     `json:"last_sync_status"`
+	LastSyncMsg    string     `json:"last_sync_msg"`
+}
+
 // SafeJumpAccount 隐去密钥字段的账号响应
 type SafeJumpAccount struct {
 	ID          string    `json:"id"`

@@ -8,6 +8,7 @@
         </div>
         <div class="actions">
           <el-button type="primary" icon="Plus" @click="openCreate">新增资产</el-button>
+          <el-button plain @click="openIntegrationConfig">JumpServer接入</el-button>
           <el-button icon="Refresh" @click="fetchAssets">刷新</el-button>
           <el-button type="success" plain @click="syncAll">一键同步</el-button>
         </div>
@@ -27,6 +28,7 @@
       <el-button @click="syncCMDB">同步CMDB</el-button>
       <el-button @click="syncK8s">同步K8s</el-button>
       <el-button @click="syncDocker">同步Docker</el-button>
+      <el-button @click="syncJumpServer">同步JumpServer</el-button>
     </div>
 
     <el-table :fit="true" :data="assets" v-loading="loading" stripe>
@@ -102,6 +104,58 @@
       <el-button type="primary" :loading="saving" @click="saveAsset">保存</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog append-to-body v-model="integrationVisible" title="JumpServer 接入配置" width="640px">
+    <el-form :model="integrationForm" label-width="120px">
+      <el-form-item label="启用接入">
+        <el-switch v-model="integrationForm.enabled" />
+      </el-form-item>
+      <el-form-item label="JumpServer地址">
+        <el-input v-model="integrationForm.base_url" placeholder="例如 https://jump.example.com" />
+      </el-form-item>
+      <el-form-item label="组织ID">
+        <el-input v-model="integrationForm.org_id" placeholder="默认 root org" />
+      </el-form-item>
+      <el-form-item label="认证方式">
+        <el-select v-model="integrationForm.auth_type" style="width: 100%">
+          <el-option label="Bearer Token" value="bearer_token" />
+          <el-option label="Private Token" value="private_token" />
+          <el-option label="用户名/密码" value="password" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="用户名" v-if="integrationForm.auth_type === 'password'">
+        <el-input v-model="integrationForm.auth_username" placeholder="密码认证模式必填" />
+      </el-form-item>
+      <el-form-item :label="integrationForm.has_auth_secret ? '更新密钥' : '认证密钥'">
+        <el-input
+          v-model="integrationForm.auth_secret"
+          type="password"
+          show-password
+          :placeholder="integrationForm.has_auth_secret ? '留空表示不修改' : '填入 Token / Private Token / 密码'"
+        />
+      </el-form-item>
+      <el-form-item label="校验证书">
+        <el-switch v-model="integrationForm.verify_tls" />
+      </el-form-item>
+      <el-form-item label="自动同步">
+        <el-switch v-model="integrationForm.auto_sync" />
+      </el-form-item>
+      <el-form-item label="最近同步">
+        <div class="integration-sync">
+          <span>{{ integrationForm.last_sync_at ? formatTime(integrationForm.last_sync_at) : '-' }}</span>
+          <el-tag v-if="integrationForm.last_sync_status" :type="integrationForm.last_sync_status === 'ok' ? 'success' : 'danger'">
+            {{ integrationForm.last_sync_status }}
+          </el-tag>
+          <span class="integration-sync-msg" v-if="integrationForm.last_sync_msg">{{ integrationForm.last_sync_msg }}</span>
+        </div>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="integrationVisible = false">取消</el-button>
+      <el-button :loading="testingIntegration" @click="testIntegration">测试连接</el-button>
+      <el-button type="primary" :loading="savingIntegration" @click="saveIntegrationConfig">保存</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -112,7 +166,10 @@ import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
 const saving = ref(false)
+const savingIntegration = ref(false)
+const testingIntegration = ref(false)
 const dialogVisible = ref(false)
+const integrationVisible = ref(false)
 const editing = ref(false)
 const currentID = ref('')
 
@@ -125,6 +182,20 @@ const filters = reactive({
 })
 
 const assets = ref([])
+const integrationForm = reactive({
+  enabled: false,
+  base_url: '',
+  org_id: '00000000-0000-0000-0000-000000000002',
+  auth_type: 'bearer_token',
+  auth_username: '',
+  auth_secret: '',
+  has_auth_secret: false,
+  verify_tls: true,
+  auto_sync: false,
+  last_sync_at: '',
+  last_sync_status: '',
+  last_sync_msg: ''
+})
 
 const form = reactive({
   name: '',
@@ -186,6 +257,26 @@ const fetchAssets = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const loadIntegrationConfig = async () => {
+  const res = await axios.get('/api/v1/jump/integration/config', { headers: authHeaders() })
+  if (res.data?.code !== 0) return
+  const data = res.data?.data || {}
+  Object.assign(integrationForm, {
+    enabled: data.enabled === true,
+    base_url: data.base_url || '',
+    org_id: data.org_id || '00000000-0000-0000-0000-000000000002',
+    auth_type: data.auth_type || 'bearer_token',
+    auth_username: data.auth_username || '',
+    auth_secret: '',
+    has_auth_secret: data.has_auth_secret === true,
+    verify_tls: data.verify_tls !== false,
+    auto_sync: data.auto_sync === true,
+    last_sync_at: data.last_sync_at || '',
+    last_sync_status: data.last_sync_status || '',
+    last_sync_msg: data.last_sync_msg || ''
+  })
 }
 
 const resetForm = () => {
@@ -284,9 +375,60 @@ const runSync = async (url, okText = '同步成功') => {
 const syncCMDB = () => runSync('/api/v1/jump/sync/cmdb-hosts')
 const syncK8s = () => runSync('/api/v1/jump/sync/k8s-clusters')
 const syncDocker = () => runSync('/api/v1/jump/sync/docker-hosts')
+const syncJumpServer = () => runSync('/api/v1/jump/sync/jumpserver', 'JumpServer 同步完成')
 const syncAll = () => runSync('/api/v1/jump/sync/all', '同步完成')
 
-onMounted(fetchAssets)
+const openIntegrationConfig = async () => {
+  try {
+    await loadIntegrationConfig()
+    integrationVisible.value = true
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '读取接入配置失败'))
+  }
+}
+
+const saveIntegrationConfig = async () => {
+  savingIntegration.value = true
+  try {
+    const payload = {
+      enabled: integrationForm.enabled,
+      base_url: integrationForm.base_url,
+      org_id: integrationForm.org_id,
+      auth_type: integrationForm.auth_type,
+      auth_username: integrationForm.auth_username,
+      auth_secret: integrationForm.auth_secret,
+      verify_tls: integrationForm.verify_tls,
+      auto_sync: integrationForm.auto_sync
+    }
+    const res = await axios.put('/api/v1/jump/integration/config', payload, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      ElMessage.success('接入配置已保存')
+      await loadIntegrationConfig()
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '保存接入配置失败'))
+  } finally {
+    savingIntegration.value = false
+  }
+}
+
+const testIntegration = async () => {
+  testingIntegration.value = true
+  try {
+    const res = await axios.post('/api/v1/jump/integration/test', {}, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data?.message || '连接成功')
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '连接测试失败'))
+  } finally {
+    testingIntegration.value = false
+  }
+}
+
+onMounted(async () => {
+  await fetchAssets()
+})
 </script>
 
 <style scoped>
@@ -298,6 +440,8 @@ onMounted(fetchAssets)
 .toolbar { margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 .filter-item { width: 220px; }
 .inline-fields { display: grid; gap: 8px; width: 100%; grid-template-columns: 1fr 1fr; }
+.integration-sync { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #606266; }
+.integration-sync-msg { color: #909399; }
 @media (max-width: 768px) {
   .header { flex-direction: column; align-items: flex-start; }
   .filter-item { width: 100%; }

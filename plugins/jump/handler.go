@@ -1935,12 +1935,19 @@ func (h *JumpHandler) SyncAllAssets(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "Docker同步失败: " + err.Error()})
 		return
 	}
+	jumpServerStat, jumpServerErr := h.syncFromJumpServerAssets(false)
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+	data := gin.H{
 		"cmdb_hosts":   cmdbStat,
 		"k8s_clusters": k8sStat,
 		"docker_hosts": dockerStat,
-	}})
+		"jumpserver":   jumpServerStat,
+	}
+	if jumpServerErr != nil {
+		data["jumpserver_error"] = jumpServerErr.Error()
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": data})
 }
 
 func (h *JumpHandler) syncFromCMDBHosts() (syncStat, error) {
