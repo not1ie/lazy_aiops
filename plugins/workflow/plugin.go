@@ -48,6 +48,7 @@ func (p *WorkflowPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	p.engine.SetNotifier(func(targetID, title, content string) error {
 		return notifyplugin.SendByTarget(p.core.DB, targetID, title, content, "", "workflow", "")
 	})
+	RegisterDefaultEngine(p.engine)
 
 	// 工作流
 	workflows := g.Group("/workflows")

@@ -141,12 +141,56 @@
             <div class="page-actions">
               <el-tag :type="riskTagType(aiWorkflowMeta.plan?.risk_level)">{{ aiWorkflowMeta.plan?.risk_level || 'unknown' }}</el-tag>
               <el-button v-if="aiWorkflowMeta.generated_workflow_id" type="primary" plain @click="openGeneratedWorkflow(aiWorkflowMeta.generated_workflow_id)">打开工作流</el-button>
+              <el-button v-if="detail.order?.status === 2 && aiWorkflowMeta.generated_workflow_id" type="success" plain @click="executeOrder(detail.order)">执行 AI Runbook</el-button>
             </div>
           </div>
         </template>
         <div class="pre-wrap">{{ aiWorkflowMeta.plan?.summary || '该工单来自 AI 执行计划。' }}</div>
+        <div v-if="aiWorkflowMeta.plan?.prechecks?.length" class="workflow-list">
+          <div class="workflow-list-title">执行前检查</div>
+          <div v-for="item in aiWorkflowMeta.plan.prechecks" :key="`pre-${item}`" class="workflow-list-item">{{ item }}</div>
+        </div>
+        <div v-if="aiWorkflowManualItems.length" class="workflow-list">
+          <div class="workflow-list-title">人工确认项</div>
+          <div v-for="item in aiWorkflowManualItems" :key="`manual-${item}`" class="workflow-list-item">{{ item }}</div>
+        </div>
+        <div v-if="aiWorkflowMeta.plan?.validation_steps?.length" class="workflow-list">
+          <div class="workflow-list-title">验证步骤</div>
+          <div v-for="item in aiWorkflowMeta.plan.validation_steps" :key="`validate-${item}`" class="workflow-list-item">{{ item }}</div>
+        </div>
         <div class="muted workflow-meta" v-if="aiWorkflowMeta.context_summary">场景上下文：{{ aiWorkflowMeta.context_summary }}</div>
         <div class="muted workflow-meta" v-if="aiWorkflowMeta.generated_workflow_id">Runbook ID：{{ aiWorkflowMeta.generated_workflow_id }}</div>
+      </el-card>
+
+      <el-card v-if="detail.workflow_runtime" shadow="never" class="mb-3">
+        <template #header>
+          <div class="section-header">
+            <span>最近一次 Workflow 执行</span>
+            <el-tag :type="workflowStatusTagType(detail.workflow_runtime.status)">{{ detail.workflow_runtime.status_text || '-' }}</el-tag>
+          </div>
+        </template>
+        <div class="workflow-runtime-grid">
+          <div><strong>执行ID：</strong>{{ detail.workflow_runtime.execution_id || '-' }}</div>
+          <div><strong>Workflow：</strong>{{ detail.workflow_runtime.workflow_id || '-' }}</div>
+          <div><strong>开始时间：</strong>{{ formatTime(detail.workflow_runtime.started_at) }}</div>
+          <div><strong>结束时间：</strong>{{ formatTime(detail.workflow_runtime.finished_at) }}</div>
+          <div><strong>耗时：</strong>{{ detail.workflow_runtime.duration || 0 }}s</div>
+          <div><strong>节点统计：</strong>{{ detail.workflow_runtime.success_nodes || 0 }}/{{ detail.workflow_runtime.total_nodes || 0 }} 成功</div>
+          <div><strong>当前节点：</strong>{{ detail.workflow_runtime.current_node || '-' }}</div>
+          <div><strong>触发人：</strong>{{ detail.workflow_runtime.trigger_by || '-' }}</div>
+        </div>
+        <div v-if="detail.workflow_runtime.failed_node_name || detail.workflow_runtime.failed_node_id" class="workflow-runtime-fail">
+          <strong>失败节点：</strong>{{ detail.workflow_runtime.failed_node_name || detail.workflow_runtime.failed_node_id }}
+        </div>
+        <div v-if="detail.workflow_runtime.failed_node_error" class="workflow-runtime-fail">
+          <strong>节点错误：</strong>{{ detail.workflow_runtime.failed_node_error }}
+        </div>
+        <div v-if="detail.workflow_runtime.error" class="workflow-runtime-fail">
+          <strong>执行错误：</strong>{{ detail.workflow_runtime.error }}
+        </div>
+        <div v-if="Number(detail.workflow_runtime.status) === 4" class="workflow-runtime-tip">
+          当前执行在审批节点等待处理，请到工作流执行记录中完成审批后继续。
+        </div>
       </el-card>
 
       <el-card shadow="never" class="mb-3">
@@ -182,7 +226,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
@@ -211,7 +255,8 @@ const approveForm = ref({ approved: true, comment: '' })
 
 const detailVisible = ref(false)
 const detailOrderId = ref('')
-const detail = ref({ order: null, steps: [], comments: [] })
+const detail = ref({ order: null, steps: [], comments: [], workflow_runtime: null })
+const detailRefreshTimer = ref(null)
 const commentInput = ref('')
 const router = useRouter()
 
@@ -244,10 +289,39 @@ const handleApproveClosed = () => {
 }
 
 const handleDetailClosed = () => {
+  clearDetailRefreshTimer()
   detailVisible.value = false
   detailOrderId.value = ''
-  detail.value = { order: null, steps: [], comments: [] }
+  detail.value = { order: null, steps: [], comments: [], workflow_runtime: null }
   commentInput.value = ''
+}
+
+const clearDetailRefreshTimer = () => {
+  if (detailRefreshTimer.value) {
+    clearInterval(detailRefreshTimer.value)
+    detailRefreshTimer.value = null
+  }
+}
+
+const isWorkflowRuntimeActive = () => [0, 4].includes(Number(detail.value?.workflow_runtime?.status))
+
+const ensureDetailRefreshTimer = () => {
+  if (!detailVisible.value || !detailOrderId.value || !isWorkflowRuntimeActive()) {
+    clearDetailRefreshTimer()
+    return
+  }
+  if (detailRefreshTimer.value) return
+  detailRefreshTimer.value = setInterval(async () => {
+    if (!detailVisible.value || !detailOrderId.value) {
+      clearDetailRefreshTimer()
+      return
+    }
+    try {
+      await fetchDetail(detailOrderId.value, { silent: true })
+    } catch (_) {
+      // 轮询失败时保持静默，避免打断用户操作。
+    }
+  }, 8000)
 }
 
 const formatTime = (v) => {
@@ -271,16 +345,29 @@ const statusText = (v) => ({
 const statusType = (v) => ({ 0: 'warning', 1: 'primary', 2: 'success', 3: 'danger', 4: 'primary', 5: 'success', 6: 'info' }[v] || 'info')
 const stepStatusText = (v) => ({ 0: '待审批', 1: '通过', 2: '拒绝' }[v] || '-')
 const riskTagType = (v) => ({ high: 'danger', medium: 'warning', low: 'success' }[String(v || '').toLowerCase()] || 'info')
+const workflowStatusTagType = (v) => ({ 0: 'primary', 1: 'success', 2: 'danger', 3: 'warning', 4: 'warning' }[Number(v)] || 'info')
 
-const aiWorkflowMeta = computed(() => {
-  if (!detail.value?.order?.form_data) return null
+const parseAIWorkflowMeta = (row) => {
+  if (!row?.form_data) return null
   try {
-    const data = JSON.parse(detail.value.order.form_data)
+    const data = JSON.parse(row.form_data)
     if (String(data?.source || '') !== 'ai_execution_plan') return null
     return data
   } catch (_) {
     return null
   }
+}
+
+const aiWorkflowMeta = computed(() => {
+  return parseAIWorkflowMeta(detail.value?.order)
+})
+
+const aiWorkflowManualItems = computed(() => {
+  const steps = aiWorkflowMeta.value?.plan?.steps || []
+  return steps
+    .filter((step) => step?.requires_confirmation || String(step?.node_type || '').toLowerCase() === 'manual')
+    .map((step) => step.title || step.action)
+    .filter(Boolean)
 })
 
 const canApprove = (row) => row.status === 0 || row.status === 1
@@ -397,11 +484,39 @@ const isCICDWorkOrder = (row) => {
   }
 }
 
+const isAIWorkflowOrder = (row) => Boolean(parseAIWorkflowMeta(row)?.generated_workflow_id)
+
+const buildExecutionChecklist = (meta) => {
+  if (!meta?.plan) return []
+  const items = []
+  for (const item of meta.plan.prechecks || []) items.push(`前置检查: ${item}`)
+  for (const step of meta.plan.steps || []) {
+    if (step?.requires_confirmation || String(step?.node_type || '').toLowerCase() === 'manual') {
+      items.push(`人工确认: ${step.title || step.action}`)
+    }
+  }
+  for (const item of meta.plan.validation_steps || []) items.push(`执行后验证: ${item}`)
+  return items
+}
+
 const executeOrder = async (row) => {
   try {
     if (isCICDWorkOrder(row)) {
       await axios.post(`/api/v1/cicd/orders/${row.id}/execute`, {}, { headers: authHeaders() })
       ElMessage.success('已触发流水线执行')
+    } else if (isAIWorkflowOrder(row)) {
+      const meta = parseAIWorkflowMeta(row)
+      const checklist = buildExecutionChecklist(meta)
+      if (checklist.length) {
+        await ElMessageBox.confirm(checklist.join('\n'), '执行前请确认以下事项', {
+          type: 'warning',
+          confirmButtonText: '已确认，开始执行',
+          cancelButtonText: '取消'
+        })
+      }
+      const res = await axios.post(`/api/v1/workorder/orders/${row.id}/execute`, {}, { headers: authHeaders() })
+      const executionID = res.data?.data?.execution_id
+      ElMessage.success(executionID ? `AI Runbook 已开始执行（执行ID: ${executionID}）` : 'AI Runbook 已开始执行')
     } else {
       await axios.post(`/api/v1/workorder/orders/${row.id}/execute`, {}, { headers: authHeaders() })
       ElMessage.success('已开始执行')
@@ -409,6 +524,14 @@ const executeOrder = async (row) => {
     await reloadAll()
     if (detailOrderId.value === row.id) await fetchDetail(row.id)
   } catch (err) {
+    const conflictCode = Number(err?.response?.status || err?.response?.data?.code)
+    if (conflictCode === 409) {
+      const existingExecutionID = err?.response?.data?.data?.execution_id
+      ElMessage.warning(existingExecutionID ? `已有执行进行中（执行ID: ${existingExecutionID}），请勿重复触发。` : getErrorMessage(err, '已有执行进行中'))
+      await reloadAll()
+      if (detailOrderId.value === row.id) await fetchDetail(row.id, { silent: true })
+      return
+    }
     ElMessage.error(getErrorMessage(err, '执行失败'))
   }
 }
@@ -439,16 +562,18 @@ const cancelOrder = async (row) => {
 
 const fetchDetail = async (id) => {
   const res = await axios.get(`/api/v1/workorder/orders/${id}`, { headers: authHeaders() })
-  detail.value = res.data?.data || { order: null, steps: [], comments: [] }
+  detail.value = res.data?.data || { order: null, steps: [], comments: [], workflow_runtime: null }
+  ensureDetailRefreshTimer()
 }
 
 const openDetail = async (row) => {
   detailOrderId.value = row.id
   commentInput.value = ''
+  detailVisible.value = true
   try {
     await fetchDetail(row.id)
-    detailVisible.value = true
   } catch (err) {
+    detailVisible.value = false
     ElMessage.error(getErrorMessage(err, '读取详情失败'))
   }
 }
@@ -469,6 +594,9 @@ const submitComment = async () => {
 }
 
 onMounted(reloadAll)
+onUnmounted(() => {
+  clearDetailRefreshTimer()
+})
 </script>
 
 <style scoped>
@@ -489,4 +617,25 @@ onMounted(reloadAll)
 .comment-user { font-weight: 600; margin-right: 6px; }
 .comment-type { color: #909399; margin-right: 8px; }
 .workflow-meta { margin-top: 8px; }
+.workflow-list { margin-top: 12px; }
+.workflow-list-title { font-weight: 600; margin-bottom: 6px; }
+.workflow-list-item { color: #606266; line-height: 1.6; }
+.workflow-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  color: #606266;
+  line-height: 1.5;
+}
+.workflow-runtime-fail {
+  margin-top: 10px;
+  color: #b91c1c;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.workflow-runtime-tip {
+  margin-top: 10px;
+  color: #b45309;
+  line-height: 1.5;
+}
 </style>

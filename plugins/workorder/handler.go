@@ -3,8 +3,10 @@ package workorder
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -187,13 +189,15 @@ func (h *WorkOrderHandler) GetOrder(c *gin.Context) {
 	// 获取评论
 	var comments []WorkOrderComment
 	h.db.Where("order_id = ?", id).Order("created_at").Find(&comments)
+	workflowRuntime := loadLatestWorkflowRuntime(h.db, &order)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": gin.H{
-			"order":    order,
-			"steps":    steps,
-			"comments": comments,
+			"order":            order,
+			"steps":            steps,
+			"comments":         comments,
+			"workflow_runtime": workflowRuntime,
 		},
 	})
 }
@@ -295,13 +299,58 @@ func (h *WorkOrderHandler) ExecuteOrder(c *gin.Context) {
 	}
 
 	username := c.GetString("username")
+	payload := parseAIPlanFormData(order.FormData)
+	manualItems := manualConfirmationItems(payload)
+
+	executionID := ""
+	workflowID := ""
+	comment := "开始执行"
+
+	if payload != nil && strings.TrimSpace(payload.GeneratedWorkflowID) != "" {
+		workflowID = strings.TrimSpace(payload.GeneratedWorkflowID)
+		if activeExec := findActiveWorkflowExecutionForOrder(h.db, &order, payload); activeExec != nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"code":    409,
+				"message": fmt.Sprintf("已存在进行中的 Workflow 执行（%s），请勿重复触发。", activeExec.ID),
+				"data": gin.H{
+					"workflow_id":  activeExec.WorkflowID,
+					"execution_id": activeExec.ID,
+					"status":       activeExec.Status,
+					"status_text":  workflowStatusText(activeExec.Status),
+				},
+			})
+			return
+		}
+		execution, err := workflow.ExecuteWorkflowByID(h.db, workflowID, buildRunbookExecutionVariables(&order, payload), username)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "触发关联 Workflow 失败: " + err.Error()})
+			return
+		}
+		executionID = execution.ID
+		comment = "开始执行，已触发 Workflow Runbook: " + workflowID
+		if strings.TrimSpace(executionID) != "" {
+			comment += "，执行ID: " + executionID
+		}
+	}
+
 	h.db.Model(&order).Updates(map[string]interface{}{
 		"status":   4,
 		"assignee": username,
 	})
-	addComment(h.db, id, username, "system", "开始执行")
+	addComment(h.db, id, username, "system", comment)
+	if strings.TrimSpace(executionID) != "" {
+		startWorkflowExecutionTrace(h.db, id, workflowID, executionID, username)
+	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "开始执行"})
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "开始执行",
+		"data": gin.H{
+			"workflow_id":  workflowID,
+			"execution_id": executionID,
+			"manual_items": manualItems,
+		},
+	})
 }
 
 // CompleteOrder 完成工单
@@ -321,6 +370,21 @@ func (h *WorkOrderHandler) CompleteOrder(c *gin.Context) {
 		return
 	}
 
+	payload := parseAIPlanFormData(order.FormData)
+	if activeExec := findActiveWorkflowExecutionForOrder(h.db, &order, payload); activeExec != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"code":    409,
+			"message": fmt.Sprintf("存在未结束的 Workflow 执行（%s），请先等待完成或取消后再手动完成工单。", activeExec.ID),
+			"data": gin.H{
+				"workflow_id":  activeExec.WorkflowID,
+				"execution_id": activeExec.ID,
+				"status":       activeExec.Status,
+				"status_text":  workflowStatusText(activeExec.Status),
+			},
+		})
+		return
+	}
+
 	now := time.Now()
 	username := c.GetString("username")
 	h.db.Model(&order).Updates(map[string]interface{}{
@@ -336,11 +400,39 @@ func (h *WorkOrderHandler) CompleteOrder(c *gin.Context) {
 func (h *WorkOrderHandler) CancelOrder(c *gin.Context) {
 	id := c.Param("id")
 	username := c.GetString("username")
+	var order WorkOrder
+	if err := h.db.First(&order, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "工单不存在"})
+		return
+	}
 
-	h.db.Model(&WorkOrder{}).Where("id = ?", id).Update("status", 6)
+	h.db.Model(&order).Updates(map[string]interface{}{
+		"status":       6,
+		"completed_at": nil,
+	})
 	addComment(h.db, id, username, "system", "工单已取消")
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "工单已取消"})
+	executionID := ""
+	cancelErrText := ""
+	payload := parseAIPlanFormData(order.FormData)
+	if activeExec := findActiveWorkflowExecutionForOrder(h.db, &order, payload); activeExec != nil {
+		executionID = activeExec.ID
+		if err := workflow.CancelWorkflowExecutionByID(h.db, activeExec.ID); err != nil {
+			cancelErrText = err.Error()
+			addComment(h.db, id, username, "system", "工单已取消，但关联 Workflow 取消失败："+cancelErrText)
+		} else {
+			addComment(h.db, id, username, "system", "已联动取消关联 Workflow 执行："+activeExec.ID)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "工单已取消",
+		"data": gin.H{
+			"execution_id": executionID,
+			"cancel_error": cancelErrText,
+		},
+	})
 }
 
 // AddComment 添加评论

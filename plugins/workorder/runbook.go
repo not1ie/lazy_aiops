@@ -54,15 +54,73 @@ type runbookNode struct {
 	Next   []string               `json:"next,omitempty"`
 }
 
+func parseAIPlanFormData(formData string) *aiPlanFormData {
+	if strings.TrimSpace(formData) == "" {
+		return nil
+	}
+	var payload aiPlanFormData
+	if err := json.Unmarshal([]byte(formData), &payload); err != nil {
+		return nil
+	}
+	if payload.Source != "ai_execution_plan" || payload.Plan == nil {
+		return nil
+	}
+	return &payload
+}
+
+func manualConfirmationItems(payload *aiPlanFormData) []string {
+	if payload == nil || payload.Plan == nil {
+		return nil
+	}
+	items := make([]string, 0)
+	for _, step := range payload.Plan.Steps {
+		nodeType := strings.TrimSpace(strings.ToLower(step.NodeType))
+		if step.RequiresConfirmation || nodeType == "manual" {
+			title := strings.TrimSpace(step.Title)
+			if title == "" {
+				title = strings.TrimSpace(step.Action)
+			}
+			if title != "" {
+				items = append(items, title)
+			}
+		}
+	}
+	return items
+}
+
+func buildRunbookExecutionVariables(order *WorkOrder, payload *aiPlanFormData) map[string]interface{} {
+	vars := map[string]interface{}{
+		"workorder_id":    order.ID,
+		"workorder_title": order.Title,
+		"workorder_type":  order.TypeName,
+		"submitter":       order.Submitter,
+	}
+	if payload == nil || payload.Plan == nil {
+		return vars
+	}
+	vars["plan_title"] = payload.Plan.Title
+	vars["plan_summary"] = payload.Plan.Summary
+	vars["plan_objective"] = payload.Plan.Objective
+	vars["risk_level"] = payload.Plan.RiskLevel
+	vars["approval_reason"] = payload.Plan.ApprovalReason
+	vars["context_scope"] = payload.ContextScope
+	vars["context_summary"] = payload.ContextSummary
+	vars["manual_items"] = manualConfirmationItems(payload)
+	vars["prechecks"] = payload.Plan.Prechecks
+	vars["validation_steps"] = payload.Plan.ValidationSteps
+	vars["rollback_steps"] = payload.Plan.RollbackSteps
+	return vars
+}
+
 func maybeCreateRunbookWorkflow(db *gorm.DB, order *WorkOrder, operator string) (*workflow.Workflow, error) {
 	if order == nil || strings.TrimSpace(order.FormData) == "" {
 		return nil, nil
 	}
-	var payload aiPlanFormData
-	if err := json.Unmarshal([]byte(order.FormData), &payload); err != nil {
+	payload := parseAIPlanFormData(order.FormData)
+	if payload == nil {
 		return nil, nil
 	}
-	if payload.Source != "ai_execution_plan" || payload.Plan == nil || !payload.Plan.NeedApproval {
+	if !payload.Plan.NeedApproval {
 		return nil, nil
 	}
 	if strings.TrimSpace(payload.GeneratedWorkflowID) != "" {
@@ -72,8 +130,8 @@ func maybeCreateRunbookWorkflow(db *gorm.DB, order *WorkOrder, operator string) 
 		}
 	}
 
-	definition := buildRunbookWorkflowDefinition(order, &payload)
-	variables := buildRunbookWorkflowVariables(order, &payload)
+	definition := buildRunbookWorkflowDefinition(order, payload)
+	variables := buildRunbookWorkflowVariables(order, payload)
 	name := strings.TrimSpace(payload.Plan.Title)
 	if name == "" {
 		name = strings.TrimSpace(order.Title)

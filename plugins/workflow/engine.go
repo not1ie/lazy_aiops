@@ -27,10 +27,11 @@ type Engine struct {
 var errApprovalPending = errors.New("workflow approval pending")
 
 type ExecutionContext struct {
-	Execution *WorkflowExecution
-	Workflow  *Workflow
-	Variables map[string]interface{}
-	Cancel    chan struct{}
+	Execution  *WorkflowExecution
+	Workflow   *Workflow
+	Variables  map[string]interface{}
+	Cancel     chan struct{}
+	CancelOnce sync.Once
 }
 
 type Node struct {
@@ -428,6 +429,21 @@ func (e *Engine) renderTemplate(text string, vars map[string]interface{}) string
 }
 
 func (e *Engine) finishExecution(ctx *ExecutionContext, status int, errMsg string) {
+	var current WorkflowExecution
+	if err := e.db.Select("status", "started_at", "finished_at").First(&current, "id = ?", ctx.Execution.ID).Error; err == nil {
+		// 若外部已主动取消，保留取消状态，不再被正常/失败状态覆盖。
+		if current.Status == 3 {
+			if current.FinishedAt == nil {
+				now := time.Now()
+				_ = e.db.Model(&current).Updates(map[string]interface{}{
+					"finished_at": now,
+					"duration":    int(now.Sub(current.StartedAt).Seconds()),
+				}).Error
+			}
+			return
+		}
+	}
+
 	now := time.Now()
 	updates := map[string]interface{}{
 		"status":      status,
@@ -442,10 +458,40 @@ func (e *Engine) finishExecution(ctx *ExecutionContext, status int, errMsg strin
 
 // Cancel 取消执行
 func (e *Engine) Cancel(executionID string) error {
-	if ctx, ok := e.executions.Load(executionID); ok {
-		close(ctx.(*ExecutionContext).Cancel)
-		e.db.Model(&WorkflowExecution{}).Where("id = ?", executionID).Update("status", 3)
-		return nil
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" {
+		return fmt.Errorf("执行ID不能为空")
 	}
-	return fmt.Errorf("执行不存在或已结束")
+
+	if ctx, ok := e.executions.Load(executionID); ok {
+		ctxValue := ctx.(*ExecutionContext)
+		ctxValue.CancelOnce.Do(func() {
+			close(ctxValue.Cancel)
+		})
+	}
+
+	var execution WorkflowExecution
+	if err := e.db.First(&execution, "id = ?", executionID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("执行不存在")
+		}
+		return err
+	}
+	if execution.Status == 1 || execution.Status == 2 || execution.Status == 3 {
+		return fmt.Errorf("执行已结束")
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status": 3,
+		"error":  "执行已取消",
+	}
+	if execution.FinishedAt == nil {
+		updates["finished_at"] = now
+		updates["duration"] = int(now.Sub(execution.StartedAt).Seconds())
+	}
+	if err := e.db.Model(&execution).Updates(updates).Error; err != nil {
+		return err
+	}
+	return nil
 }
