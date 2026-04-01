@@ -192,6 +192,89 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="12" class="mt-12">
+      <el-col :span="16">
+        <el-card class="capability-card">
+          <template #header>
+            <div class="capability-header">
+              <span>功能完整度矩阵</span>
+              <div class="capability-tags">
+                <el-tag type="success" effect="light">完整 {{ capabilitySummary.complete }}</el-tag>
+                <el-tag type="warning" effect="light">待补齐 {{ capabilitySummary.partial }}</el-tag>
+                <el-tag type="danger" effect="light">缺口 {{ capabilitySummary.gap }}</el-tag>
+              </div>
+            </div>
+          </template>
+          <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="320" empty-text="暂无模块能力数据">
+            <el-table-column prop="label" label="能力模块" min-width="140" />
+            <el-table-column label="链路" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.linkStatus === 'ok' ? 'success' : row.linkStatus === 'warning' ? 'warning' : 'danger'">
+                  {{ row.linkStatus === 'ok' ? '正常' : row.linkStatus === 'warning' ? '降级' : '异常' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态判定" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.status === 'ok' ? 'success' : row.status === 'warning' ? 'warning' : 'danger'">
+                  {{ row.status === 'ok' ? '正常' : row.status === 'warning' ? '预警' : '异常' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="自动处置" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.automationScore >= 90 ? 'success' : row.automationScore >= 70 ? 'warning' : 'info'">
+                  {{ row.automationScore >= 90 ? '完善' : row.automationScore >= 70 ? '可用' : '较弱' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="目标值" width="78">
+              <template #default="{ row }">{{ row.targetScore }}%</template>
+            </el-table-column>
+            <el-table-column label="当前值" width="110">
+              <template #default="{ row }">
+                <el-progress :percentage="row.currentScore" :stroke-width="10" :show-text="false" />
+                <div class="capability-mini-percent">{{ row.currentScore }}%</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="趋势" width="94">
+              <template #default="{ row }">
+                <el-tag size="small" :type="capabilityTrendTag(row.trendDirection)">
+                  {{ capabilityTrendArrow(row.trendDirection) }} {{ formatTrendDelta(row.trendDelta) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="suggestion" label="建议" min-width="170" show-overflow-tooltip />
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card class="capability-gap-card">
+          <template #header>
+            <div class="capability-header">
+              <span>能力缺口追踪</span>
+              <el-tag :type="capabilityGapRows.length ? 'warning' : 'success'" effect="light">缺口 {{ capabilityGapRows.length }}</el-tag>
+            </div>
+          </template>
+          <el-table :fit="true" :data="capabilityGapRows" size="small" max-height="320" empty-text="暂无高优先级缺口">
+            <el-table-column prop="module" label="模块" width="110" />
+            <el-table-column prop="gap" label="缺口" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="impact" label="影响" min-width="170" show-overflow-tooltip />
+            <el-table-column label="操作" width="90">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">修复</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
@@ -396,6 +479,14 @@ const stats = reactive({
   workorderPending: 0,
   workorderDone: 0
 })
+const dataSourceStatus = reactive({
+  pipelines: 'unknown',
+  executions: 'unknown',
+  schedules: 'unknown',
+  releases: 'unknown',
+  orders: 'unknown',
+  orderStats: 'unknown'
+})
 
 
 const panelRouteMap = {
@@ -564,6 +655,160 @@ const pendingApprovalTimeout = computed(() => orders.value.filter((item) => isOr
 const executionLongRunning = computed(() => executions.value.filter((item) => isExecutionLongRunning(item)).length)
 const scheduleStale = computed(() => schedules.value.filter((item) => isScheduleStale(item)).length)
 const pendingBacklog = computed(() => pendingApprovalTimeout.value + executionLongRunning.value + scheduleStale.value)
+
+const capabilityStatusSeverity = { ok: 1, warning: 2, error: 3, unknown: 0 }
+const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+const capabilityScoreByStatus = (value) => {
+  const status = normalizeText(value)
+  if (status === 'ok') return 100
+  if (status === 'warning') return 72
+  if (status === 'error') return 38
+  return 50
+}
+const capabilityTrendByTarget = (currentScore, targetScore) => {
+  const delta = Math.round((Number(currentScore) || 0) - (Number(targetScore) || 0))
+  if (delta >= 3) return { direction: 'up', delta }
+  if (delta <= -3) return { direction: 'down', delta }
+  return { direction: 'flat', delta }
+}
+const capabilityTrendArrow = (direction) => {
+  if (direction === 'up') return '↑'
+  if (direction === 'down') return '↓'
+  return '→'
+}
+const capabilityTrendTag = (direction) => {
+  if (direction === 'up') return 'success'
+  if (direction === 'down') return 'danger'
+  return 'info'
+}
+const formatTrendDelta = (value) => {
+  const delta = Math.round(Number(value) || 0)
+  if (delta > 0) return `+${delta}%`
+  return `${delta}%`
+}
+const worstStatus = (...values) =>
+  values.reduce((worst, current) => (capabilityStatusSeverity[normalizeText(current)] > capabilityStatusSeverity[normalizeText(worst)] ? current : worst), 'ok')
+
+const moduleCapabilityRows = computed(() => {
+  const pipelineLink = dataSourceStatus.pipelines
+  const pipelineStatus = stats.pipelineEnabled === 0 ? 'warning' : 'ok'
+  const pipelineAutomation = stats.pipelineNeedApprove > 0 ? 88 : 78
+
+  const executionLink = dataSourceStatus.executions
+  const executionStatus = stats.executionFailed > 0 ? 'error' : (executionLongRunning.value > 0 ? 'warning' : 'ok')
+  const executionAutomation = (stats.executionRunning > 0 || executionLongRunning.value > 0) ? 92 : 80
+
+  const scheduleLink = dataSourceStatus.schedules
+  const scheduleStatus = scheduleStale.value > 0 ? 'warning' : 'ok'
+  const scheduleAutomation = stats.scheduleEnabled > 0 ? 86 : 64
+
+  const releaseLink = dataSourceStatus.releases
+  const releaseStatus = stats.releaseTotal > 0 && stats.released === 0 ? 'warning' : 'ok'
+  const releaseAutomation = stats.releaseTotal > 0 ? 80 : 62
+
+  const workorderLink = worstStatus(dataSourceStatus.orders, dataSourceStatus.orderStats)
+  const workorderStatus = pendingApprovalTimeout.value > 0 ? 'error' : (stats.workorderPending > 0 ? 'warning' : 'ok')
+  const workorderAutomation = pendingOrders.value.length > 0 ? 94 : 82
+
+  const rows = [
+    {
+      key: 'pipeline',
+      label: '流水线治理',
+      path: '/cicd/pipelines',
+      linkStatus: pipelineLink,
+      status: pipelineStatus,
+      automationScore: pipelineAutomation,
+      targetScore: 90,
+      freshnessScore: stats.pipelineTotal > 0 ? clampPercent((stats.pipelineEnabled / stats.pipelineTotal) * 100) : 65,
+      suggestion: pipelineStatus === 'ok' ? '保持分支策略与审批策略协同' : '补齐关键流水线启用与审批基线'
+    },
+    {
+      key: 'execution',
+      label: '执行稳定性',
+      path: '/cicd/executions',
+      linkStatus: executionLink,
+      status: executionStatus,
+      automationScore: executionAutomation,
+      targetScore: 92,
+      freshnessScore: clampPercent(100 - executionLongRunning.value * 8 - stats.executionFailed * 6),
+      suggestion: executionStatus === 'ok' ? '保持执行成功率与容量平衡' : '优先处置失败与长时间执行任务'
+    },
+    {
+      key: 'schedule',
+      label: '计划发布',
+      path: '/cicd/schedules',
+      linkStatus: scheduleLink,
+      status: scheduleStatus,
+      automationScore: scheduleAutomation,
+      targetScore: 88,
+      freshnessScore: clampPercent(100 - scheduleStale.value * 10),
+      suggestion: scheduleStatus === 'ok' ? '持续校验CRON与窗口冲突' : '修复过期计划任务与失效CRON'
+    },
+    {
+      key: 'release',
+      label: '发布治理',
+      path: '/cicd/releases',
+      linkStatus: releaseLink,
+      status: releaseStatus,
+      automationScore: releaseAutomation,
+      targetScore: 86,
+      freshnessScore: stats.releaseTotal > 0 ? clampPercent((stats.released / stats.releaseTotal) * 100) : 70,
+      suggestion: releaseStatus === 'ok' ? '保持发布与回滚演练频率' : '补齐发布闭环与回滚预案'
+    },
+    {
+      key: 'workorder',
+      label: '工单审批闭环',
+      path: '/workorder/tickets',
+      linkStatus: workorderLink,
+      status: workorderStatus,
+      automationScore: workorderAutomation,
+      targetScore: 90,
+      freshnessScore: clampPercent(100 - pendingApprovalTimeout.value * 12 - Math.max(0, stats.workorderPending - pendingApprovalTimeout.value) * 3),
+      suggestion: workorderStatus === 'ok' ? '保持审批SLA与执行闭环' : '优先清理超时审批与积压工单'
+    }
+  ]
+
+  return rows.map((item) => {
+    const score = clampPercent(
+      capabilityScoreByStatus(item.status) * 0.4 +
+      capabilityScoreByStatus(item.linkStatus) * 0.3 +
+      item.automationScore * 0.2 +
+      item.freshnessScore * 0.1
+    )
+    const targetScore = clampPercent(item.targetScore || 88)
+    const trend = capabilityTrendByTarget(score, targetScore)
+    const level = score >= 85 ? 'complete' : score >= 65 ? 'partial' : 'gap'
+    return {
+      ...item,
+      targetScore,
+      currentScore: score,
+      trendDirection: trend.direction,
+      trendDelta: trend.delta,
+      score,
+      level
+    }
+  }).sort((a, b) => a.score - b.score)
+})
+
+const capabilitySummary = computed(() => ({
+  complete: moduleCapabilityRows.value.filter((item) => item.level === 'complete').length,
+  partial: moduleCapabilityRows.value.filter((item) => item.level === 'partial').length,
+  gap: moduleCapabilityRows.value.filter((item) => item.level === 'gap').length
+}))
+
+const capabilityGapRows = computed(() =>
+  moduleCapabilityRows.value
+    .filter((item) => item.level !== 'complete')
+    .map((item) => ({
+      module: item.label,
+      gap: item.level === 'gap' ? '核心交付链路闭环能力不足' : '存在降级，自动处置能力待增强',
+      impact: item.level === 'gap' ? '变更失败与交付阻塞风险高' : '处理时延上升、SLA易违约',
+      path: item.path,
+      score: item.score
+    }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 8)
+)
 
 const priorityText = (value) => {
   const v = Number(value)
@@ -957,6 +1202,12 @@ const refreshAll = async () => {
     releases.value = releaseRes.status === 'fulfilled' ? safeArray(releaseRes.value) : []
     orders.value = orderRes.status === 'fulfilled' ? safeArray(orderRes.value) : []
     orderStats.value = orderStatsRes.status === 'fulfilled' ? (orderStatsRes.value?.data?.data || orderStats.value) : orderStats.value
+    dataSourceStatus.pipelines = pipelineRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.executions = executionRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.schedules = scheduleRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.releases = releaseRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.orders = orderRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.orderStats = orderStatsRes.status === 'fulfilled' ? 'ok' : 'error'
 
     stats.pipelineTotal = pipelines.value.length
     stats.pipelineEnabled = pipelines.value.filter((item) => Number(item.status) === 1).length
@@ -1040,6 +1291,31 @@ onUnmounted(() => {
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
 .mt-12 { margin-top: 12px; }
+
+.capability-card,
+.capability-gap-card {
+  border: 1px solid #e5e7eb;
+}
+
+.capability-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.capability-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.capability-mini-percent {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted-text);
+}
 
 .integration-card {
   margin-top: 12px;

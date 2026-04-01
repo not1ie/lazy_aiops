@@ -130,6 +130,89 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="12" class="mt-12">
+      <el-col :span="16">
+        <el-card class="capability-card">
+          <template #header>
+            <div class="capability-header">
+              <span>功能完整度矩阵</span>
+              <div class="capability-tags">
+                <el-tag type="success" effect="light">完整 {{ capabilitySummary.complete }}</el-tag>
+                <el-tag type="warning" effect="light">待补齐 {{ capabilitySummary.partial }}</el-tag>
+                <el-tag type="danger" effect="light">缺口 {{ capabilitySummary.gap }}</el-tag>
+              </div>
+            </div>
+          </template>
+          <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="320" empty-text="暂无模块能力数据">
+            <el-table-column prop="label" label="能力模块" min-width="140" />
+            <el-table-column label="链路" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.linkStatus === 'ok' ? 'success' : row.linkStatus === 'warning' ? 'warning' : 'danger'">
+                  {{ row.linkStatus === 'ok' ? '正常' : row.linkStatus === 'warning' ? '降级' : '异常' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态判定" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.status === 'ok' ? 'success' : row.status === 'warning' ? 'warning' : 'danger'">
+                  {{ row.status === 'ok' ? '正常' : row.status === 'warning' ? '预警' : '异常' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="自动处置" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.automationScore >= 90 ? 'success' : row.automationScore >= 70 ? 'warning' : 'info'">
+                  {{ row.automationScore >= 90 ? '完善' : row.automationScore >= 70 ? '可用' : '较弱' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="目标值" width="78">
+              <template #default="{ row }">{{ row.targetScore }}%</template>
+            </el-table-column>
+            <el-table-column label="当前值" width="110">
+              <template #default="{ row }">
+                <el-progress :percentage="row.currentScore" :stroke-width="10" :show-text="false" />
+                <div class="capability-mini-percent">{{ row.currentScore }}%</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="趋势" width="94">
+              <template #default="{ row }">
+                <el-tag size="small" :type="capabilityTrendTag(row.trendDirection)">
+                  {{ capabilityTrendArrow(row.trendDirection) }} {{ formatTrendDelta(row.trendDelta) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="suggestion" label="建议" min-width="170" show-overflow-tooltip />
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card class="capability-gap-card">
+          <template #header>
+            <div class="capability-header">
+              <span>能力缺口追踪</span>
+              <el-tag :type="capabilityGapRows.length ? 'warning' : 'success'" effect="light">缺口 {{ capabilityGapRows.length }}</el-tag>
+            </div>
+          </template>
+          <el-table :fit="true" :data="capabilityGapRows" size="small" max-height="320" empty-text="暂无高优先级缺口">
+            <el-table-column prop="module" label="模块" width="110" />
+            <el-table-column prop="gap" label="缺口" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="impact" label="影响" min-width="170" show-overflow-tooltip />
+            <el-table-column label="操作" width="90">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">修复</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
@@ -354,6 +437,16 @@ const stats = reactive({
   notifyGroupTotal: 0,
   templateTotal: 0
 })
+const dataSourceStatus = reactive({
+  alerts: 'unknown',
+  rules: 'unknown',
+  agents: 'unknown',
+  domains: 'unknown',
+  certs: 'unknown',
+  channels: 'unknown',
+  groups: 'unknown',
+  templates: 'unknown'
+})
 
 const panelRouteMap = {
   alerts: '/alert/events',
@@ -520,6 +613,145 @@ const riskStaleRows = computed(() => riskRows.value.filter((item) => isRiskCheck
 const pendingAlertTimeout = computed(() => alerts.value.filter((item) => isAlertStale(item)).length)
 const riskCheckStale = computed(() => riskRows.value.filter((item) => isRiskCheckStale(item.checked_at)).length)
 const pendingBacklog = computed(() => pendingAlertTimeout.value + stats.alertCriticalOpen + riskCheckStale.value)
+
+const capabilityStatusSeverity = { ok: 1, warning: 2, error: 3, unknown: 0 }
+const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+const capabilityScoreByStatus = (value) => {
+  const status = normalizeText(value)
+  if (status === 'ok') return 100
+  if (status === 'warning') return 72
+  if (status === 'error') return 38
+  return 50
+}
+const capabilityTrendByTarget = (currentScore, targetScore) => {
+  const delta = Math.round((Number(currentScore) || 0) - (Number(targetScore) || 0))
+  if (delta >= 3) return { direction: 'up', delta }
+  if (delta <= -3) return { direction: 'down', delta }
+  return { direction: 'flat', delta }
+}
+const capabilityTrendArrow = (direction) => {
+  if (direction === 'up') return '↑'
+  if (direction === 'down') return '↓'
+  return '→'
+}
+const capabilityTrendTag = (direction) => {
+  if (direction === 'up') return 'success'
+  if (direction === 'down') return 'danger'
+  return 'info'
+}
+const formatTrendDelta = (value) => {
+  const delta = Math.round(Number(value) || 0)
+  if (delta > 0) return `+${delta}%`
+  return `${delta}%`
+}
+const worstStatus = (...values) =>
+  values.reduce((worst, current) => (capabilityStatusSeverity[normalizeText(current)] > capabilityStatusSeverity[normalizeText(worst)] ? current : worst), 'ok')
+
+const moduleCapabilityRows = computed(() => {
+  const alertLink = worstStatus(dataSourceStatus.alerts, dataSourceStatus.rules)
+  const alertStatus = stats.alertCriticalOpen > 0 ? 'error' : (pendingAlertTimeout.value > 0 ? 'warning' : 'ok')
+  const alertAutomation = (stats.alertOpen > 0 || pendingAlertTimeout.value > 0) ? 95 : 82
+
+  const agentLink = dataSourceStatus.agents
+  const agentStatus = stats.agentTotal === 0 ? 'warning' : (agentOnlineRate.value >= 90 ? 'ok' : agentOnlineRate.value >= 70 ? 'warning' : 'error')
+  const agentAutomation = stats.agentTotal > 0 ? 80 : 65
+
+  const notifyLink = worstStatus(dataSourceStatus.channels, dataSourceStatus.groups, dataSourceStatus.templates)
+  const notifyStatus = (stats.notifyChannelTotal > 0 && stats.notifyGroupTotal > 0 && stats.templateTotal > 0) ? 'ok' : 'warning'
+  const notifyAutomation = stats.notifyChannelTotal > 0 ? 84 : 62
+
+  const domainLink = worstStatus(dataSourceStatus.domains, dataSourceStatus.certs)
+  const domainStatus = riskCriticalRows.value.length > 0 ? 'error' : (riskRows.value.length > 0 || riskCheckStale.value > 0 ? 'warning' : 'ok')
+  const domainAutomation = riskRows.value.length > 0 ? 90 : 78
+
+  const rows = [
+    {
+      key: 'alerts',
+      label: '告警事件治理',
+      path: '/alert/events',
+      linkStatus: alertLink,
+      status: alertStatus,
+      automationScore: alertAutomation,
+      targetScore: 92,
+      freshnessScore: clampPercent(100 - pendingAlertTimeout.value * 6),
+      suggestion: alertStatus === 'ok' ? '保持规则与静默策略联动' : '优先清理超时未恢复与Critical告警'
+    },
+    {
+      key: 'agents',
+      label: 'Agent心跳',
+      path: '/monitor/agents',
+      linkStatus: agentLink,
+      status: agentStatus,
+      automationScore: agentAutomation,
+      targetScore: 90,
+      freshnessScore: agentOnlineRate.value,
+      suggestion: agentStatus === 'ok' ? '保持心跳稳定和节点覆盖' : '补齐离线Agent与心跳阈值告警'
+    },
+    {
+      key: 'notify',
+      label: '通知链路',
+      path: '/notify/channels',
+      linkStatus: notifyLink,
+      status: notifyStatus,
+      automationScore: notifyAutomation,
+      targetScore: 88,
+      freshnessScore: stats.notifyChannelTotal > 0 ? 100 : 60,
+      suggestion: notifyStatus === 'ok' ? '持续验证通知模板可用性' : '补齐渠道/通知组/模板，避免告警丢发'
+    },
+    {
+      key: 'domain',
+      label: '域名证书风险',
+      path: '/domain/ssl',
+      linkStatus: domainLink,
+      status: domainStatus,
+      automationScore: domainAutomation,
+      targetScore: 90,
+      freshnessScore: clampPercent(100 - riskCheckStale.value * 10),
+      suggestion: domainStatus === 'ok' ? '保持周期复检策略' : '优先复检高危域名与临期证书'
+    }
+  ]
+
+  return rows.map((item) => {
+    const score = clampPercent(
+      capabilityScoreByStatus(item.status) * 0.38 +
+      capabilityScoreByStatus(item.linkStatus) * 0.32 +
+      item.automationScore * 0.2 +
+      item.freshnessScore * 0.1
+    )
+    const targetScore = clampPercent(item.targetScore || 88)
+    const trend = capabilityTrendByTarget(score, targetScore)
+    const level = score >= 85 ? 'complete' : score >= 65 ? 'partial' : 'gap'
+    return {
+      ...item,
+      targetScore,
+      currentScore: score,
+      trendDirection: trend.direction,
+      trendDelta: trend.delta,
+      score,
+      level
+    }
+  }).sort((a, b) => a.score - b.score)
+})
+
+const capabilitySummary = computed(() => ({
+  complete: moduleCapabilityRows.value.filter((item) => item.level === 'complete').length,
+  partial: moduleCapabilityRows.value.filter((item) => item.level === 'partial').length,
+  gap: moduleCapabilityRows.value.filter((item) => item.level === 'gap').length
+}))
+
+const capabilityGapRows = computed(() =>
+  moduleCapabilityRows.value
+    .filter((item) => item.level !== 'complete')
+    .map((item) => ({
+      module: item.label,
+      gap: item.level === 'gap' ? '核心链路与告警判定能力不足' : '链路存在降级，自动处置需增强',
+      impact: item.level === 'gap' ? '可能造成漏报/误报并延迟处置' : '故障恢复效率下降',
+      path: item.path,
+      score: item.score
+    }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 8)
+)
 
 const filteredAlerts = computed(() =>
   filterRows(alerts.value, [(row) => row.alert_name, (row) => row.rule_name, (row) => row.target, (row) => row.severity])
@@ -707,6 +939,14 @@ const refreshAll = async () => {
     channels.value = channelRes.status === 'fulfilled' ? safeArray(channelRes.value) : []
     groups.value = groupRes.status === 'fulfilled' ? safeArray(groupRes.value) : []
     templates.value = templateRes.status === 'fulfilled' ? safeArray(templateRes.value) : []
+    dataSourceStatus.alerts = alertRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.rules = ruleRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.agents = agentRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.domains = domainRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.certs = certRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.channels = channelRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.groups = groupRes.status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.templates = templateRes.status === 'fulfilled' ? 'ok' : 'error'
 
     stats.alertTotal = alerts.value.length
     stats.alertOpen = alerts.value.filter((item) => Number(item.status) === 0).length
@@ -809,6 +1049,31 @@ onUnmounted(() => {
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
 .mt-12 { margin-top: 12px; }
+
+.capability-card,
+.capability-gap-card {
+  border: 1px solid #e5e7eb;
+}
+
+.capability-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.capability-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.capability-mini-percent {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted-text);
+}
 
 .integration-card {
   margin-top: 12px;

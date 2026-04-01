@@ -86,6 +86,7 @@ func setDefaults() {
 
 	// 默认启用的插件
 	viper.SetDefault("plugins.cmdb.enabled", true)
+	viper.SetDefault("plugins.dashboard.enabled", true)
 	viper.SetDefault("plugins.monitor.enabled", true)
 	viper.SetDefault("plugins.task.enabled", true)
 	viper.SetDefault("plugins.jump.enabled", true)

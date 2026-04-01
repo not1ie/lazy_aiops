@@ -79,6 +79,89 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="12" class="mt-12">
+      <el-col :span="16">
+        <el-card class="capability-card">
+          <template #header>
+            <div class="capability-header">
+              <span>功能完整度矩阵</span>
+              <div class="capability-tags">
+                <el-tag type="success" effect="light">完整 {{ capabilitySummary.complete }}</el-tag>
+                <el-tag type="warning" effect="light">待补齐 {{ capabilitySummary.partial }}</el-tag>
+                <el-tag type="danger" effect="light">缺口 {{ capabilitySummary.gap }}</el-tag>
+              </div>
+            </div>
+          </template>
+          <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="320" empty-text="暂无模块能力数据">
+            <el-table-column prop="label" label="能力模块" min-width="140" />
+            <el-table-column label="链路" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.linkStatus === 'ok' ? 'success' : row.linkStatus === 'warning' ? 'warning' : 'danger'">
+                  {{ row.linkStatus === 'ok' ? '正常' : row.linkStatus === 'warning' ? '降级' : '异常' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态判定" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.status === 'ok' ? 'success' : row.status === 'warning' ? 'warning' : 'danger'">
+                  {{ row.status === 'ok' ? '正常' : row.status === 'warning' ? '预警' : '异常' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="自动处置" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.automationScore >= 90 ? 'success' : row.automationScore >= 70 ? 'warning' : 'info'">
+                  {{ row.automationScore >= 90 ? '完善' : row.automationScore >= 70 ? '可用' : '较弱' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="目标值" width="78">
+              <template #default="{ row }">{{ row.targetScore }}%</template>
+            </el-table-column>
+            <el-table-column label="当前值" width="110">
+              <template #default="{ row }">
+                <el-progress :percentage="row.currentScore" :stroke-width="10" :show-text="false" />
+                <div class="capability-mini-percent">{{ row.currentScore }}%</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="趋势" width="94">
+              <template #default="{ row }">
+                <el-tag size="small" :type="capabilityTrendTag(row.trendDirection)">
+                  {{ capabilityTrendArrow(row.trendDirection) }} {{ formatTrendDelta(row.trendDelta) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="suggestion" label="建议" min-width="170" show-overflow-tooltip />
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card class="capability-gap-card">
+          <template #header>
+            <div class="capability-header">
+              <span>能力缺口追踪</span>
+              <el-tag :type="capabilityGapRows.length ? 'warning' : 'success'" effect="light">缺口 {{ capabilityGapRows.length }}</el-tag>
+            </div>
+          </template>
+          <el-table :fit="true" :data="capabilityGapRows" size="small" max-height="320" empty-text="暂无高优先级缺口">
+            <el-table-column prop="module" label="模块" width="110" />
+            <el-table-column prop="gap" label="缺口" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="impact" label="影响" min-width="170" show-overflow-tooltip />
+            <el-table-column label="操作" width="90">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">修复</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-card class="integration-card">
       <template #header>
         <div class="integration-header">
@@ -280,6 +363,17 @@ const stats = reactive({
   jumpAssetTotal: 0,
   terminalSessionTotal: 0
 })
+const dataSourceStatus = reactive({
+  hosts: 'unknown',
+  groups: 'unknown',
+  credentials: 'unknown',
+  databases: 'unknown',
+  cloudResources: 'unknown',
+  networkDevices: 'unknown',
+  firewallDevices: 'unknown',
+  jumpAssets: 'unknown',
+  terminalSessions: 'unknown'
+})
 
 
 const panelRouteMap = {
@@ -381,6 +475,175 @@ const networkOnlineRate = computed(() => {
   return Math.round((stats.networkDeviceOnline / stats.networkDeviceTotal) * 100)
 })
 
+const jumpEnabledRate = computed(() => {
+  if (!stats.jumpAssetTotal) return 0
+  const enabled = jumpAssets.value.filter((item) => jumpAssetStatus(item).type === 'success').length
+  return Math.round((enabled / stats.jumpAssetTotal) * 100)
+})
+
+const terminalFailureCount = computed(() =>
+  terminalSessions.value.filter((item) => Number(item?.status) === 3).length
+)
+
+const capabilityStatusSeverity = { ok: 1, warning: 2, error: 3, unknown: 0 }
+const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+const capabilityScoreByStatus = (value) => {
+  const status = normalizeText(value)
+  if (status === 'ok') return 100
+  if (status === 'warning') return 72
+  if (status === 'error') return 38
+  return 50
+}
+const worstStatus = (...values) =>
+  values.reduce((worst, current) => (capabilityStatusSeverity[normalizeText(current)] > capabilityStatusSeverity[normalizeText(worst)] ? current : worst), 'ok')
+const capabilityTrendByTarget = (currentScore, targetScore) => {
+  const delta = Math.round((Number(currentScore) || 0) - (Number(targetScore) || 0))
+  if (delta >= 3) return { direction: 'up', delta }
+  if (delta <= -3) return { direction: 'down', delta }
+  return { direction: 'flat', delta }
+}
+const capabilityTrendArrow = (direction) => {
+  if (direction === 'up') return '↑'
+  if (direction === 'down') return '↓'
+  return '→'
+}
+const capabilityTrendTag = (direction) => {
+  if (direction === 'up') return 'success'
+  if (direction === 'down') return 'danger'
+  return 'info'
+}
+const formatTrendDelta = (value) => {
+  const delta = Math.round(Number(value) || 0)
+  if (delta > 0) return `+${delta}%`
+  return `${delta}%`
+}
+
+const moduleCapabilityRows = computed(() => {
+  const cmdbLink = worstStatus(dataSourceStatus.hosts, dataSourceStatus.groups, dataSourceStatus.credentials)
+  const cmdbStatus = stats.hostTotal === 0 ? 'warning' : (hostOnlineRate.value >= 85 ? 'ok' : hostOnlineRate.value >= 60 ? 'warning' : 'error')
+
+  const networkLink = worstStatus(dataSourceStatus.networkDevices, dataSourceStatus.firewallDevices)
+  const networkStatus = stats.firewallRisk > 0
+    ? 'error'
+    : ((stats.networkDeviceStale + stats.firewallStale) > 0
+      ? 'warning'
+      : (networkOnlineRate.value >= 80 ? 'ok' : networkOnlineRate.value >= 50 ? 'warning' : 'error'))
+
+  const serviceLink = worstStatus(dataSourceStatus.databases, dataSourceStatus.cloudResources)
+  const serviceStatus = (stats.databaseTotal > 0 && stats.cloudResourceTotal > 0)
+    ? 'ok'
+    : ((stats.databaseTotal + stats.cloudResourceTotal) > 0 ? 'warning' : 'error')
+
+  const jumpLink = worstStatus(dataSourceStatus.jumpAssets, dataSourceStatus.hosts)
+  const jumpStatus = stats.jumpAssetTotal === 0 ? 'warning' : (jumpEnabledRate.value >= 80 ? 'ok' : jumpEnabledRate.value >= 50 ? 'warning' : 'error')
+
+  const terminalLink = dataSourceStatus.terminalSessions
+  const terminalStatus = stats.terminalSessionTotal === 0
+    ? 'warning'
+    : (terminalFailureCount.value > 3 ? 'error' : terminalFailureCount.value > 0 ? 'warning' : 'ok')
+
+  const rows = [
+    {
+      key: 'cmdb',
+      label: 'CMDB主机资产',
+      path: '/host',
+      linkStatus: cmdbLink,
+      status: cmdbStatus,
+      automationScore: stats.credentialTotal > 0 ? 86 : 72,
+      targetScore: 90,
+      freshnessScore: clampPercent(100 - stats.hostStale * 8),
+      suggestion: cmdbStatus === 'ok' ? '保持主机状态巡检与凭据轮换' : '优先修复离线/过期状态主机与凭据覆盖'
+    },
+    {
+      key: 'network',
+      label: '网络与防火墙',
+      path: '/firewall',
+      linkStatus: networkLink,
+      status: networkStatus,
+      automationScore: stats.firewallDeviceTotal > 0 ? 84 : 70,
+      targetScore: 89,
+      freshnessScore: clampPercent(100 - stats.networkDeviceStale * 8 - stats.firewallStale * 10 - stats.firewallRisk * 6),
+      suggestion: networkStatus === 'ok' ? '保持网络巡检与策略审计' : '先处理防火墙高风险与状态过期设备'
+    },
+    {
+      key: 'service',
+      label: '数据库与云资源',
+      path: '/cmdb/database',
+      linkStatus: serviceLink,
+      status: serviceStatus,
+      automationScore: (stats.databaseTotal > 0 && stats.cloudResourceTotal > 0) ? 82 : 68,
+      targetScore: 86,
+      freshnessScore: (stats.databaseTotal + stats.cloudResourceTotal) > 0 ? 100 : 70,
+      suggestion: serviceStatus === 'ok' ? '保持资源账实一致' : '补齐数据库/云资源接入，避免盲区'
+    },
+    {
+      key: 'jump',
+      label: '堡垒机资产融合',
+      path: '/jump/assets',
+      linkStatus: jumpLink,
+      status: jumpStatus,
+      automationScore: stats.jumpAssetTotal > 0 ? 86 : 64,
+      targetScore: 88,
+      freshnessScore: jumpEnabledRate.value,
+      suggestion: jumpStatus === 'ok' ? '持续验证来源映射与授权链路' : '修复禁用资产并校验来源映射关系'
+    },
+    {
+      key: 'terminal',
+      label: 'WebTerminal会话审计',
+      path: '/terminal',
+      linkStatus: terminalLink,
+      status: terminalStatus,
+      automationScore: stats.terminalSessionTotal > 0 ? 80 : 66,
+      targetScore: 85,
+      freshnessScore: stats.terminalSessionTotal > 0
+        ? clampPercent(100 - Math.round((terminalFailureCount.value / Math.max(1, stats.terminalSessionTotal)) * 100))
+        : 70,
+      suggestion: terminalStatus === 'ok' ? '保持会话审计持续采集' : '补齐失败会话诊断并提升连通稳定性'
+    }
+  ]
+
+  return rows.map((item) => {
+    const score = clampPercent(
+      capabilityScoreByStatus(item.status) * 0.4 +
+      capabilityScoreByStatus(item.linkStatus) * 0.3 +
+      item.automationScore * 0.2 +
+      item.freshnessScore * 0.1
+    )
+    const targetScore = clampPercent(item.targetScore || 88)
+    const trend = capabilityTrendByTarget(score, targetScore)
+    const level = score >= 85 ? 'complete' : score >= 65 ? 'partial' : 'gap'
+    return {
+      ...item,
+      targetScore,
+      currentScore: score,
+      trendDirection: trend.direction,
+      trendDelta: trend.delta,
+      score,
+      level
+    }
+  }).sort((a, b) => a.score - b.score)
+})
+
+const capabilitySummary = computed(() => ({
+  complete: moduleCapabilityRows.value.filter((item) => item.level === 'complete').length,
+  partial: moduleCapabilityRows.value.filter((item) => item.level === 'partial').length,
+  gap: moduleCapabilityRows.value.filter((item) => item.level === 'gap').length
+}))
+
+const capabilityGapRows = computed(() =>
+  moduleCapabilityRows.value
+    .filter((item) => item.level !== 'complete')
+    .map((item) => ({
+      module: item.label,
+      gap: item.level === 'gap' ? '核心资产链路与状态感知不足' : '链路存在降级，自动巡检能力待增强',
+      impact: item.level === 'gap' ? '资产状态失真，影响故障定位与授权' : '排障效率下降，异常发现延迟',
+      path: item.path,
+      score: item.score
+    }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 8)
+)
+
 const recentHosts = computed(() => {
   return [...hosts.value]
     .sort((a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime())
@@ -473,6 +736,15 @@ const refreshAll = async () => {
     firewallDevices.value = firewallList
     jumpAssets.value = jumpAssetList
     terminalSessions.value = sessionList
+    dataSourceStatus.hosts = settled[0].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.groups = settled[1].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.credentials = settled[2].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.databases = settled[3].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.cloudResources = settled[4].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.networkDevices = settled[5].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.firewallDevices = settled[6].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.jumpAssets = settled[7].status === 'fulfilled' ? 'ok' : 'error'
+    dataSourceStatus.terminalSessions = settled[8].status === 'fulfilled' ? 'ok' : 'error'
 
     stats.hostTotal = hostList.length
     stats.hostOnline = hostList.filter((item) => isOnlineStatus(item.status)).length
@@ -517,6 +789,32 @@ onMounted(refreshAll)
 .health-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .health-row strong { font-size: 15px; }
 .mtop { margin-top: 12px; }
+.mt-12 { margin-top: 12px; }
+
+.capability-card,
+.capability-gap-card {
+  border: 1px solid #e5e7eb;
+}
+
+.capability-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.capability-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.capability-mini-percent {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted-text);
+}
 
 .integration-card {
   margin-top: 12px;
