@@ -456,7 +456,7 @@ const refreshAll = async () => {
       fetchList('/api/v1/cmdb/credentials'),
       fetchList('/api/v1/cmdb/databases'),
       fetchList('/api/v1/cmdb/cloud/resources'),
-      fetchList('/api/v1/cmdb/network-devices'),
+      fetchList('/api/v1/cmdb/network-devices', { live: 1 }),
       fetchList('/api/v1/firewall/devices', { live: 1 }),
       fetchList('/api/v1/jump/assets'),
       fetchList('/api/v1/terminal/sessions')

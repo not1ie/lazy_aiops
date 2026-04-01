@@ -2297,7 +2297,10 @@ const filteredImages = computed(() => {
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/v1/docker/hosts', { headers: authHeaders() })
+    const res = await axios.get('/api/v1/docker/hosts', {
+      headers: authHeaders(),
+      params: { sync: 1 }
+    })
     if (res.data.code === 0) {
       tableData.value = res.data.data
     }

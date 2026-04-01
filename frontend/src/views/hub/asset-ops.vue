@@ -1559,10 +1559,10 @@ const refreshAll = async () => {
   loading.value = true
   try {
     const [hostRes, groupRes, networkRes, firewallRes, sessionRes, riskRes, jumpAssetRes, commandStatsRes] = await Promise.allSettled([
-      axios.get('/api/v1/cmdb/hosts', { headers: authHeaders() }),
+      axios.get('/api/v1/cmdb/hosts', { headers: authHeaders(), params: { live: 1 } }),
       axios.get('/api/v1/cmdb/groups', { headers: authHeaders() }),
-      axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders() }),
-      axios.get('/api/v1/firewall/devices', { headers: authHeaders() }),
+      axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders(), params: { live: 1 } }),
+      axios.get('/api/v1/firewall/devices', { headers: authHeaders(), params: { live: 1 } }),
       axios.get('/api/v1/jump/sessions', { headers: authHeaders() }),
       axios.get('/api/v1/jump/risk-events', { headers: authHeaders() }),
       axios.get('/api/v1/jump/assets', { headers: authHeaders() }),

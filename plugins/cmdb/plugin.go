@@ -45,6 +45,9 @@ func (p *CMDBPlugin) Start() error {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
+		if _, err := handler.syncHostStatuses(nil, 2*time.Second); err != nil {
+			log.Printf("[CMDB] host status bootstrap sync failed: %v", err)
+		}
 		for {
 			select {
 			case <-p.stopCh:

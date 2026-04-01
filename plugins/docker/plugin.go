@@ -43,6 +43,9 @@ func (p *DockerPlugin) Start() error {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
+		if _, err := handler.syncAllHostsStatus(); err != nil {
+			log.Printf("[Docker] host status bootstrap sync failed: %v", err)
+		}
 		for {
 			select {
 			case <-p.stopCh:

@@ -41,12 +41,13 @@
         <el-table-column prop="location" label="位置" min-width="140" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="statusTag(row.status)">{{ statusText(row.status) }}</el-tag>
+            <el-tag :type="statusTag(row)">{{ statusText(row) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="最后检查" width="180">
           <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
         </el-table-column>
+        <el-table-column prop="status_reason" label="状态说明" min-width="220" show-overflow-tooltip />
         <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" plain @click="openDialog(row)">编辑</el-button>
@@ -165,7 +166,7 @@ const filteredData = computed(() => {
 
 const switchCount = computed(() => filteredData.value.filter((item) => item.device_type === 'switch').length)
 const firewallCount = computed(() => filteredData.value.filter((item) => item.device_type === 'firewall').length)
-const onlineCount = computed(() => filteredData.value.filter((item) => Number(item.status) === 1).length)
+const onlineCount = computed(() => filteredData.value.filter((item) => Number(item.status) === 1 && !isStatusStale(item)).length)
 
 const resetForm = () => {
   form.name = ''
@@ -200,15 +201,29 @@ const formatTime = (value) => {
   return date.toLocaleString()
 }
 
-const statusText = (status) => {
-  if (Number(status) === 1) return '在线'
-  if (Number(status) === 2) return '告警'
+const toTime = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+
+const isStatusStale = (row) => {
+  const ts = toTime(row?.last_check_at)
+  if (!ts) return true
+  return Date.now() - ts > 5 * 60 * 1000
+}
+
+const statusText = (row) => {
+  const status = Number(row?.status)
+  if (status === 1) return isStatusStale(row) ? '在线(过期)' : '在线'
+  if (status === 2) return '告警'
   return '离线'
 }
 
-const statusTag = (status) => {
-  if (Number(status) === 1) return 'success'
-  if (Number(status) === 2) return 'warning'
+const statusTag = (row) => {
+  const status = Number(row?.status)
+  if (status === 1) return isStatusStale(row) ? 'warning' : 'success'
+  if (status === 2) return 'danger'
   return 'info'
 }
 
@@ -219,7 +234,8 @@ const fetchData = async () => {
       headers: authHeaders(),
       params: {
         keyword: keyword.value || undefined,
-        device_type: deviceType.value || undefined
+        device_type: deviceType.value || undefined,
+        live: 1
       }
     })
     if (res.data?.code === 0) {

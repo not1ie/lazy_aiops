@@ -231,7 +231,11 @@ const fetchData = async () => {
   try {
     const res = await axios.get('/api/v1/cmdb/hosts', {
       headers: authHeaders(),
-      params: { keyword: searchKeyword.value, group_id: filterGroupId.value }
+      params: {
+        keyword: searchKeyword.value,
+        group_id: filterGroupId.value,
+        live: 1
+      }
     })
     if (res.data.code === 0) {
       tableData.value = res.data.data

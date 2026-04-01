@@ -4,6 +4,8 @@
     <div class="backdrop-glow glow-b"></div>
     <div class="backdrop-glow glow-c"></div>
     <div class="backdrop-glow glow-d"></div>
+    <div class="backdrop-grid"></div>
+    <div class="backdrop-vignette"></div>
 
     <div class="particle-layer">
       <span
@@ -170,13 +172,13 @@ const changePwdRules = {
   ]
 }
 
-const createParticles = () => Array.from({ length: 34 }).map((_, index) => ({
+const createParticles = () => Array.from({ length: 18 }).map((_, index) => ({
   id: index + 1,
   left: Math.random() * 100,
   top: Math.random() * 100,
-  size: 1.5 + Math.random() * 3,
+  size: 1 + Math.random() * 2,
   delay: Math.random() * 6,
-  duration: 12 + Math.random() * 18
+  duration: 16 + Math.random() * 24
 }))
 
 const setLoginSession = (payload) => {
@@ -314,32 +316,64 @@ onMounted(() => {
   align-items: center;
   overflow: hidden;
   padding: 32px 20px;
+  font-family: "SF Pro Text", "PingFang SC", "Segoe UI", "Helvetica Neue", sans-serif;
   background:
-    radial-gradient(circle at 12% 18%, rgba(118, 178, 255, 0.34), transparent 34%),
-    radial-gradient(circle at 88% 14%, rgba(255, 196, 144, 0.22), transparent 28%),
-    radial-gradient(circle at 72% 82%, rgba(162, 137, 255, 0.18), transparent 24%),
-    linear-gradient(180deg, rgba(244, 247, 252, 0.98) 0%, rgba(232, 238, 247, 0.98) 100%);
+    radial-gradient(circle at 14% 16%, rgba(116, 171, 255, 0.26), transparent 36%),
+    radial-gradient(circle at 86% 14%, rgba(255, 211, 163, 0.24), transparent 32%),
+    radial-gradient(circle at 50% 112%, rgba(144, 191, 255, 0.22), transparent 40%),
+    linear-gradient(180deg, #f8fafd 0%, #edf2f8 52%, #e9eff7 100%);
 }
 
 :global(html[data-theme='dark'] .login-container) {
   background:
-    radial-gradient(circle at 16% 18%, rgba(61, 130, 255, 0.28), transparent 30%),
-    radial-gradient(circle at 86% 18%, rgba(111, 76, 255, 0.18), transparent 26%),
-    radial-gradient(circle at 72% 82%, rgba(32, 196, 255, 0.12), transparent 24%),
-    linear-gradient(180deg, rgba(7, 14, 28, 0.98) 0%, rgba(9, 18, 34, 0.98) 100%);
+    radial-gradient(circle at 16% 18%, rgba(57, 112, 214, 0.33), transparent 34%),
+    radial-gradient(circle at 84% 14%, rgba(76, 122, 188, 0.2), transparent 28%),
+    radial-gradient(circle at 48% 112%, rgba(29, 74, 135, 0.28), transparent 42%),
+    linear-gradient(180deg, #070d19 0%, #0b1424 54%, #101a2a 100%);
 }
 
 .backdrop-glow {
   position: absolute;
   border-radius: 999px;
-  filter: blur(88px);
-  opacity: 0.72;
+  filter: blur(92px);
+  opacity: 0.62;
+  pointer-events: none;
 }
 
-.glow-a { width: 440px; height: 440px; left: -80px; top: -40px; background: rgba(102, 172, 255, 0.34); }
-.glow-b { width: 320px; height: 320px; right: 10%; top: 8%; background: rgba(255, 206, 168, 0.24); }
-.glow-c { width: 280px; height: 280px; left: 16%; bottom: -70px; background: rgba(160, 209, 255, 0.24); }
-.glow-d { width: 360px; height: 360px; right: 14%; bottom: -110px; background: rgba(170, 150, 255, 0.2); }
+.glow-a { width: 440px; height: 440px; left: -70px; top: -40px; background: rgba(120, 176, 255, 0.42); }
+.glow-b { width: 340px; height: 340px; right: 8%; top: 8%; background: rgba(255, 206, 158, 0.32); }
+.glow-c { width: 300px; height: 300px; left: 14%; bottom: -80px; background: rgba(162, 199, 255, 0.28); }
+.glow-d { width: 400px; height: 400px; right: 14%; bottom: -130px; background: rgba(123, 168, 245, 0.24); }
+
+.backdrop-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.52;
+  background-image:
+    linear-gradient(to right, rgba(51, 87, 132, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(51, 87, 132, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 42%, black 28%, transparent 86%);
+}
+
+.backdrop-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 44%, transparent 52%, rgba(16, 31, 55, 0.12) 100%);
+}
+
+:global(html[data-theme='dark'] .backdrop-grid) {
+  opacity: 0.36;
+  background-image:
+    linear-gradient(to right, rgba(152, 179, 214, 0.09) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(152, 179, 214, 0.08) 1px, transparent 1px);
+}
+
+:global(html[data-theme='dark'] .backdrop-vignette) {
+  background: radial-gradient(circle at 50% 44%, transparent 44%, rgba(2, 6, 23, 0.5) 100%);
+}
 
 .particle-layer {
   position: absolute;
@@ -350,8 +384,14 @@ onMounted(() => {
 .particle-dot {
   position: absolute;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.34);
   animation: drift linear infinite;
+}
+
+:global(html[data-theme='dark'] .particle-dot) {
+  background: rgba(148, 189, 255, 0.26);
+  box-shadow: 0 0 10px rgba(83, 138, 228, 0.34);
 }
 
 .login-topbar {
@@ -539,8 +579,8 @@ onMounted(() => {
 }
 
 @keyframes drift {
-  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.18; }
-  50% { transform: translate3d(0, -22px, 0); opacity: 0.52; }
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.14; }
+  50% { transform: translate3d(0, -14px, 0); opacity: 0.42; }
 }
 
 @media (max-width: 640px) {

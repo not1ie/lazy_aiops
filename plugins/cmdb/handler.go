@@ -681,11 +681,8 @@ type firewallDeviceSnapshot struct {
 	Description   string `json:"description"`
 }
 
-// ListNetworkDevices 网络设备列表（交换机/防火墙）
-func (h *HostHandler) ListNetworkDevices(c *gin.Context) {
-	var devices []NetworkDevice
+func (h *HostHandler) buildNetworkDeviceListQuery(c *gin.Context) *gorm.DB {
 	query := h.db.Preload("Credential").Order("updated_at DESC")
-
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
 		query = query.Where("name LIKE ? OR ip LIKE ? OR vendor LIKE ? OR model LIKE ? OR serial_number LIKE ?", like, like, like, like, like)
@@ -698,10 +695,111 @@ func (h *HostHandler) ListNetworkDevices(c *gin.Context) {
 			query = query.Where("status = ?", status)
 		}
 	}
+	return query
+}
 
-	if err := query.Find(&devices).Error; err != nil {
+func probeNetworkDeviceTCP(device NetworkDevice, timeout time.Duration) (bool, string) {
+	ip := strings.TrimSpace(device.IP)
+	if ip == "" {
+		return false, "IP 为空"
+	}
+	port := device.ManagePort
+	if port <= 0 {
+		if strings.EqualFold(strings.TrimSpace(device.DeviceType), "firewall") {
+			port = 443
+		} else {
+			port = 22
+		}
+	}
+	addr := net.JoinHostPort(ip, strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return false, truncateReason(err.Error())
+	}
+	_ = conn.Close()
+	return true, ""
+}
+
+func (h *HostHandler) syncNetworkDeviceStatuses(devices []NetworkDevice, timeout time.Duration) {
+	if len(devices) == 0 {
+		return
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+
+	workerCount := 10
+	if len(devices) < workerCount {
+		workerCount = len(devices)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	jobs := make(chan NetworkDevice)
+	var wg sync.WaitGroup
+
+	worker := func() {
+		defer wg.Done()
+		for device := range jobs {
+			now := time.Now()
+			online, reason := probeNetworkDeviceTCP(device, timeout)
+			nextStatus := device.Status
+			if online {
+				if nextStatus == 0 {
+					nextStatus = 1
+				}
+			} else {
+				nextStatus = 0
+			}
+
+			updates := map[string]interface{}{
+				"status":        nextStatus,
+				"last_check_at": &now,
+			}
+			if online {
+				updates["last_online_at"] = &now
+				if nextStatus != 2 {
+					updates["status_reason"] = ""
+				}
+			} else {
+				updates["status_reason"] = truncateReason(reason)
+			}
+			_ = h.db.Model(&NetworkDevice{}).Where("id = ?", device.ID).Updates(updates).Error
+		}
+	}
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go worker()
+	}
+	for i := range devices {
+		jobs <- devices[i]
+	}
+	close(jobs)
+	wg.Wait()
+}
+
+// ListNetworkDevices 网络设备列表（交换机/防火墙）
+func (h *HostHandler) ListNetworkDevices(c *gin.Context) {
+	var devices []NetworkDevice
+	if err := h.buildNetworkDeviceListQuery(c).Find(&devices).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
+	}
+	if queryTruthy(c.Query("live")) {
+		timeoutMs := 1500
+		if raw := strings.TrimSpace(c.Query("timeout_ms")); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil {
+				timeoutMs = parsed
+			}
+		}
+		h.syncNetworkDeviceStatuses(devices, clampDuration(timeoutMs, 2*time.Second))
+		devices = nil
+		if err := h.buildNetworkDeviceListQuery(c).Find(&devices).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
 	}
 	for i := range devices {
 		h.sanitizeNetworkDeviceForResponse(&devices[i])

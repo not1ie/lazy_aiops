@@ -32,21 +32,21 @@
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">主机总数</div>
           <div class="kpi-value">{{ stats.hostTotal }}</div>
-          <div class="kpi-sub">在线 {{ stats.hostOnline }} / 离线 {{ stats.hostOffline }}</div>
+          <div class="kpi-sub">在线 {{ stats.hostOnline }} / 离线 {{ stats.hostOffline }} / 过期 {{ stats.hostStale }}</div>
         </el-card>
       </el-col>
       <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">Docker 环境</div>
           <div class="kpi-value">{{ stats.dockerTotal }}</div>
-          <div class="kpi-sub">在线 {{ stats.dockerOnline }} / 离线 {{ stats.dockerOffline }}</div>
+          <div class="kpi-sub">在线 {{ stats.dockerOnline }} / 离线 {{ stats.dockerOffline }} / 过期 {{ stats.dockerStale }}</div>
         </el-card>
       </el-col>
       <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">K8s 集群</div>
           <div class="kpi-value">{{ stats.k8sTotal }}</div>
-          <div class="kpi-sub">正常 {{ stats.k8sHealthy }} / 异常 {{ stats.k8sUnhealthy }} / 维护 {{ stats.k8sMaintenance }}</div>
+          <div class="kpi-sub">正常 {{ stats.k8sHealthy }} / 异常 {{ stats.k8sUnhealthy }} / 过期 {{ stats.k8sStale }}</div>
         </el-card>
       </el-col>
       <el-col :span="3">
@@ -123,6 +123,99 @@
               </div>
             </div>
           </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" class="panel-row motion-up delay-5">
+      <el-col :span="24">
+        <el-card shadow="never" class="selfcheck-card">
+          <div class="panel-header">
+            <div>
+              <h3>功能完整性自检</h3>
+              <p class="panel-desc">自动巡检核心数据源与模块链路，减少手工逐页验证。</p>
+            </div>
+            <div class="selfcheck-header-actions">
+              <el-progress type="circle" :percentage="completenessScore" :width="56" :stroke-width="8" />
+              <el-button size="small" type="primary" :loading="deepChecking || refreshing" @click="runSelfCheck">运行深度自检</el-button>
+            </div>
+          </div>
+          <div class="selfcheck-meta">
+            <el-tag type="success" effect="light">正常 {{ dataSourceSummary.ok }}</el-tag>
+            <el-tag type="danger" effect="light">失败 {{ dataSourceSummary.error }}</el-tag>
+            <el-tag type="warning" effect="light">降级 {{ dataSourceSummary.warning }}</el-tag>
+          </div>
+          <el-table :fit="true" :data="dataSourceDiagnostics" size="small" style="width: 100%" empty-text="暂无自检数据">
+            <el-table-column prop="label" label="检查项" min-width="180" />
+            <el-table-column label="状态" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'warning' ? 'warning' : 'danger'">
+                  {{ row.status === 'ok' ? '正常' : row.status === 'warning' ? '降级' : '失败' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="countText" label="数据量" width="110" />
+            <el-table-column prop="message" label="说明" min-width="260" show-overflow-tooltip />
+            <el-table-column label="处置" width="130" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入模块</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" class="panel-row motion-up delay-5">
+      <el-col :span="12" :lg="12" :xs="24">
+        <el-card shadow="never" class="integrity-card">
+          <div class="panel-header">
+            <div>
+              <h3>状态字段完整性</h3>
+              <p class="panel-desc">检查状态、时间戳、异常原因等关键字段是否完整。</p>
+            </div>
+            <el-tag :type="fieldCompletenessSummary.problem > 0 ? 'warning' : 'success'" effect="light">
+              缺口 {{ fieldCompletenessSummary.problem }} / {{ fieldCompletenessSummary.total }}
+            </el-tag>
+          </div>
+          <el-table :fit="true" :data="fieldCompletenessRows" size="small" style="width: 100%" empty-text="暂无数据">
+            <el-table-column prop="module" label="模块" width="120" />
+            <el-table-column label="完整率" width="120">
+              <template #default="{ row }">
+                <el-progress :percentage="row.rate" :stroke-width="12" :show-text="false" />
+                <div class="mini-percent">{{ row.rate }}%</div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="issue" label="缺口" min-width="220" show-overflow-tooltip />
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入模块</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :span="12" :lg="12" :xs="24">
+        <el-card shadow="never" class="integrity-card">
+          <div class="panel-header">
+            <div>
+              <h3>跨模块一致性</h3>
+              <p class="panel-desc">识别 CMDB、Docker、K8s、堡垒机资产之间的状态/映射冲突。</p>
+            </div>
+            <el-tag :type="consistencySummary.total > 0 ? 'warning' : 'success'" effect="light">
+              冲突 {{ consistencySummary.total }}
+            </el-tag>
+          </div>
+          <el-table :fit="true" :data="consistencyIssueRows" size="small" style="width: 100%" empty-text="跨模块状态一致">
+            <el-table-column prop="module" label="链路" width="140" />
+            <el-table-column prop="name" label="对象" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="reason" label="冲突说明" min-width="220" show-overflow-tooltip />
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入模块</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </el-card>
       </el-col>
     </el-row>
@@ -333,6 +426,79 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-row :gutter="16" class="panel-row motion-up delay-6">
+      <el-col :span="24">
+        <el-card shadow="never" class="integrity-card">
+          <div class="panel-header">
+            <div>
+              <h3>自检历史</h3>
+              <p class="panel-desc">记录每次自检结果，方便快速判断回归与波动。</p>
+            </div>
+            <div class="integrity-summary-tags">
+              <el-tag type="success" effect="light">通过 {{ selfCheckHistorySummary.ok }}</el-tag>
+              <el-tag type="warning" effect="light">降级 {{ selfCheckHistorySummary.warning }}</el-tag>
+              <el-tag type="danger" effect="light">失败 {{ selfCheckHistorySummary.error }}</el-tag>
+              <el-button size="small" text @click="clearSelfCheckHistory">清空历史</el-button>
+            </div>
+          </div>
+          <el-table :fit="true" :data="selfCheckHistory.slice(0, 12)" size="small" style="width: 100%" empty-text="暂无自检历史">
+            <el-table-column label="时间" width="180">
+              <template #default="{ row }">{{ formatTime(row.at) }}</template>
+            </el-table-column>
+            <el-table-column label="触发方式" width="120">
+              <template #default="{ row }">{{ row.source === 'manual' ? '手动' : row.source === 'probe' ? '主动探测' : '自动' }}</template>
+            </el-table-column>
+            <el-table-column prop="score" label="完整性分" width="120" />
+            <el-table-column label="结果" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'warning' ? 'warning' : 'danger'">
+                  {{ row.status === 'ok' ? '通过' : row.status === 'warning' ? '降级' : '失败' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="summary" label="摘要" min-width="260" show-overflow-tooltip />
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" class="panel-row motion-up delay-6">
+      <el-col :span="24">
+        <el-card shadow="never" class="integrity-card">
+          <div class="panel-header">
+            <div>
+              <h3>状态完整性总览</h3>
+              <p class="panel-desc">离线、过期与异常原因统一清单，支持快速跳转处置。</p>
+            </div>
+            <div class="integrity-summary-tags">
+              <el-tag type="danger" effect="light">高风险 {{ integritySummary.critical }}</el-tag>
+              <el-tag type="warning" effect="light">过期待复检 {{ integritySummary.stale }}</el-tag>
+              <el-tag type="info" effect="light">离线 {{ integritySummary.offline }}</el-tag>
+              <el-tag type="success" effect="light">总问题 {{ integritySummary.total }}</el-tag>
+            </div>
+          </div>
+          <el-table :fit="true" :data="integrityIssueRows" size="small" style="width: 100%" empty-text="当前状态完整性良好">
+            <el-table-column prop="module" label="模块" width="120" />
+            <el-table-column prop="name" label="对象" min-width="170" show-overflow-tooltip />
+            <el-table-column label="状态" width="120">
+              <template #default="{ row }">
+                <el-tag :type="row.level === 'danger' ? 'danger' : 'warning'">{{ row.statusText }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" label="异常原因" min-width="260" show-overflow-tooltip />
+            <el-table-column label="最后检查" width="180">
+              <template #default="{ row }">{{ formatTime(row.checkedAt) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入处置</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
   </el-card>
 </template>
 
@@ -347,6 +513,7 @@ import { getErrorMessage, isCancelError } from '@/utils/error'
 const router = useRouter()
 const loading = ref(false)
 const refreshing = ref(false)
+const deepChecking = ref(false)
 const lastUpdated = ref('')
 const realtimeRefreshing = ref(false)
 
@@ -354,6 +521,7 @@ const trendRef = ref(null)
 let trendChart = null
 let realtimeTimer = null
 let overviewTimer = null
+const SELF_CHECK_HISTORY_KEY = 'lao:dashboard:selfcheck-history'
 
 const realtime = reactive({
   cpu: 0,
@@ -477,6 +645,40 @@ const deploymentRisk = reactive({
 const recentAlerts = ref([])
 const topHosts = ref([])
 const trendRecords = ref([])
+const dataSourceDiagnostics = ref([])
+const selfCheckHistory = ref([])
+const cmdbHostsSnapshot = ref([])
+const dockerHostsSnapshot = ref([])
+const k8sClustersSnapshot = ref([])
+const networkDevicesSnapshot = ref([])
+const firewallsSnapshot = ref([])
+const jumpAssetsSnapshot = ref([])
+
+const readHistory = () => {
+  try {
+    const raw = localStorage.getItem(SELF_CHECK_HISTORY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item) => item && typeof item === 'object')
+      .slice(0, 30)
+  } catch (err) {
+    return []
+  }
+}
+const writeHistory = () => {
+  try {
+    localStorage.setItem(SELF_CHECK_HISTORY_KEY, JSON.stringify(selfCheckHistory.value.slice(0, 30)))
+  } catch (err) {}
+}
+const clearSelfCheckHistory = () => {
+  selfCheckHistory.value = []
+  try {
+    localStorage.removeItem(SELF_CHECK_HISTORY_KEY)
+  } catch (err) {}
+}
+selfCheckHistory.value = readHistory()
 
 const backlogCards = computed(() => [
   {
@@ -512,6 +714,401 @@ const backlogCards = computed(() => [
     path: '/delivery/center'
   }
 ])
+
+const integrityIssueRows = computed(() => {
+  const rows = []
+  const pushIssue = (item) => {
+    rows.push({
+      module: item.module || '-',
+      name: item.name || '-',
+      statusText: item.statusText || '异常',
+      reason: item.reason || '状态异常',
+      checkedAt: item.checkedAt || '',
+      level: item.level === 'danger' ? 'danger' : 'warning',
+      stale: item.stale === true,
+      offline: item.offline === true,
+      path: item.path || '/dashboard'
+    })
+  }
+
+  toArray(cmdbHostsSnapshot.value).forEach((item) => {
+    const online = isOnlineStatus(item.status)
+    const stale = isStatusStale(item, 3)
+    if (!online) {
+      pushIssue({
+        module: 'CMDB主机',
+        name: item.name || item.ip || item.id,
+        statusText: '离线',
+        reason: item.status_reason || '主机连通失败',
+        checkedAt: statusFreshnessTs(item),
+        level: 'danger',
+        offline: true,
+        path: '/host'
+      })
+    } else if (stale) {
+      pushIssue({
+        module: 'CMDB主机',
+        name: item.name || item.ip || item.id,
+        statusText: '状态过期',
+        reason: item.status_reason || '超过 3 分钟未巡检',
+        checkedAt: statusFreshnessTs(item),
+        level: 'warning',
+        stale: true,
+        path: '/host'
+      })
+    }
+  })
+
+  toArray(dockerHostsSnapshot.value).forEach((item) => {
+    const online = normalizeText(item.status) === 'online'
+    const stale = isStatusStale(item, 3)
+    if (!online) {
+      pushIssue({
+        module: 'Docker',
+        name: item.name || item.host_id || item.id,
+        statusText: '离线',
+        reason: item.last_error || item.status_reason || 'Docker 连接失败',
+        checkedAt: statusFreshnessTs(item),
+        level: 'danger',
+        offline: true,
+        path: '/docker'
+      })
+    } else if (stale) {
+      pushIssue({
+        module: 'Docker',
+        name: item.name || item.host_id || item.id,
+        statusText: '状态过期',
+        reason: item.last_error || '超过 3 分钟未巡检',
+        checkedAt: statusFreshnessTs(item),
+        level: 'warning',
+        stale: true,
+        path: '/docker'
+      })
+    }
+  })
+
+  toArray(k8sClustersSnapshot.value).forEach((item) => {
+    const online = isOnlineStatus(item.status)
+    const maintenance = isMaintenanceStatus(item.status)
+    const stale = online && elapsedMinutes(clusterFreshnessTs(item)) >= 15
+    if (!online && !maintenance) {
+      pushIssue({
+        module: 'K8s集群',
+        name: item.display_name || item.name || item.id,
+        statusText: '异常',
+        reason: item.status_reason || `状态 ${item.status || '-'}`,
+        checkedAt: clusterFreshnessTs(item),
+        level: 'danger',
+        path: '/k8s/clusters'
+      })
+    } else if (stale) {
+      pushIssue({
+        module: 'K8s集群',
+        name: item.display_name || item.name || item.id,
+        statusText: '状态过期',
+        reason: item.status_reason || '超过 15 分钟未巡检',
+        checkedAt: clusterFreshnessTs(item),
+        level: 'warning',
+        stale: true,
+        path: '/k8s/clusters'
+      })
+    }
+  })
+
+  toArray(networkDevicesSnapshot.value).forEach((item) => {
+    const status = toNumber(item.status, -1)
+    const online = isOnlineStatus(status)
+    const stale = online && isStatusStale(item, 5)
+    if (status === 2) {
+      pushIssue({
+        module: '网络设备',
+        name: item.name || item.ip || item.id,
+        statusText: '告警',
+        reason: item.status_reason || '连通异常',
+        checkedAt: statusFreshnessTs(item),
+        level: 'danger',
+        path: '/cmdb/network-devices'
+      })
+    } else if (!online) {
+      pushIssue({
+        module: '网络设备',
+        name: item.name || item.ip || item.id,
+        statusText: '离线',
+        reason: item.status_reason || '管理口不可达',
+        checkedAt: statusFreshnessTs(item),
+        level: 'warning',
+        offline: true,
+        path: '/cmdb/network-devices'
+      })
+    } else if (stale) {
+      pushIssue({
+        module: '网络设备',
+        name: item.name || item.ip || item.id,
+        statusText: '状态过期',
+        reason: item.status_reason || '超过 5 分钟未巡检',
+        checkedAt: statusFreshnessTs(item),
+        level: 'warning',
+        stale: true,
+        path: '/cmdb/network-devices'
+      })
+    }
+  })
+
+  toArray(firewallsSnapshot.value).forEach((item) => {
+    const status = toNumber(item.status, -1)
+    const stale = status === 1 && isStatusStale(item, 5)
+    if (status === 2) {
+      pushIssue({
+        module: '防火墙',
+        name: item.name || item.ip || item.id,
+        statusText: '告警',
+        reason: item.status_reason || 'SNMP 指标异常',
+        checkedAt: statusFreshnessTs(item),
+        level: 'danger',
+        path: '/firewall'
+      })
+    } else if (status === 0) {
+      pushIssue({
+        module: '防火墙',
+        name: item.name || item.ip || item.id,
+        statusText: '离线',
+        reason: item.status_reason || '设备不可达',
+        checkedAt: statusFreshnessTs(item),
+        level: 'warning',
+        offline: true,
+        path: '/firewall'
+      })
+    } else if (stale) {
+      pushIssue({
+        module: '防火墙',
+        name: item.name || item.ip || item.id,
+        statusText: '状态过期',
+        reason: item.status_reason || '超过 5 分钟未采集',
+        checkedAt: statusFreshnessTs(item),
+        level: 'warning',
+        stale: true,
+        path: '/firewall'
+      })
+    }
+  })
+
+  const severityRank = (level) => (level === 'danger' ? 2 : 1)
+  rows.sort((a, b) => {
+    const diff = severityRank(b.level) - severityRank(a.level)
+    if (diff !== 0) return diff
+    return parseTimestamp(a.checkedAt || 0) - parseTimestamp(b.checkedAt || 0)
+  })
+  return rows.slice(0, 18)
+})
+
+const integritySummary = computed(() => {
+  const rows = integrityIssueRows.value
+  return {
+    total: rows.length,
+    critical: rows.filter((item) => item.level === 'danger').length,
+    stale: rows.filter((item) => item.stale).length,
+    offline: rows.filter((item) => item.offline).length
+  }
+})
+
+const dataSourceSummary = computed(() => {
+  const rows = dataSourceDiagnostics.value
+  return {
+    ok: rows.filter((item) => item.status === 'ok').length,
+    warning: rows.filter((item) => item.status === 'warning').length,
+    error: rows.filter((item) => item.status === 'error').length
+  }
+})
+
+const completenessScore = computed(() => {
+  const moduleStates = Object.values(moduleStatus)
+  const moduleErrors = moduleStates.filter((item) => item === 'error').length
+  const moduleWarnings = moduleStates.filter((item) => item === 'warning').length
+  const dataErrors = dataSourceSummary.value.error
+  const dataWarnings = dataSourceSummary.value.warning
+  const raw = 100 - moduleErrors * 7 - moduleWarnings * 3 - dataErrors * 5 - dataWarnings * 2
+  return Math.max(0, Math.min(100, raw))
+})
+
+const fieldCompletenessRows = computed(() => {
+  const summarize = (module, path, rows, options = {}) => {
+    const list = toArray(rows)
+    const total = list.length
+    if (!total) {
+      return {
+        module,
+        path,
+        rate: 0,
+        missing: 1,
+        issue: '暂无数据'
+      }
+    }
+    let missingStatus = 0
+    let missingFreshness = 0
+    let missingReason = 0
+    let missingIdentity = 0
+
+    list.forEach((row) => {
+      const statusRaw = row?.status
+      if (!hasValue(statusRaw)) missingStatus += 1
+      const checkedAt = options.freshness ? options.freshness(row) : statusFreshnessTs(row)
+      if (!hasValue(checkedAt)) missingFreshness += 1
+      if (options.identity) {
+        const identity = options.identity(row)
+        if (!hasValue(identity)) missingIdentity += 1
+      }
+      if (typeof options.reasonRequired === 'function' && options.reasonRequired(row)) {
+        const reason = options.reason(row)
+        if (!hasValue(reason)) missingReason += 1
+      }
+    })
+
+    const missing = missingStatus + missingFreshness + missingReason + missingIdentity
+    const denominator = total * 2 + (options.reason ? total : 0) + (options.identity ? total : 0)
+    const rate = Math.max(0, Math.min(100, Math.round((1 - missing / Math.max(1, denominator)) * 100)))
+    const parts = []
+    if (missingStatus > 0) parts.push(`缺状态 ${missingStatus}`)
+    if (missingFreshness > 0) parts.push(`缺检测时间 ${missingFreshness}`)
+    if (missingReason > 0) parts.push(`缺异常原因 ${missingReason}`)
+    if (missingIdentity > 0) parts.push(`缺关联标识 ${missingIdentity}`)
+    if (!parts.length) parts.push('字段完整')
+    return { module, path, rate, missing, issue: parts.join(' / ') }
+  }
+
+  return [
+    summarize('CMDB主机', '/host', cmdbHostsSnapshot.value, {
+      freshness: statusFreshnessTs,
+      identity: (row) => row?.id || row?.ip || row?.name,
+      reason: (row) => row?.status_reason,
+      reasonRequired: (row) => !isOnlineStatus(row?.status)
+    }),
+    summarize('Docker', '/docker', dockerHostsSnapshot.value, {
+      freshness: statusFreshnessTs,
+      identity: (row) => row?.host_id || row?.id,
+      reason: (row) => row?.last_error || row?.status_reason,
+      reasonRequired: (row) => normalizeText(row?.status) !== 'online'
+    }),
+    summarize('K8s集群', '/k8s/clusters', k8sClustersSnapshot.value, {
+      freshness: clusterFreshnessTs,
+      identity: (row) => row?.id || row?.name
+    }),
+    summarize('网络设备', '/cmdb/network-devices', networkDevicesSnapshot.value, {
+      freshness: statusFreshnessTs,
+      identity: (row) => row?.id || row?.ip || row?.name,
+      reason: (row) => row?.status_reason,
+      reasonRequired: (row) => !isOnlineStatus(row?.status)
+    }),
+    summarize('防火墙', '/firewall', firewallsSnapshot.value, {
+      freshness: statusFreshnessTs,
+      identity: (row) => row?.id || row?.ip || row?.name,
+      reason: (row) => row?.status_reason,
+      reasonRequired: (row) => toNumber(row?.status, -1) !== 1
+    }),
+    summarize('堡垒机资产', '/jump/assets', jumpAssetsSnapshot.value, {
+      freshness: (row) => row?.updated_at || row?.created_at,
+      identity: (row) => row?.source_ref || row?.id
+    })
+  ]
+})
+
+const fieldCompletenessSummary = computed(() => {
+  const rows = fieldCompletenessRows.value
+  return {
+    total: rows.length,
+    problem: rows.filter((item) => item.missing > 0).length
+  }
+})
+
+const consistencyIssueRows = computed(() => {
+  const rows = []
+  const cmdbById = new Map()
+  const dockerByHostID = new Map()
+  const k8sByID = new Map()
+
+  toArray(cmdbHostsSnapshot.value).forEach((item) => {
+    if (item?.id) cmdbById.set(item.id, item)
+  })
+  toArray(dockerHostsSnapshot.value).forEach((item) => {
+    if (item?.host_id) dockerByHostID.set(item.host_id, item)
+  })
+  toArray(k8sClustersSnapshot.value).forEach((item) => {
+    if (item?.id) k8sByID.set(item.id, item)
+  })
+
+  toArray(dockerHostsSnapshot.value).forEach((docker) => {
+    const cmdb = cmdbById.get(docker?.host_id)
+    if (!cmdb) {
+      rows.push({
+        module: 'CMDB ↔ Docker',
+        name: docker?.name || docker?.id || '-',
+        reason: 'Docker 主机未关联到 CMDB 主机',
+        path: '/docker'
+      })
+      return
+    }
+    const dockerOnline = normalizeText(docker?.status) === 'online'
+    const cmdbOnline = isOnlineStatus(cmdb?.status)
+    if (dockerOnline !== cmdbOnline) {
+      rows.push({
+        module: 'CMDB ↔ Docker',
+        name: docker?.name || cmdb?.name || docker?.id || '-',
+        reason: `状态冲突：CMDB=${cmdbOnline ? '在线' : '离线'}，Docker=${dockerOnline ? '在线' : '离线'}`,
+        path: '/docker'
+      })
+    }
+  })
+
+  toArray(jumpAssetsSnapshot.value).forEach((asset) => {
+    const source = normalizeText(asset?.source)
+    const ref = asset?.source_ref
+    if (!hasValue(ref)) {
+      rows.push({
+        module: '资产 ↔ 堡垒机',
+        name: asset?.name || asset?.id || '-',
+        reason: '缺少 source_ref，无法追踪来源资产',
+        path: '/jump/assets'
+      })
+      return
+    }
+    if (source === 'cmdb_host' && !cmdbById.has(ref)) {
+      rows.push({
+        module: '资产 ↔ 堡垒机',
+        name: asset?.name || ref,
+        reason: '来源标记为 CMDB 主机，但在 CMDB 不存在',
+        path: '/jump/assets'
+      })
+    } else if (source === 'docker_host' && !dockerByHostID.has(ref)) {
+      rows.push({
+        module: 'Docker ↔ 堡垒机',
+        name: asset?.name || ref,
+        reason: '来源标记为 Docker 主机，但 Docker 侧不存在关联主机',
+        path: '/jump/assets'
+      })
+    } else if (source === 'k8s_cluster' && !k8sByID.has(ref)) {
+      rows.push({
+        module: 'K8s ↔ 堡垒机',
+        name: asset?.name || ref,
+        reason: '来源标记为 K8s 集群，但集群列表未找到对应对象',
+        path: '/jump/assets'
+      })
+    }
+  })
+
+  return rows.slice(0, 16)
+})
+
+const consistencySummary = computed(() => ({
+  total: consistencyIssueRows.value.length
+}))
+
+const selfCheckHistorySummary = computed(() => {
+  const rows = toArray(selfCheckHistory.value)
+  return {
+    ok: rows.filter((item) => item.status === 'ok').length,
+    warning: rows.filter((item) => item.status === 'warning').length,
+    error: rows.filter((item) => item.status === 'error').length
+  }
+})
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -606,6 +1203,94 @@ const inTimeWindow = (value) => {
   if (!ts) return true
   const hours = toNumber(scope.timeWindowHours, 24)
   return ts >= nowMs() - hours * 60 * 60 * 1000
+}
+
+const hasValue = (value) => {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  return true
+}
+
+const truncateText = (value, max = 120) => {
+  const text = String(value || '').trim()
+  if (text.length <= max) return text
+  return `${text.slice(0, Math.max(0, max - 1))}…`
+}
+
+const pushSelfCheckHistory = (source, probeSummary = null) => {
+  const errors = dataSourceSummary.value.error
+  const warnings = dataSourceSummary.value.warning
+  const status = errors > 0 ? 'error' : warnings > 0 ? 'warning' : 'ok'
+  const summaryParts = [
+    `失败 ${errors}`,
+    `降级 ${warnings}`,
+    `高风险 ${integritySummary.value.critical}`
+  ]
+  if (probeSummary && probeSummary.total > 0) {
+    summaryParts.push(`主动探测 ${probeSummary.ok}/${probeSummary.total}`)
+  }
+  const entry = {
+    at: new Date().toISOString(),
+    source,
+    score: completenessScore.value,
+    status,
+    summary: summaryParts.join(' / ')
+  }
+  const prev = selfCheckHistory.value[0]
+  const recentGapMs = prev ? nowMs() - new Date(prev.at).getTime() : Number.MAX_SAFE_INTEGER
+  const sameSignature =
+    prev &&
+    prev.status === entry.status &&
+    prev.score === entry.score &&
+    prev.summary === entry.summary
+  if (source !== 'manual' && sameSignature && recentGapMs < 5 * 60 * 1000) return
+
+  selfCheckHistory.value = [entry, ...toArray(selfCheckHistory.value)].slice(0, 30)
+  writeHistory()
+}
+
+const runDeepStatusProbe = async () => {
+  const jobs = []
+
+  const hostTargets = toArray(cmdbHostsSnapshot.value)
+    .filter((item) => !isOnlineStatus(item.status) || isStatusStale(item, 3))
+    .map((item) => item.id)
+    .filter(Boolean)
+    .slice(0, 3)
+  hostTargets.forEach((id) => {
+    jobs.push(axios.post(`/api/v1/cmdb/hosts/${id}/test`, {}, { headers: authHeaders() }))
+  })
+
+  const dockerTargets = toArray(dockerHostsSnapshot.value)
+    .filter((item) => normalizeText(item.status) !== 'online' || isStatusStale(item, 3))
+    .map((item) => item.id)
+    .filter(Boolean)
+    .slice(0, 3)
+  dockerTargets.forEach((id) => {
+    jobs.push(axios.post(`/api/v1/docker/hosts/${id}/test`, {}, { headers: authHeaders() }))
+  })
+
+  const networkTargets = toArray(networkDevicesSnapshot.value)
+    .filter((item) => !isOnlineStatus(item.status) || isStatusStale(item, 5))
+    .map((item) => item.id)
+    .filter(Boolean)
+    .slice(0, 3)
+  networkTargets.forEach((id) => {
+    jobs.push(axios.post(`/api/v1/cmdb/network-devices/${id}/test`, {}, { headers: authHeaders() }))
+  })
+
+  const k8sTargets = toArray(k8sClustersSnapshot.value)
+    .filter((item) => (!isOnlineStatus(item.status) && !isMaintenanceStatus(item.status)) || elapsedMinutes(clusterFreshnessTs(item)) >= 15)
+    .map((item) => item.id)
+    .filter(Boolean)
+    .slice(0, 3)
+  k8sTargets.forEach((id) => {
+    jobs.push(axios.post(`/api/v1/k8s/clusters/${id}/test`, {}, { headers: authHeaders() }))
+  })
+
+  if (!jobs.length) return { total: 0, ok: 0, fail: 0 }
+  const result = summarizeSettled(await Promise.allSettled(jobs))
+  return { total: jobs.length, ok: result.ok, fail: result.fail }
 }
 
 const summarizeSettled = (results) => {
@@ -987,9 +1672,10 @@ const refreshRealtimeMetrics = async () => {
   }
 }
 
-const refreshDashboard = async () => {
+const refreshDashboard = async (options = {}) => {
   if (refreshing.value) return
   refreshing.value = true
+  const source = options.source || 'auto'
   try {
     const calls = await Promise.allSettled([
       axios.get('/api/v1/cmdb/hosts', { headers: authHeaders(), params: { live: 1 } }),
@@ -1000,7 +1686,7 @@ const refreshDashboard = async () => {
       axios.get('/api/v1/monitor/agents', { headers: authHeaders() }),
       axios.get('/api/v1/monitor/metrics', { headers: authHeaders() }),
       axios.get('/api/v1/monitor/metrics/history', { headers: authHeaders(), params: { hours: Number(scope.timeWindowHours || 24) } }),
-      axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders() }),
+      axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders(), params: { live: 1 } }),
       axios.get('/api/v1/firewall/devices', { headers: authHeaders(), params: { live: 1 } }),
       axios.get('/api/v1/jump/sessions', { headers: authHeaders() }),
       axios.get('/api/v1/jump/risk-events', { headers: authHeaders() }),
@@ -1010,19 +1696,28 @@ const refreshDashboard = async () => {
       axios.get('/api/v1/cicd/schedules', { headers: authHeaders() }),
       axios.get('/api/v1/workorder/orders', { headers: authHeaders() }),
       axios.get('/api/v1/workflow/executions', { headers: authHeaders() }),
-      axios.get('/api/v1/terminal/sessions', { headers: authHeaders() })
+      axios.get('/api/v1/terminal/sessions', { headers: authHeaders() }),
+      axios.get('/api/v1/jump/assets', { headers: authHeaders() }),
+      axios.get('/api/v1/jump/integration/config', { headers: authHeaders() })
     ])
 
     const failures = []
 
     const hostsPayload = extractData(calls[0])
     const hosts = toArray(hostsPayload)
+    cmdbHostsSnapshot.value = hosts
     if (hostsPayload !== null) {
       stats.hostTotal = hosts.length
       stats.hostOnline = hosts.filter((h) => toNumber(h.status, -1) === 1 || normalizeText(h.status) === 'online').length
       stats.hostOffline = hosts.filter((h) => !isOnlineStatus(h.status)).length
       stats.hostStale = hosts.filter((h) => isStatusStale(h, 3)).length
-      moduleStatus.cmdb = stats.hostStale > 0 ? 'warning' : 'ok'
+      if (stats.hostOffline > 0) {
+        moduleStatus.cmdb = 'error'
+      } else if (stats.hostStale > 0) {
+        moduleStatus.cmdb = 'warning'
+      } else {
+        moduleStatus.cmdb = 'ok'
+      }
     } else {
       stats.hostOffline = 0
       stats.hostStale = 0
@@ -1032,12 +1727,19 @@ const refreshDashboard = async () => {
 
     const dockerPayload = extractData(calls[1])
     const dockerHosts = toArray(dockerPayload)
+    dockerHostsSnapshot.value = dockerHosts
     if (dockerPayload !== null) {
       stats.dockerTotal = dockerHosts.length
       stats.dockerOnline = dockerHosts.filter((h) => normalizeText(h.status) === 'online').length
       stats.dockerOffline = dockerHosts.filter((h) => normalizeText(h.status) !== 'online').length
       stats.dockerStale = dockerHosts.filter((h) => isStatusStale(h, 3)).length
-      moduleStatus.docker = stats.dockerStale > 0 ? 'warning' : 'ok'
+      if (stats.dockerOffline > 0) {
+        moduleStatus.docker = 'error'
+      } else if (stats.dockerStale > 0) {
+        moduleStatus.docker = 'warning'
+      } else {
+        moduleStatus.docker = 'ok'
+      }
     } else {
       stats.dockerOffline = 0
       stats.dockerStale = 0
@@ -1060,6 +1762,7 @@ const refreshDashboard = async () => {
     await ensureScopeNamespaces()
 
     const scopedClusters = allClusters.filter((item) => clusterInScope(item))
+    k8sClustersSnapshot.value = scopedClusters
     if (clustersPayload !== null) {
       stats.k8sTotal = scopedClusters.length
       stats.k8sHealthy = scopedClusters.filter((c) => isOnlineStatus(c.status)).length
@@ -1144,13 +1847,19 @@ const refreshDashboard = async () => {
     const jumpRiskPayload = extractData(calls[11])
     const domainsPayload = extractData(calls[12])
     const certsPayload = extractData(calls[13])
+    const jumpAssetsPayload = extractData(calls[19])
+    const jumpIntegrationPayload = extractData(calls[20])
 
     const networkDevices = toArray(networkPayload)
     const firewalls = toArray(firewallPayload)
+    networkDevicesSnapshot.value = networkDevices
+    firewallsSnapshot.value = firewalls
     const jumpSessions = toArray(jumpSessionsPayload)
     const jumpRiskEvents = toArray(jumpRiskPayload)
     const domains = toArray(domainsPayload)
     const certs = toArray(certsPayload)
+    const jumpAssets = toArray(jumpAssetsPayload)
+    jumpAssetsSnapshot.value = jumpAssets
     const deliveryExecutions = toArray(extractData(calls[14]))
     const deliverySchedules = toArray(extractData(calls[15]))
     const workorders = toArray(extractData(calls[16]))
@@ -1209,6 +1918,14 @@ const refreshDashboard = async () => {
 
     const offlineHosts = hosts.filter((item) => !isOnlineStatus(item.status))
     const offlineNetworks = networkDevices.filter((item) => !isOnlineStatus(item.status))
+    const staleNetworks = networkDevices.filter((item) => isOnlineStatus(item.status) && isStatusStale(item, 5))
+    if (networkPayload !== null && moduleStatus.cmdb !== 'error') {
+      if (offlineNetworks.length > 0) {
+        moduleStatus.cmdb = 'warning'
+      } else if (staleNetworks.length > 0 && moduleStatus.cmdb === 'ok') {
+        moduleStatus.cmdb = 'warning'
+      }
+    }
     const hostOffline = offlineHosts.length
     const networkOffline = offlineNetworks.length
     const firewallAlert = firewalls.filter((item) => Number(item.status) === 2).length
@@ -1216,10 +1933,12 @@ const refreshDashboard = async () => {
       (item) => normalizeText(item.status) === 'pending_approval' && elapsedMinutes(item.started_at) >= 30
     ).length
     const riskCritical = jumpRiskEvents.filter((item) => normalizeText(item.severity) === 'critical').length
+    const jumpSyncFailed = normalizeText(jumpIntegrationPayload?.last_sync_status) === 'failed'
+    const jumpSyncMsg = jumpIntegrationPayload?.last_sync_msg || ''
     if (jumpSessionsPayload !== null && jumpRiskPayload !== null) {
       if (riskCritical > 0) {
         moduleStatus.jump = 'error'
-      } else if (jumpPendingTimeout > 0) {
+      } else if (jumpPendingTimeout > 0 || jumpSyncFailed) {
         moduleStatus.jump = 'warning'
       } else {
         moduleStatus.jump = 'ok'
@@ -1227,6 +1946,12 @@ const refreshDashboard = async () => {
     } else {
       moduleStatus.jump = 'error'
       failures.push('堡垒机')
+    }
+    if (jumpAssetsPayload === null) {
+      failures.push(extractFailure(calls[19], '堡垒机资产') || '堡垒机资产')
+    }
+    if (jumpIntegrationPayload === null) {
+      failures.push(extractFailure(calls[20], 'Jump集成') || 'Jump集成')
     }
     backlog.asset = hostOffline + networkOffline + firewallAlert + jumpPendingTimeout + riskCritical
     backlog.assetOverdue = jumpPendingTimeout
@@ -1331,16 +2056,164 @@ const refreshDashboard = async () => {
       .filter(Boolean)
     backlogSource.failedTerminalSessionIds = failedTerminalSessions.map((item) => item.id).filter(Boolean)
 
+    const callErrorMessage = (idx, label) => {
+      const item = calls[idx]
+      if (!item || item.status !== 'rejected') return ''
+      return getErrorMessage(item.reason, `${label}请求失败`)
+    }
+    const diagnosticRows = [
+      {
+        label: 'CMDB主机状态链路',
+        path: '/host',
+        status: hostsPayload === null ? 'error' : (hostOffline > 0 || stats.hostStale > 0 ? 'warning' : 'ok'),
+        countText: `${hosts.length}`,
+        message: hostsPayload === null ? callErrorMessage(0, 'CMDB') : (hostOffline > 0 ? `离线 ${hostOffline} 台` : (stats.hostStale > 0 ? `状态过期 ${stats.hostStale} 台` : '主机状态实时'))
+      },
+      {
+        label: 'Docker状态链路',
+        path: '/docker',
+        status: dockerPayload === null ? 'error' : (stats.dockerOffline > 0 || stats.dockerStale > 0 ? 'warning' : 'ok'),
+        countText: `${dockerHosts.length}`,
+        message: dockerPayload === null ? callErrorMessage(1, 'Docker') : (stats.dockerOffline > 0 ? `离线 ${stats.dockerOffline} 台` : (stats.dockerStale > 0 ? `状态过期 ${stats.dockerStale} 台` : 'Docker采集正常'))
+      },
+      {
+        label: 'K8s集群状态链路',
+        path: '/k8s/clusters',
+        status: clustersPayload === null ? 'error' : (stats.k8sUnhealthy > 0 || stats.k8sStale > 0 ? 'warning' : 'ok'),
+        countText: `${scopedClusters.length}`,
+        message: clustersPayload === null ? callErrorMessage(2, 'K8s') : (stats.k8sUnhealthy > 0 ? `异常 ${stats.k8sUnhealthy} 个` : (stats.k8sStale > 0 ? `状态过期 ${stats.k8sStale} 个` : '集群状态实时'))
+      },
+      {
+        label: '告警事件链路',
+        path: '/alert/events',
+        status: alertsPayload === null ? 'error' : (monitorAlertTimeout > 0 ? 'warning' : 'ok'),
+        countText: `${scopedAlerts.length}`,
+        message: alertsPayload === null ? callErrorMessage(3, '告警') : (monitorAlertTimeout > 0 ? `超时未恢复 ${monitorAlertTimeout} 条` : '告警事件可用')
+      },
+      {
+        label: '监控指标链路',
+        path: '/monitor/overview',
+        status: metricData === null || historyPayload === null ? 'error' : 'ok',
+        countText: `${trendRecords.value.length}`,
+        message: metricData === null ? callErrorMessage(6, '监控指标') : (historyPayload === null ? callErrorMessage(7, '趋势') : '实时+历史指标可用')
+      },
+      {
+        label: '网络设备链路',
+        path: '/cmdb/network-devices',
+        status: networkPayload === null ? 'error' : (networkOffline > 0 || staleNetworks.length > 0 ? 'warning' : 'ok'),
+        countText: `${networkDevices.length}`,
+        message: networkPayload === null ? callErrorMessage(8, '网络设备') : (networkOffline > 0 ? `离线 ${networkOffline} 台` : (staleNetworks.length > 0 ? `状态过期 ${staleNetworks.length} 台` : '网络设备状态正常'))
+      },
+      {
+        label: '防火墙链路',
+        path: '/firewall',
+        status: firewallPayload === null ? 'error' : (stats.firewallAlert > 0 || stats.firewallOffline > 0 || stats.firewallStale > 0 ? 'warning' : 'ok'),
+        countText: `${firewalls.length}`,
+        message: firewallPayload === null ? callErrorMessage(9, '防火墙') : (stats.firewallAlert > 0 ? `告警 ${stats.firewallAlert} 台` : (stats.firewallOffline > 0 ? `离线 ${stats.firewallOffline} 台` : (stats.firewallStale > 0 ? `状态过期 ${stats.firewallStale} 台` : 'SNMP采集正常')))
+      },
+      {
+        label: 'JumpServer会话链路',
+        path: '/jump/sessions',
+        status: jumpSessionsPayload === null || jumpRiskPayload === null ? 'error' : (jumpPendingTimeout > 0 || riskCritical > 0 || jumpSyncFailed ? 'warning' : 'ok'),
+        countText: `${jumpSessions.length}`,
+        message: jumpSessionsPayload === null || jumpRiskPayload === null
+          ? (callErrorMessage(10, 'Jump会话') || callErrorMessage(11, 'Jump风控') || '堡垒机链路异常')
+          : (riskCritical > 0 ? `高危风控 ${riskCritical} 条` : (jumpPendingTimeout > 0 ? `超时待审批 ${jumpPendingTimeout} 条` : (jumpSyncFailed ? truncateText(jumpSyncMsg || '最近同步失败', 80) : '会话同步正常')))
+      },
+      {
+        label: '堡垒机资产映射链路',
+        path: '/jump/assets',
+        status: jumpAssetsPayload === null ? 'error' : (consistencyIssueRows.value.some((item) => item.module.includes('堡垒机')) ? 'warning' : 'ok'),
+        countText: `${jumpAssets.length}`,
+        message: jumpAssetsPayload === null
+          ? (callErrorMessage(19, 'Jump资产') || '堡垒机资产读取失败')
+          : (consistencyIssueRows.value.some((item) => item.module.includes('堡垒机')) ? '存在来源映射不一致' : '堡垒机资产映射正常')
+      },
+      {
+        label: '域名与证书链路',
+        path: '/domain/ssl',
+        status: domainsPayload === null || certsPayload === null ? 'error' : (stats.domainCritical > 0 || stats.domainWarning > 0 || stats.domainStale > 0 ? 'warning' : 'ok'),
+        countText: `${domains.length}/${certs.length}`,
+        message: domainsPayload === null || certsPayload === null
+          ? (callErrorMessage(12, '域名') || callErrorMessage(13, '证书') || '域名证书链路异常')
+          : (stats.domainCritical > 0 ? `故障域名 ${stats.domainCritical} 个` : (stats.domainWarning > 0 ? `预警域名 ${stats.domainWarning} 个` : (stats.domainStale > 0 ? `检查过期 ${stats.domainStale} 个` : '域名证书状态正常')))
+      },
+      {
+        label: '任务与工单链路',
+        path: '/delivery/center',
+        status: (extractData(calls[4]) === null || extractData(calls[15]) === null || extractData(calls[16]) === null) ? 'error' : (backlog.deliveryOverdue > 0 ? 'warning' : 'ok'),
+        countText: `${tasks.length}/${deliverySchedules.length}/${workorders.length}`,
+        message: (extractData(calls[4]) === null || extractData(calls[15]) === null || extractData(calls[16]) === null)
+          ? (callErrorMessage(4, '任务') || callErrorMessage(15, '定时发布') || callErrorMessage(16, '工单') || '任务工单链路异常')
+          : (backlog.deliveryOverdue > 0 ? `超时待处理 ${backlog.deliveryOverdue} 项` : '任务调度与工单正常')
+      },
+      {
+        label: 'Agent在线链路',
+        path: '/monitor/agents',
+        status: agentsPayload === null ? 'error' : ((stats.agentTotal > 0 && stats.agentOnline === 0) ? 'warning' : 'ok'),
+        countText: `${stats.agentOnline}/${stats.agentTotal}`,
+        message: agentsPayload === null ? callErrorMessage(5, 'Agent') : ((stats.agentTotal > 0 && stats.agentOnline === 0) ? '所有 Agent 离线' : 'Agent状态正常')
+      },
+      {
+        label: '状态字段完整性',
+        path: '/dashboard',
+        status: fieldCompletenessSummary.value.problem > 0 ? 'warning' : 'ok',
+        countText: `${fieldCompletenessSummary.value.total}`,
+        message: fieldCompletenessSummary.value.problem > 0
+          ? `存在 ${fieldCompletenessSummary.value.problem} 个模块字段缺口`
+          : '关键状态字段完整'
+      },
+      {
+        label: '跨模块一致性',
+        path: '/dashboard',
+        status: consistencySummary.value.total > 0 ? 'warning' : 'ok',
+        countText: `${consistencySummary.value.total}`,
+        message: consistencySummary.value.total > 0
+          ? `检测到 ${consistencySummary.value.total} 条跨模块冲突`
+          : '跨模块状态一致'
+      }
+    ]
+    dataSourceDiagnostics.value = diagnosticRows
+
     await refreshDeploymentRisk(scopedClusters, failures)
 
     lastUpdated.value = new Date().toLocaleString()
     renderTrend()
     await refreshTopHosts()
     throttledPartialFailureMessage(failures)
+    pushSelfCheckHistory(source)
   } catch (err) {
+    dataSourceDiagnostics.value = [
+      { label: '全局仪表盘刷新', status: 'error', countText: '-', message: getErrorMessage(err, '刷新失败'), path: '/dashboard' }
+    ]
+    pushSelfCheckHistory(source)
     ElMessage.error(getErrorMessage(err, '仪表盘刷新失败'))
   } finally {
     refreshing.value = false
+  }
+}
+
+const runSelfCheck = async () => {
+  if (deepChecking.value) return
+  deepChecking.value = true
+  try {
+    await refreshDashboard({ source: 'manual' })
+    const probeSummary = await runDeepStatusProbe()
+    const probeText = probeSummary.total > 0 ? `${probeSummary.ok}/${probeSummary.total}` : '无目标'
+    if (probeSummary.total > 0) {
+      await refreshDashboard({ source: 'probe' })
+    }
+    if (dataSourceSummary.value.error > 0) {
+      ElMessage.warning(`深度自检完成：失败 ${dataSourceSummary.value.error} 项，主动探测 ${probeText}`)
+      return
+    }
+    if (dataSourceSummary.value.warning > 0) {
+      ElMessage.warning(`深度自检完成：降级 ${dataSourceSummary.value.warning} 项，主动探测 ${probeText}`)
+      return
+    }
+    ElMessage.success(`深度自检完成：核心链路正常，主动探测 ${probeText}`)
+  } finally {
+    deepChecking.value = false
   }
 }
 
@@ -1577,6 +2450,31 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 
+.selfcheck-card {
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+}
+
+.selfcheck-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selfcheck-meta {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mini-percent {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
 .resource-row {
   display: grid;
   grid-template-columns: 48px 1fr 58px;
@@ -1669,6 +2567,18 @@ onBeforeUnmount(() => {
   color: #374151;
 }
 
+.integrity-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+}
+
+.integrity-summary-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .motion-up {
   animation: motion-up 0.38s ease both;
 }
@@ -1708,6 +2618,11 @@ onBeforeUnmount(() => {
 
   .risk-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    gap: 8px;
   }
 }
 

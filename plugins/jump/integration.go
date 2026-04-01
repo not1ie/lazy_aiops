@@ -60,6 +60,20 @@ type jumpServerClient struct {
 	tokenExpiry time.Time
 }
 
+type jumpServerAPIError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Message    string
+}
+
+func (e *jumpServerAPIError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("JumpServer API %s %s 失败(%d): %s", e.Method, e.Path, e.StatusCode, e.Message)
+}
+
 func (h *JumpHandler) GetIntegrationConfig(c *gin.Context) {
 	cfg, err := h.getOrCreateJumpIntegrationConfig()
 	if err != nil {
@@ -145,25 +159,49 @@ func (h *JumpHandler) TestIntegrationConnection(c *gin.Context) {
 		return
 	}
 
-	candidates := []string{
-		"/api/v1/users/profile/",
-		"/api/v1/users/users/?limit=1",
-		"/api/health/",
-	}
-
-	var endpoint string
-	for _, p := range candidates {
+	var profileEndpoint string
+	var profileErr error
+	for _, p := range jumpProfileCandidates() {
 		_, _, reqErr := client.request(http.MethodGet, p, nil, true)
 		if reqErr == nil {
-			endpoint = p
+			profileEndpoint = p
 			break
 		}
+		profileErr = reqErr
 	}
-	if endpoint == "" {
-		c.JSON(http.StatusBadGateway, gin.H{"code": 502, "message": "JumpServer 连接测试失败，请检查地址、认证方式与密钥"})
+	if profileEndpoint == "" {
+		msg := "JumpServer 连接测试失败，请检查地址、认证方式与密钥"
+		if profileErr != nil {
+			msg = describeJumpConnectionError(profileErr)
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"code": 502, "message": msg})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "JumpServer 连接成功", "data": gin.H{"checked_endpoint": endpoint}})
+
+	_, hostEndpoint, hostErr := client.listByCandidates(jumpHostAssetCandidates())
+	if hostErr != nil {
+		status := http.StatusBadGateway
+		if apiErr := asJumpServerAPIError(hostErr); apiErr != nil && (apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {
+			status = http.StatusForbidden
+		}
+		c.JSON(status, gin.H{
+			"code":    403,
+			"message": describeJumpSyncError(hostErr, "主机资产"),
+			"data": gin.H{
+				"checked_endpoint":       profileEndpoint,
+				"required_sync_endpoint": jumpHostAssetCandidates()[0],
+			},
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "JumpServer 连接成功，资产读取权限正常",
+		"data": gin.H{
+			"checked_endpoint":       profileEndpoint,
+			"required_sync_endpoint": hostEndpoint,
+		},
+	})
 }
 
 func (h *JumpHandler) SyncFromJumpServer(c *gin.Context) {
@@ -206,7 +244,7 @@ func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResul
 	}
 
 	result := jumpServerSyncResult{}
-	hosts, hostErr := client.listAssets("/api/v1/assets/hosts/")
+	hosts, hostEndpoint, hostErr := client.listByCandidates(jumpHostAssetCandidates())
 	if hostErr == nil {
 		for i := range hosts {
 			asset := buildJumpAssetFromJumpServerHost(hosts[i])
@@ -219,8 +257,11 @@ func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResul
 			}
 		}
 	}
+	if hostErr != nil {
+		hostErr = errors.New(describeJumpSyncError(hostErr, "主机资产"))
+	}
 
-	databases, dbErr := client.listAssets("/api/v1/assets/databases/")
+	databases, dbEndpoint, dbErr := client.listByCandidates(jumpDatabaseAssetCandidates())
 	if dbErr == nil {
 		for i := range databases {
 			asset := buildJumpAssetFromJumpServerDatabase(databases[i])
@@ -232,6 +273,9 @@ func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResul
 				break
 			}
 		}
+	}
+	if dbErr != nil {
+		dbErr = errors.New(describeJumpSyncError(dbErr, "数据库资产"))
 	}
 
 	result.Total.Created = result.Hosts.Created + result.Databases.Created
@@ -248,19 +292,35 @@ func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResul
 				"last_sync_msg":    truncateJumpText(msg, 500),
 			}).Error
 		} else {
+			hostLabel := hostEndpoint
+			if strings.TrimSpace(hostLabel) == "" {
+				hostLabel = jumpHostAssetCandidates()[0]
+			}
+			dbLabel := dbEndpoint
+			if strings.TrimSpace(dbLabel) == "" {
+				dbLabel = jumpDatabaseAssetCandidates()[0]
+			}
 			_ = h.db.Model(cfg).Updates(map[string]interface{}{
 				"last_sync_at":     now,
 				"last_sync_status": "ok",
-				"last_sync_msg":    fmt.Sprintf("hosts +%d/%d, databases +%d/%d", result.Hosts.Created, result.Hosts.Updated, result.Databases.Created, result.Databases.Updated),
+				"last_sync_msg": fmt.Sprintf(
+					"hosts(%s) +%d/%d, databases(%s) +%d/%d",
+					hostLabel,
+					result.Hosts.Created,
+					result.Hosts.Updated,
+					dbLabel,
+					result.Databases.Created,
+					result.Databases.Updated,
+				),
 			}).Error
 		}
 	}
 
 	if hostErr != nil {
-		return result, fmt.Errorf("同步 JumpServer 主机失败: %w", hostErr)
+		return result, fmt.Errorf("同步 JumpServer 主机失败: %s", hostErr.Error())
 	}
 	if dbErr != nil {
-		return result, fmt.Errorf("同步 JumpServer 数据库失败: %w", dbErr)
+		return result, fmt.Errorf("同步 JumpServer 数据库失败: %s", dbErr.Error())
 	}
 	return result, nil
 }
@@ -524,6 +584,7 @@ func (c *jumpServerClient) listAssets(endpoint string) ([]map[string]interface{}
 
 func (c *jumpServerClient) listByCandidates(candidates []string) ([]map[string]interface{}, string, error) {
 	var lastErr error
+	var preferredErr error
 	for i := range candidates {
 		endpoint := strings.TrimSpace(candidates[i])
 		if endpoint == "" {
@@ -533,7 +594,16 @@ func (c *jumpServerClient) listByCandidates(candidates []string) ([]map[string]i
 		if err == nil {
 			return items, endpoint, nil
 		}
+		if preferredErr == nil {
+			if apiErr := asJumpServerAPIError(err); apiErr != nil &&
+				(apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {
+				preferredErr = err
+			}
+		}
 		lastErr = err
+	}
+	if preferredErr != nil {
+		return nil, "", preferredErr
 	}
 	if lastErr != nil {
 		return nil, "", lastErr
@@ -577,7 +647,12 @@ func (c *jumpServerClient) request(method, path string, payload interface{}, wit
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return nil, resp.StatusCode, fmt.Errorf("JumpServer API %s %s 失败: %s", method, path, extractRemoteError(body))
+		return nil, resp.StatusCode, &jumpServerAPIError{
+			Method:     method,
+			Path:       path,
+			StatusCode: resp.StatusCode,
+			Message:    extractRemoteError(body),
+		}
 	}
 	if len(body) == 0 {
 		return map[string]interface{}{}, resp.StatusCode, nil
@@ -1218,6 +1293,70 @@ func buildTargetURL(baseURL, path string) string {
 	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	return baseURL + "/" + strings.TrimLeft(path, "/")
+}
+
+func jumpProfileCandidates() []string {
+	return []string{
+		"/api/v1/users/profile/",
+		"/api/v1/users/users/?limit=1",
+		"/api/health/",
+	}
+}
+
+func jumpHostAssetCandidates() []string {
+	return []string{
+		"/api/v1/assets/hosts/",
+		"/api/v1/assets/hosts",
+	}
+}
+
+func jumpDatabaseAssetCandidates() []string {
+	return []string{
+		"/api/v1/assets/databases/",
+		"/api/v1/assets/databases",
+	}
+}
+
+func asJumpServerAPIError(err error) *jumpServerAPIError {
+	var apiErr *jumpServerAPIError
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	return nil
+}
+
+func describeJumpConnectionError(err error) string {
+	apiErr := asJumpServerAPIError(err)
+	if apiErr == nil {
+		return "JumpServer 连接测试失败，请检查地址、认证方式与密钥"
+	}
+	switch apiErr.StatusCode {
+	case http.StatusUnauthorized:
+		return fmt.Sprintf("JumpServer 认证失败(401)：%s", apiErr.Message)
+	case http.StatusForbidden:
+		return fmt.Sprintf("JumpServer 权限不足(403)：%s", apiErr.Message)
+	case http.StatusNotFound:
+		return fmt.Sprintf("JumpServer 接口不存在(404)：%s", apiErr.Path)
+	default:
+		return fmt.Sprintf("JumpServer API 异常(%d)：%s", apiErr.StatusCode, apiErr.Message)
+	}
+}
+
+func describeJumpSyncError(err error, resource string) string {
+	apiErr := asJumpServerAPIError(err)
+	if apiErr == nil {
+		return fmt.Sprintf("%s读取失败：%s", resource, err.Error())
+	}
+	switch apiErr.StatusCode {
+	case http.StatusUnauthorized:
+		return fmt.Sprintf("%s读取失败：认证失败(401)，请检查认证方式和密钥 (%s)", resource, apiErr.Message)
+	case http.StatusForbidden:
+		return fmt.Sprintf("%s读取失败：当前账号无权限(403)，请在 JumpServer 为该账号授权资产读取权限（接口 %s）", resource, apiErr.Path)
+	case http.StatusNotFound:
+		return fmt.Sprintf("%s读取失败：接口不存在(404)，请确认 JumpServer 版本和API路径（接口 %s）", resource, apiErr.Path)
+	default:
+		return fmt.Sprintf("%s读取失败：JumpServer API %s 返回 %d (%s)", resource, apiErr.Path, apiErr.StatusCode, apiErr.Message)
+	}
 }
 
 func anyToString(v interface{}) string {
