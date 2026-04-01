@@ -28,42 +28,56 @@
     </div>
 
     <el-row :gutter="16" class="motion-up delay-3">
-      <el-col :span="4">
+      <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">主机总数</div>
           <div class="kpi-value">{{ stats.hostTotal }}</div>
           <div class="kpi-sub">在线 {{ stats.hostOnline }} / 离线 {{ stats.hostOffline }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">Docker 环境</div>
           <div class="kpi-value">{{ stats.dockerTotal }}</div>
           <div class="kpi-sub">在线 {{ stats.dockerOnline }} / 离线 {{ stats.dockerOffline }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">K8s 集群</div>
           <div class="kpi-value">{{ stats.k8sTotal }}</div>
-          <div class="kpi-sub">正常 {{ stats.k8sHealthy }}</div>
+          <div class="kpi-sub">正常 {{ stats.k8sHealthy }} / 异常 {{ stats.k8sUnhealthy }} / 维护 {{ stats.k8sMaintenance }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="3">
+        <el-card class="kpi-card" shadow="never">
+          <div class="kpi-title">防火墙设备</div>
+          <div class="kpi-value">{{ stats.firewallTotal }}</div>
+          <div class="kpi-sub">在线 {{ stats.firewallOnline }} / 离线 {{ stats.firewallOffline }} / 过期 {{ stats.firewallStale }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="3">
+        <el-card class="kpi-card" shadow="never">
+          <div class="kpi-title">域名健康</div>
+          <div class="kpi-value">{{ stats.domainTotal }}</div>
+          <div class="kpi-sub">健康 {{ stats.domainHealthy }} / 预警 {{ stats.domainWarning }} / 故障 {{ stats.domainCritical }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">活跃告警</div>
           <div class="kpi-value danger">{{ stats.alertOpen }}</div>
           <div class="kpi-sub">总告警 {{ stats.alertTotal }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">启用任务</div>
           <div class="kpi-value">{{ stats.taskEnabled }}</div>
           <div class="kpi-sub">总任务 {{ stats.taskTotal }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="3">
         <el-card class="kpi-card" shadow="never">
           <div class="kpi-title">在线 Agent</div>
           <div class="kpi-value">{{ stats.agentOnline }}</div>
@@ -187,6 +201,21 @@
             <el-button link @click="go('/task/schedules')">进入</el-button>
           </div>
           <div class="module-row">
+            <span>防火墙</span>
+            <el-tag :type="moduleTagType(moduleStatus.firewall)">{{ moduleTagText(moduleStatus.firewall) }}</el-tag>
+            <el-button link @click="go('/firewall')">进入</el-button>
+          </div>
+          <div class="module-row">
+            <span>域名证书</span>
+            <el-tag :type="moduleTagType(moduleStatus.domain)">{{ moduleTagText(moduleStatus.domain) }}</el-tag>
+            <el-button link @click="go('/domain/ssl')">进入</el-button>
+          </div>
+          <div class="module-row">
+            <span>堡垒机会话</span>
+            <el-tag :type="moduleTagType(moduleStatus.jump)">{{ moduleTagText(moduleStatus.jump) }}</el-tag>
+            <el-button link @click="go('/jump/sessions')">进入</el-button>
+          </div>
+          <div class="module-row">
             <span>主机状态时效</span>
             <el-tag :type="stats.hostStale > 0 ? 'warning' : 'success'">
               {{ stats.hostStale > 0 ? `过期 ${stats.hostStale}` : '实时' }}
@@ -199,6 +228,13 @@
               {{ stats.dockerStale > 0 ? `过期 ${stats.dockerStale}` : '实时' }}
             </el-tag>
             <el-button link @click="go('/docker')">巡检</el-button>
+          </div>
+          <div class="module-row">
+            <span>K8s状态时效</span>
+            <el-tag :type="stats.k8sStale > 0 ? 'warning' : 'success'">
+              {{ stats.k8sStale > 0 ? `过期 ${stats.k8sStale}` : '实时' }}
+            </el-tag>
+            <el-button link @click="go('/k8s/clusters')">巡检</el-button>
           </div>
         </el-card>
 
@@ -337,6 +373,19 @@ const stats = reactive({
   dockerStale: 0,
   k8sTotal: 0,
   k8sHealthy: 0,
+  k8sUnhealthy: 0,
+  k8sMaintenance: 0,
+  k8sStale: 0,
+  firewallTotal: 0,
+  firewallOnline: 0,
+  firewallOffline: 0,
+  firewallAlert: 0,
+  firewallStale: 0,
+  domainTotal: 0,
+  domainHealthy: 0,
+  domainWarning: 0,
+  domainCritical: 0,
+  domainStale: 0,
   alertTotal: 0,
   alertOpen: 0,
   taskTotal: 0,
@@ -379,6 +428,9 @@ const moduleStatus = reactive({
   cmdb: 'unknown',
   docker: 'unknown',
   k8s: 'unknown',
+  firewall: 'unknown',
+  domain: 'unknown',
+  jump: 'unknown',
   monitor: 'unknown',
   task: 'unknown'
 })
@@ -542,6 +594,7 @@ const isWorkorderApprovalPending = (status) => {
 const isScheduleEnabled = (row) => row?.enabled === true || Number(row?.enabled) === 1
 
 const clusterFreshnessTs = (row) =>
+  row?.last_check_at ||
   row?.last_sync_at ||
   row?.last_seen_at ||
   row?.last_heartbeat_at ||
@@ -941,14 +994,14 @@ const refreshDashboard = async () => {
     const calls = await Promise.allSettled([
       axios.get('/api/v1/cmdb/hosts', { headers: authHeaders(), params: { live: 1 } }),
       axios.get('/api/v1/docker/hosts', { headers: authHeaders(), params: { sync: 1 } }),
-      axios.get('/api/v1/k8s/clusters', { headers: authHeaders() }),
+      axios.get('/api/v1/k8s/clusters', { headers: authHeaders(), params: { live: 1 } }),
       axios.get('/api/v1/monitor/alerts', { headers: authHeaders() }),
       axios.get('/api/v1/task/tasks', { headers: authHeaders() }),
       axios.get('/api/v1/monitor/agents', { headers: authHeaders() }),
       axios.get('/api/v1/monitor/metrics', { headers: authHeaders() }),
       axios.get('/api/v1/monitor/metrics/history', { headers: authHeaders(), params: { hours: Number(scope.timeWindowHours || 24) } }),
       axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders() }),
-      axios.get('/api/v1/firewall/devices', { headers: authHeaders() }),
+      axios.get('/api/v1/firewall/devices', { headers: authHeaders(), params: { live: 1 } }),
       axios.get('/api/v1/jump/sessions', { headers: authHeaders() }),
       axios.get('/api/v1/jump/risk-events', { headers: authHeaders() }),
       axios.get('/api/v1/domain/domains', { headers: authHeaders() }),
@@ -1009,9 +1062,21 @@ const refreshDashboard = async () => {
     const scopedClusters = allClusters.filter((item) => clusterInScope(item))
     if (clustersPayload !== null) {
       stats.k8sTotal = scopedClusters.length
-      stats.k8sHealthy = scopedClusters.filter((c) => toNumber(c.status, -1) === 1 || normalizeText(c.status) === 'online').length
-      moduleStatus.k8s = 'ok'
+      stats.k8sHealthy = scopedClusters.filter((c) => isOnlineStatus(c.status)).length
+      stats.k8sMaintenance = scopedClusters.filter((c) => isMaintenanceStatus(c.status)).length
+      stats.k8sUnhealthy = scopedClusters.filter((c) => !isOnlineStatus(c.status) && !isMaintenanceStatus(c.status)).length
+      stats.k8sStale = scopedClusters.filter((c) => isOnlineStatus(c.status) && elapsedMinutes(clusterFreshnessTs(c)) >= 15).length
+      if (stats.k8sUnhealthy > 0) {
+        moduleStatus.k8s = 'error'
+      } else if (stats.k8sStale > 0 || stats.k8sMaintenance > 0) {
+        moduleStatus.k8s = 'warning'
+      } else {
+        moduleStatus.k8s = 'ok'
+      }
     } else {
+      stats.k8sMaintenance = 0
+      stats.k8sUnhealthy = 0
+      stats.k8sStale = 0
       moduleStatus.k8s = 'error'
       failures.push(extractFailure(calls[2], 'K8s') || 'K8s')
     }
@@ -1073,17 +1138,74 @@ const refreshDashboard = async () => {
       }))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
-    const networkDevices = toArray(extractData(calls[8]))
-    const firewalls = toArray(extractData(calls[9]))
-    const jumpSessions = toArray(extractData(calls[10]))
-    const jumpRiskEvents = toArray(extractData(calls[11]))
-    const domains = toArray(extractData(calls[12]))
-    const certs = toArray(extractData(calls[13]))
+    const networkPayload = extractData(calls[8])
+    const firewallPayload = extractData(calls[9])
+    const jumpSessionsPayload = extractData(calls[10])
+    const jumpRiskPayload = extractData(calls[11])
+    const domainsPayload = extractData(calls[12])
+    const certsPayload = extractData(calls[13])
+
+    const networkDevices = toArray(networkPayload)
+    const firewalls = toArray(firewallPayload)
+    const jumpSessions = toArray(jumpSessionsPayload)
+    const jumpRiskEvents = toArray(jumpRiskPayload)
+    const domains = toArray(domainsPayload)
+    const certs = toArray(certsPayload)
     const deliveryExecutions = toArray(extractData(calls[14]))
     const deliverySchedules = toArray(extractData(calls[15]))
     const workorders = toArray(extractData(calls[16]))
     const workflowExecutions = toArray(extractData(calls[17]))
     const terminalSessions = toArray(extractData(calls[18]))
+
+    if (firewallPayload !== null) {
+      stats.firewallTotal = firewalls.length
+      stats.firewallOnline = firewalls.filter((item) => toNumber(item.status, -1) === 1).length
+      stats.firewallOffline = firewalls.filter((item) => toNumber(item.status, -1) === 0).length
+      stats.firewallAlert = firewalls.filter((item) => toNumber(item.status, -1) === 2).length
+      stats.firewallStale = firewalls.filter((item) => isStatusStale(item, 5)).length
+      if (stats.firewallAlert > 0) {
+        moduleStatus.firewall = 'error'
+      } else if (stats.firewallOffline > 0 || stats.firewallStale > 0) {
+        moduleStatus.firewall = 'warning'
+      } else {
+        moduleStatus.firewall = 'ok'
+      }
+    } else {
+      stats.firewallTotal = 0
+      stats.firewallOnline = 0
+      stats.firewallOffline = 0
+      stats.firewallAlert = 0
+      stats.firewallStale = 0
+      moduleStatus.firewall = 'error'
+      failures.push(extractFailure(calls[9], '防火墙') || '防火墙')
+    }
+
+    if (domainsPayload !== null) {
+      stats.domainTotal = domains.length
+      stats.domainHealthy = domains.filter((item) => normalizeText(item.health_status) === 'healthy').length
+      stats.domainWarning = domains.filter((item) => normalizeText(item.health_status) === 'warning').length
+      stats.domainCritical = domains.filter((item) => normalizeText(item.health_status) === 'critical').length
+      stats.domainStale = domains.filter((item) => {
+        const checkedAt = item.last_check_at || item.updated_at
+        const ts = parseTimestamp(checkedAt)
+        return !ts || nowMs() - ts > 24 * 60 * 60 * 1000
+      }).length
+      if (stats.domainCritical > 0) {
+        moduleStatus.domain = 'error'
+      } else if (stats.domainWarning > 0 || stats.domainStale > 0) {
+        moduleStatus.domain = 'warning'
+      } else {
+        moduleStatus.domain = 'ok'
+      }
+    } else {
+      stats.domainTotal = 0
+      stats.domainHealthy = 0
+      stats.domainWarning = 0
+      stats.domainCritical = 0
+      stats.domainStale = 0
+      moduleStatus.domain = 'error'
+      failures.push(extractFailure(calls[12], '域名') || '域名')
+    }
 
     const offlineHosts = hosts.filter((item) => !isOnlineStatus(item.status))
     const offlineNetworks = networkDevices.filter((item) => !isOnlineStatus(item.status))
@@ -1094,6 +1216,18 @@ const refreshDashboard = async () => {
       (item) => normalizeText(item.status) === 'pending_approval' && elapsedMinutes(item.started_at) >= 30
     ).length
     const riskCritical = jumpRiskEvents.filter((item) => normalizeText(item.severity) === 'critical').length
+    if (jumpSessionsPayload !== null && jumpRiskPayload !== null) {
+      if (riskCritical > 0) {
+        moduleStatus.jump = 'error'
+      } else if (jumpPendingTimeout > 0) {
+        moduleStatus.jump = 'warning'
+      } else {
+        moduleStatus.jump = 'ok'
+      }
+    } else {
+      moduleStatus.jump = 'error'
+      failures.push('堡垒机')
+    }
     backlog.asset = hostOffline + networkOffline + firewallAlert + jumpPendingTimeout + riskCritical
     backlog.assetOverdue = jumpPendingTimeout
 
@@ -1109,7 +1243,7 @@ const refreshDashboard = async () => {
     domains.forEach((item) => {
       const health = normalizeText(item.health_status)
       if (health === 'warning' || health === 'critical') {
-        const checkedAt = item.last_checked_at || item.updated_at
+        const checkedAt = item.last_check_at || item.updated_at
         domainRiskRows.push({ checkedAt })
         const ts = parseTimestamp(checkedAt)
         if (!ts || nowMs() - ts > 24 * 60 * 60 * 1000) {

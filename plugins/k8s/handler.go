@@ -39,8 +39,26 @@ type K8sHandler struct {
 	auth *core.AuthService
 }
 
+type clusterStatusSyncSummary struct {
+	Total      int   `json:"total"`
+	Healthy    int   `json:"healthy"`
+	Unhealthy  int   `json:"unhealthy"`
+	Maintained int   `json:"maintained"`
+	Failed     int   `json:"failed"`
+	DurationMs int64 `json:"duration_ms"`
+}
+
 func NewK8sHandler(db *gorm.DB, auth *core.AuthService) *K8sHandler {
 	return &K8sHandler{db: db, auth: auth}
+}
+
+func k8sQueryTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on", "y":
+		return true
+	default:
+		return false
+	}
 }
 
 var ingressHostPattern = regexp.MustCompile(`^\*\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
@@ -69,6 +87,10 @@ func (h *K8sHandler) getRestConfig(clusterID string) (*rest.Config, error) {
 
 // ListClusters 集群列表
 func (h *K8sHandler) ListClusters(c *gin.Context) {
+	if k8sQueryTruthy(c.Query("live")) {
+		_, _ = h.syncAllClusterStatuses()
+	}
+
 	var clusters []Cluster
 	if err := h.db.Find(&clusters).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -183,22 +205,115 @@ func (h *K8sHandler) DeleteCluster(c *gin.Context) {
 // TestConnection 测试集群连接
 func (h *K8sHandler) TestConnection(c *gin.Context) {
 	id := c.Param("id")
-	client, err := h.getClient(id)
+	status, err := h.syncClusterStatusByID(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "连接失败: " + err.Error()})
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"version":    status.Version,
+		"status":     status.ConnectionStatus,
+		"node_count": status.NodeCount,
+	}})
+}
+
+type clusterConnectionStatus struct {
+	Version          string
+	NodeCount        int
+	ConnectionStatus string
+}
+
+func (h *K8sHandler) syncClusterStatusByID(id string) (clusterConnectionStatus, error) {
+	result := clusterConnectionStatus{ConnectionStatus: "disconnected"}
+	var cluster Cluster
+	if err := h.db.First(&cluster, "id = ?", id).Error; err != nil {
+		return result, err
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"last_check_at": &now,
+	}
+
+	if cluster.Status == 2 {
+		updates["status_reason"] = "维护中，跳过自动巡检"
+		_ = h.db.Model(&Cluster{}).Where("id = ?", cluster.ID).Updates(updates).Error
+		result.ConnectionStatus = "maintenance"
+		result.Version = cluster.Version
+		result.NodeCount = cluster.NodeCount
+		return result, nil
+	}
+
+	client, err := h.getClient(cluster.ID)
+	if err != nil {
+		updates["status"] = 0
+		updates["status_reason"] = truncateClusterStatusReason(err.Error())
+		_ = h.db.Model(&Cluster{}).Where("id = ?", cluster.ID).Updates(updates).Error
+		return result, err
+	}
 
 	version, err := client.Discovery().ServerVersion()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "获取版本失败: " + err.Error()})
-		return
+		updates["status"] = 0
+		updates["status_reason"] = truncateClusterStatusReason(err.Error())
+		_ = h.db.Model(&Cluster{}).Where("id = ?", cluster.ID).Updates(updates).Error
+		return result, err
 	}
 
-	// 更新集群版本
-	h.db.Model(&Cluster{}).Where("id = ?", id).Update("version", version.GitVersion)
+	nodeCount := 0
+	if nodes, err := client.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{}); err == nil {
+		nodeCount = len(nodes.Items)
+	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"version": version.GitVersion, "status": "connected"}})
+	updates["status"] = 1
+	updates["status_reason"] = ""
+	updates["last_online_at"] = &now
+	updates["version"] = version.GitVersion
+	updates["node_count"] = nodeCount
+
+	if err := h.db.Model(&Cluster{}).Where("id = ?", cluster.ID).Updates(updates).Error; err != nil {
+		return result, err
+	}
+
+	result.ConnectionStatus = "connected"
+	result.Version = version.GitVersion
+	result.NodeCount = nodeCount
+	return result, nil
+}
+
+func truncateClusterStatusReason(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) <= 240 {
+		return raw
+	}
+	return raw[:240]
+}
+
+func (h *K8sHandler) syncAllClusterStatuses() (clusterStatusSyncSummary, error) {
+	started := time.Now()
+	summary := clusterStatusSyncSummary{}
+
+	var clusters []Cluster
+	if err := h.db.Find(&clusters).Error; err != nil {
+		return summary, err
+	}
+	summary.Total = len(clusters)
+
+	for _, cluster := range clusters {
+		status, err := h.syncClusterStatusByID(cluster.ID)
+		if status.ConnectionStatus == "maintenance" {
+			summary.Maintained++
+			continue
+		}
+		if err != nil {
+			summary.Failed++
+			summary.Unhealthy++
+			continue
+		}
+		summary.Healthy++
+	}
+	summary.DurationMs = time.Since(started).Milliseconds()
+	return summary, nil
 }
 
 // ListNodes 节点列表

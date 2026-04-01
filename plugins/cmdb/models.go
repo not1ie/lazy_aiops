@@ -68,6 +68,8 @@ type NetworkDevice struct {
 	FirmwareVersion string      `gorm:"size:128" json:"firmware_version"`
 	Status          int         `gorm:"default:1" json:"status"` // 1:在线 0:离线 2:告警
 	LastCheckAt     *time.Time  `json:"last_check_at"`
+	LastOnlineAt    *time.Time  `json:"last_online_at"`
+	StatusReason    string      `gorm:"size:256" json:"status_reason"`
 	Tags            string      `gorm:"size:256" json:"tags"`
 	Description     string      `gorm:"size:512" json:"description"`
 }

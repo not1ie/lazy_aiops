@@ -19,6 +19,16 @@ type DomainHandler struct {
 	certSansColumn string
 }
 
+type domainStatusSyncSummary struct {
+	DomainsTotal   int   `json:"domains_total"`
+	DomainsSuccess int   `json:"domains_success"`
+	DomainsFailed  int   `json:"domains_failed"`
+	CertsTotal     int   `json:"certs_total"`
+	CertsSuccess   int   `json:"certs_success"`
+	CertsFailed    int   `json:"certs_failed"`
+	DurationMs     int64 `json:"duration_ms"`
+}
+
 func NewDomainHandler(db *gorm.DB) *DomainHandler {
 	return &DomainHandler{
 		db:             db,
@@ -285,35 +295,13 @@ func (h *DomainHandler) CheckDomain(c *gin.Context) {
 
 // CheckAllDomains 批量体检
 func (h *DomainHandler) CheckAllDomains(c *gin.Context) {
-	var domains []CloudDomain
-	if err := h.db.Select("id", "domain").Where("domain <> ''").Find(&domains).Error; err != nil {
+	total, success, failed, err := h.checkAllDomainsInternal()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	unique := make(map[string]struct{})
-	checked := 0
-	success := 0
-	failed := 0
-	for i := range domains {
-		domain := strings.TrimSpace(domains[i].Domain)
-		if domain == "" {
-			continue
-		}
-		if _, ok := unique[domain]; ok {
-			continue
-		}
-		unique[domain] = struct{}{}
-		checked++
-		result, err := h.inspectDomainRuntime(domain)
-		if err != nil {
-			failed++
-			continue
-		}
-		h.updateDomainRuntimeByDomain(domain, result)
-		success++
-	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
-		"total":   checked,
+		"total":   total,
 		"success": success,
 		"failed":  failed,
 	}})
@@ -481,6 +469,50 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 
 // CheckAllCerts 批量检查证书
 func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
+	total, success, failed, err := h.checkAllCertsInternal()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"total":   total,
+		"success": success,
+		"failed":  failed,
+	}})
+}
+
+func (h *DomainHandler) checkAllDomainsInternal() (int, int, int, error) {
+	var domains []CloudDomain
+	if err := h.db.Select("id", "domain").Where("domain <> ''").Find(&domains).Error; err != nil {
+		return 0, 0, 0, err
+	}
+
+	unique := make(map[string]struct{})
+	total := 0
+	success := 0
+	failed := 0
+	for i := range domains {
+		domain := strings.TrimSpace(domains[i].Domain)
+		if domain == "" {
+			continue
+		}
+		if _, ok := unique[domain]; ok {
+			continue
+		}
+		unique[domain] = struct{}{}
+		total++
+		result, err := h.inspectDomainRuntime(domain)
+		if err != nil {
+			failed++
+			continue
+		}
+		h.updateDomainRuntimeByDomain(domain, result)
+		success++
+	}
+	return total, success, failed, nil
+}
+
+func (h *DomainHandler) checkAllCertsInternal() (int, int, int, error) {
 	var certs []SSLCertificate
 	err := h.certReadQuery(h.db).Find(&certs).Error
 	if isMissingSansColumnError(err) {
@@ -488,8 +520,7 @@ func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 		err = h.certReadQuery(h.db).Find(&certs).Error
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
-		return
+		return 0, 0, 0, err
 	}
 
 	success := 0
@@ -533,12 +564,30 @@ func (h *DomainHandler) CheckAllCerts(c *gin.Context) {
 		}
 		success++
 	}
+	return len(certs), success, failed, nil
+}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
-		"total":   len(certs),
-		"success": success,
-		"failed":  failed,
-	}})
+func (h *DomainHandler) syncAllRuntime() (domainStatusSyncSummary, error) {
+	started := time.Now()
+	summary := domainStatusSyncSummary{}
+
+	dTotal, dSuccess, dFailed, err := h.checkAllDomainsInternal()
+	if err != nil {
+		return summary, err
+	}
+	cTotal, cSuccess, cFailed, err := h.checkAllCertsInternal()
+	if err != nil {
+		return summary, err
+	}
+
+	summary.DomainsTotal = dTotal
+	summary.DomainsSuccess = dSuccess
+	summary.DomainsFailed = dFailed
+	summary.CertsTotal = cTotal
+	summary.CertsSuccess = cSuccess
+	summary.CertsFailed = cFailed
+	summary.DurationMs = time.Since(started).Milliseconds()
+	return summary, nil
 }
 
 // ListExpiringCerts 即将过期的证书

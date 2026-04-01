@@ -1012,6 +1012,7 @@ func (h *HostHandler) TestNetworkDevice(c *gin.Context) {
 	tcpOK := false
 	sshOK := false
 	snmpOK := false
+	reasons := make([]string, 0, 3)
 
 	managePort := device.ManagePort
 	if managePort == 0 {
@@ -1022,6 +1023,7 @@ func (h *HostHandler) TestNetworkDevice(c *gin.Context) {
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
 		result["tcp"] = gin.H{"ok": false, "error": err.Error()}
+		reasons = append(reasons, "TCP:"+err.Error())
 	} else {
 		_ = conn.Close()
 		tcpOK = true
@@ -1039,6 +1041,11 @@ func (h *HostHandler) TestNetworkDevice(c *gin.Context) {
 		}
 		stdout, stderr, err := client.Execute("echo ok")
 		if err != nil {
+			reason := strings.TrimSpace(stderr)
+			if reason == "" {
+				reason = err.Error()
+			}
+			reasons = append(reasons, "SSH:"+reason)
 			result["ssh"] = gin.H{"ok": false, "error": strings.TrimSpace(stderr)}
 		} else {
 			sshOK = true
@@ -1051,11 +1058,13 @@ func (h *HostHandler) TestNetworkDevice(c *gin.Context) {
 	if strings.TrimSpace(device.SNMPCommunity) != "" || strings.EqualFold(strings.TrimSpace(device.SNMPVersion), "v3") {
 		snmp, err := h.createSNMPClientForNetworkDevice(&device)
 		if err != nil {
+			reasons = append(reasons, "SNMP:"+err.Error())
 			result["snmp"] = gin.H{"ok": false, "error": err.Error()}
 		} else {
 			defer snmp.Conn.Close()
 			pdu, err := snmp.Get([]string{"1.3.6.1.2.1.1.1.0"})
 			if err != nil {
+				reasons = append(reasons, "SNMP:"+err.Error())
 				result["snmp"] = gin.H{"ok": false, "error": err.Error()}
 			} else {
 				sysDesc := ""
@@ -1079,10 +1088,17 @@ func (h *HostHandler) TestNetworkDevice(c *gin.Context) {
 		status = 2
 	}
 	now := time.Now()
-	_ = h.db.Model(&device).Updates(map[string]interface{}{
+	updates := map[string]interface{}{
 		"status":        status,
 		"last_check_at": &now,
-	}).Error
+	}
+	if status == 1 {
+		updates["last_online_at"] = &now
+		updates["status_reason"] = ""
+	} else {
+		updates["status_reason"] = truncateReason(strings.Join(reasons, "; "))
+	}
+	_ = h.db.Model(&device).Updates(updates).Error
 
 	result["status"] = status
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})

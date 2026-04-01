@@ -54,6 +54,9 @@
           <el-divider />
           <div class="health-row"><span>资产分组</span><strong>{{ stats.groupTotal }}</strong></div>
           <div class="health-row"><span>风险防火墙</span><strong>{{ stats.firewallRisk }}</strong></div>
+          <div class="health-row"><span>主机状态过期</span><strong>{{ stats.hostStale }}</strong></div>
+          <div class="health-row"><span>网络状态过期</span><strong>{{ stats.networkDeviceStale }}</strong></div>
+          <div class="health-row"><span>防火墙状态过期</span><strong>{{ stats.firewallStale }}</strong></div>
         </el-card>
       </el-col>
       <el-col :span="14">
@@ -64,7 +67,7 @@
             <el-table-column prop="ip" label="IP" min-width="130" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="isOnline(row.status) ? 'success' : 'info'">{{ isOnline(row.status) ? '在线' : '离线' }}</el-tag>
+                <el-tag :type="assetStatusTag(row).type">{{ assetStatusTag(row).text }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="os" label="系统" min-width="120" />
@@ -119,8 +122,14 @@
             <el-table-column prop="os" label="系统" min-width="140" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="isOnline(row.status) ? 'success' : 'info'">{{ isOnline(row.status) ? '在线' : '离线' }}</el-tag>
+                <el-tag :type="assetStatusTag(row).type">{{ assetStatusTag(row).text }}</el-tag>
               </template>
+            </el-table-column>
+            <el-table-column label="最近检查" min-width="170">
+              <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="status_reason" label="异常原因" min-width="170" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.status_reason || '-' }}</template>
             </el-table-column>
             <el-table-column label="更新时间" min-width="170">
               <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
@@ -136,8 +145,14 @@
             <el-table-column prop="ip" label="管理IP" min-width="140" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="isOnline(row.status) ? 'success' : 'warning'">{{ isOnline(row.status) ? '在线' : '离线' }}</el-tag>
+                <el-tag :type="assetStatusTag(row).type">{{ assetStatusTag(row).text }}</el-tag>
               </template>
+            </el-table-column>
+            <el-table-column label="最近检查" min-width="170">
+              <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="status_reason" label="异常原因" min-width="170" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.status_reason || '-' }}</template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
@@ -175,11 +190,14 @@
             <el-table-column prop="ip" label="IP" min-width="140" />
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="firewallStatus(row.status).type">{{ firewallStatus(row.status).text }}</el-tag>
+                <el-tag :type="firewallStatus(row).type">{{ firewallStatus(row).text }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="最近检查" min-width="170">
               <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
+            </el-table-column>
+            <el-table-column prop="status_reason" label="异常原因" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.status_reason || '-' }}</template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
@@ -248,14 +266,17 @@ const panelKeyword = ref('')
 const stats = reactive({
   hostTotal: 0,
   hostOnline: 0,
+  hostStale: 0,
   networkDeviceTotal: 0,
   networkDeviceOnline: 0,
+  networkDeviceStale: 0,
   databaseTotal: 0,
   cloudResourceTotal: 0,
   credentialTotal: 0,
   groupTotal: 0,
   firewallDeviceTotal: 0,
   firewallRisk: 0,
+  firewallStale: 0,
   jumpAssetTotal: 0,
   terminalSessionTotal: 0
 })
@@ -273,14 +294,57 @@ const panelRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
+const nowMs = () => Date.now()
+const parseTimestamp = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
 
-const isOnline = (status) => status === 1 || status === 'online' || status === '在线' || status === true
+const statusFreshnessTs = (row) =>
+  row?.last_check_at ||
+  row?.last_seen_at ||
+  row?.last_heartbeat_at ||
+  row?.updated_at
 
-const firewallStatus = (status) => {
-  const value = Number(status)
-  if (value === 1) return { text: '正常', type: 'success' }
+const isStatusStale = (row, minutes = 5) => {
+  const ts = parseTimestamp(statusFreshnessTs(row))
+  if (!ts) return true
+  return nowMs() - ts > minutes * 60 * 1000
+}
+
+const isOnlineStatus = (status) => {
+  const normalized = normalizeText(status)
+  return status === true || normalized === 'online' || normalized === 'connected' || normalized === 'running' || Number(status) === 1
+}
+
+const isMaintenanceStatus = (status) => {
+  const normalized = normalizeText(status)
+  return normalized === 'maintenance' || normalized === 'maintain' || Number(status) === 2
+}
+
+const assetStatusTag = (row, staleMinutes = 5) => {
+  if (isMaintenanceStatus(row?.status)) return { text: '维护', type: 'warning' }
+  if (isOnlineStatus(row?.status)) {
+    if (isStatusStale(row, staleMinutes)) return { text: '状态过期', type: 'warning' }
+    return { text: '在线', type: 'success' }
+  }
+  const normalized = normalizeText(row?.status)
+  if (normalized === 'offline' || Number(row?.status) === 0) return { text: '离线', type: 'danger' }
+  if (isStatusStale(row, staleMinutes)) return { text: '待检测', type: 'info' }
+  return { text: '未知', type: 'info' }
+}
+
+const firewallStatus = (row) => {
+  const value = Number(row?.status)
   if (value === 2) return { text: '告警', type: 'danger' }
-  return { text: '离线', type: 'info' }
+  if (value === 1) {
+    if (isStatusStale(row, 5)) return { text: '状态过期', type: 'warning' }
+    return { text: '在线', type: 'success' }
+  }
+  if (value === 0) return { text: '离线', type: 'danger' }
+  return { text: '未知', type: 'info' }
 }
 
 const jumpAssetStatus = (row) => {
@@ -297,8 +361,6 @@ const terminalSessionStatus = (status) => {
   if (value === 3) return { text: '失败', type: 'danger' }
   return { text: '待连', type: 'warning' }
 }
-
-const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
 
 const filterRows = (rows, fields) => {
   const keyword = normalizeText(panelKeyword.value)
@@ -374,8 +436,8 @@ const formatTime = (value) => {
   return date.toLocaleString()
 }
 
-const fetchList = async (url) => {
-  const res = await axios.get(url, { headers: authHeaders() })
+const fetchList = async (url, params = {}) => {
+  const res = await axios.get(url, { headers: authHeaders(), params })
   return Array.isArray(res.data?.data) ? res.data.data : []
 }
 
@@ -389,13 +451,13 @@ const refreshAll = async () => {
   loading.value = true
   try {
     const settled = await Promise.allSettled([
-      fetchList('/api/v1/cmdb/hosts'),
+      fetchList('/api/v1/cmdb/hosts', { live: 1 }),
       fetchList('/api/v1/cmdb/groups'),
       fetchList('/api/v1/cmdb/credentials'),
       fetchList('/api/v1/cmdb/databases'),
       fetchList('/api/v1/cmdb/cloud/resources'),
       fetchList('/api/v1/cmdb/network-devices'),
-      fetchList('/api/v1/firewall/devices'),
+      fetchList('/api/v1/firewall/devices', { live: 1 }),
       fetchList('/api/v1/jump/assets'),
       fetchList('/api/v1/terminal/sessions')
     ])
@@ -413,15 +475,18 @@ const refreshAll = async () => {
     terminalSessions.value = sessionList
 
     stats.hostTotal = hostList.length
-    stats.hostOnline = hostList.filter((item) => isOnline(item.status)).length
+    stats.hostOnline = hostList.filter((item) => isOnlineStatus(item.status)).length
+    stats.hostStale = hostList.filter((item) => isStatusStale(item, 3)).length
     stats.groupTotal = groupList.length
     stats.credentialTotal = credentialList.length
     stats.databaseTotal = databaseList.length
     stats.cloudResourceTotal = cloudResourceList.length
     stats.networkDeviceTotal = networkList.length
-    stats.networkDeviceOnline = networkList.filter((item) => isOnline(item.status)).length
+    stats.networkDeviceOnline = networkList.filter((item) => isOnlineStatus(item.status)).length
+    stats.networkDeviceStale = networkList.filter((item) => isStatusStale(item, 5)).length
     stats.firewallDeviceTotal = firewallList.length
-    stats.firewallRisk = firewallList.filter((item) => firewallStatus(item.status).type === 'danger').length
+    stats.firewallRisk = firewallList.filter((item) => firewallStatus(item).type === 'danger').length
+    stats.firewallStale = firewallList.filter((item) => isStatusStale(item, 5)).length
     stats.jumpAssetTotal = jumpAssetList.length
     stats.terminalSessionTotal = sessionList.length
 

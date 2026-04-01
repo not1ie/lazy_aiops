@@ -24,14 +24,17 @@ func (b *BaseModel) BeforeCreate(tx *gorm.DB) error {
 // Cluster K8s集群
 type Cluster struct {
 	BaseModel
-	Name        string `gorm:"size:128;uniqueIndex" json:"name"`
-	DisplayName string `gorm:"size:128" json:"display_name"`
-	APIServer   string `gorm:"size:256" json:"api_server"`
-	KubeConfig  string `gorm:"type:text" json:"-"` // 存储kubeconfig内容
-	Version     string `gorm:"size:32" json:"version"`
-	Status      int    `gorm:"default:1" json:"status"` // 1:正常 0:异常 2:维护
-	NodeCount   int    `json:"node_count"`
-	Description string `gorm:"size:512" json:"description"`
+	Name         string     `gorm:"size:128;uniqueIndex" json:"name"`
+	DisplayName  string     `gorm:"size:128" json:"display_name"`
+	APIServer    string     `gorm:"size:256" json:"api_server"`
+	KubeConfig   string     `gorm:"type:text" json:"-"` // 存储kubeconfig内容
+	Version      string     `gorm:"size:32" json:"version"`
+	Status       int        `gorm:"default:1" json:"status"` // 1:正常 0:异常 2:维护
+	NodeCount    int        `json:"node_count"`
+	LastCheckAt  *time.Time `json:"last_check_at"`
+	LastOnlineAt *time.Time `json:"last_online_at"`
+	StatusReason string     `gorm:"size:256" json:"status_reason"`
+	Description  string     `gorm:"size:512" json:"description"`
 }
 
 // ClusterNode 集群节点

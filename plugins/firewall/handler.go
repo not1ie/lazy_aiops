@@ -1,8 +1,10 @@
 package firewall
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,12 +16,223 @@ type FirewallHandler struct {
 	db *gorm.DB
 }
 
+type firewallStatusSyncSummary struct {
+	Total      int   `json:"total"`
+	Healthy    int   `json:"healthy"`
+	Unhealthy  int   `json:"unhealthy"`
+	Failed     int   `json:"failed"`
+	DurationMs int64 `json:"duration_ms"`
+}
+
 func NewFirewallHandler(db *gorm.DB) *FirewallHandler {
 	return &FirewallHandler{db: db}
 }
 
+func firewallQueryTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on", "y":
+		return true
+	default:
+		return false
+	}
+}
+
+func truncateFirewallStatusReason(raw string) string {
+	if len(raw) <= 240 {
+		return raw
+	}
+	return raw[:240]
+}
+
+func closeSNMPConn(snmp *gosnmp.GoSNMP) {
+	if snmp == nil || snmp.Conn == nil {
+		return
+	}
+	_ = snmp.Conn.Close()
+}
+
+func snmpPDUToFloat(v gosnmp.SnmpPDU) (float64, bool) {
+	switch val := v.Value.(type) {
+	case int:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int64:
+		return float64(val), true
+	case uint:
+		return float64(val), true
+	case uint32:
+		return float64(val), true
+	case uint64:
+		return float64(val), true
+	default:
+		return 0, false
+	}
+}
+
+func (h *FirewallHandler) syncAllDeviceStatus() (firewallStatusSyncSummary, error) {
+	started := time.Now()
+	summary := firewallStatusSyncSummary{}
+
+	var devices []Firewall
+	if err := h.db.Select("id").Find(&devices).Error; err != nil {
+		return summary, err
+	}
+	summary.Total = len(devices)
+
+	for i := range devices {
+		if _, err := h.syncDeviceStatusByID(devices[i].ID); err != nil {
+			summary.Unhealthy++
+			summary.Failed++
+			continue
+		}
+		summary.Healthy++
+	}
+	summary.DurationMs = time.Since(started).Milliseconds()
+	return summary, nil
+}
+
+func (h *FirewallHandler) syncDeviceStatusByID(id string) ([]SNMPMetric, error) {
+	var device Firewall
+	if err := h.db.First(&device, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return h.syncDeviceStatus(&device)
+}
+
+func (h *FirewallHandler) syncDeviceStatus(device *Firewall) ([]SNMPMetric, error) {
+	if device == nil {
+		return nil, errors.New("设备不存在")
+	}
+	now := time.Now()
+	markOffline := func(err error) error {
+		updates := map[string]interface{}{
+			"status":        0,
+			"last_check_at": &now,
+			"status_reason": truncateFirewallStatusReason(err.Error()),
+		}
+		_ = h.db.Model(&Firewall{}).Where("id = ?", device.ID).Updates(updates).Error
+		return err
+	}
+
+	snmp, err := h.createSNMPClient(device)
+	if err != nil {
+		return nil, markOffline(err)
+	}
+	defer closeSNMPConn(snmp)
+
+	metrics, runtimeUpdates, err := h.collectSNMPMetrics(device, snmp, now)
+	if err != nil {
+		return nil, markOffline(err)
+	}
+
+	updates := map[string]interface{}{
+		"status":         1,
+		"last_check_at":  &now,
+		"last_online_at": &now,
+		"status_reason":  "",
+	}
+	for key, value := range runtimeUpdates {
+		updates[key] = value
+	}
+	if err := h.db.Model(&Firewall{}).Where("id = ?", device.ID).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	for i := range metrics {
+		if err := h.db.Create(&metrics[i]).Error; err != nil {
+			return nil, err
+		}
+	}
+	return metrics, nil
+}
+
+func (h *FirewallHandler) collectSNMPMetrics(device *Firewall, snmp *gosnmp.GoSNMP, now time.Time) ([]SNMPMetric, map[string]interface{}, error) {
+	if device == nil {
+		return nil, nil, errors.New("设备不存在")
+	}
+	metrics := make([]SNMPMetric, 0)
+	runtime := make(map[string]interface{})
+
+	oids := map[string]string{
+		"sysUpTime": "1.3.6.1.2.1.1.3.0",
+		"sysName":   "1.3.6.1.2.1.1.5.0",
+		"ifNumber":  "1.3.6.1.2.1.2.1.0",
+	}
+
+	switch device.Vendor {
+	case "fortinet":
+		oids["cpuUsage"] = "1.3.6.1.4.1.12356.101.4.1.3.0"
+		oids["memUsage"] = "1.3.6.1.4.1.12356.101.4.1.4.0"
+		oids["sessionCount"] = "1.3.6.1.4.1.12356.101.4.1.8.0"
+	case "huawei":
+		oids["cpuUsage"] = "1.3.6.1.4.1.2011.6.3.4.1.2.0"
+		oids["memUsage"] = "1.3.6.1.4.1.2011.6.3.5.1.1.2.0"
+	case "cisco":
+		oids["cpuUsage"] = "1.3.6.1.4.1.9.9.109.1.1.1.1.3.1"
+		oids["memUsage"] = "1.3.6.1.4.1.9.9.48.1.1.1.5.1"
+	}
+
+	oidList := make([]string, 0, len(oids))
+	for _, oid := range oids {
+		oidList = append(oidList, oid)
+	}
+
+	result, err := snmp.Get(oidList)
+	if err != nil {
+		return nil, nil, fmt.Errorf("SNMP采集失败: %w", err)
+	}
+
+	for _, variable := range result.Variables {
+		value, ok := snmpPDUToFloat(variable)
+		if !ok {
+			continue
+		}
+		metricType := "unknown"
+		metricName := variable.Name
+		unit := ""
+
+		for name, oid := range oids {
+			if variable.Name == "."+oid || variable.Name == oid {
+				metricName = name
+				switch name {
+				case "cpuUsage":
+					metricType = "cpu"
+					unit = "%"
+					runtime["cpu_usage"] = value
+				case "memUsage":
+					metricType = "memory"
+					unit = "%"
+					runtime["memory_usage"] = value
+				case "sessionCount":
+					metricType = "session"
+					runtime["session_count"] = int64(value)
+				case "sysUpTime":
+					metricType = "uptime"
+					unit = "ticks"
+				}
+				break
+			}
+		}
+
+		metrics = append(metrics, SNMPMetric{
+			FirewallID:  device.ID,
+			MetricType:  metricType,
+			MetricName:  metricName,
+			Value:       value,
+			Unit:        unit,
+			CollectedAt: now,
+		})
+	}
+
+	return metrics, runtime, nil
+}
+
 // ListDevices 设备列表
 func (h *FirewallHandler) ListDevices(c *gin.Context) {
+	if firewallQueryTruthy(c.Query("live")) {
+		_, _ = h.syncAllDeviceStatus()
+	}
+
 	var devices []Firewall
 	if err := h.db.Find(&devices).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
@@ -164,15 +377,27 @@ func (h *FirewallHandler) TestSNMP(c *gin.Context) {
 
 	snmp, err := h.createSNMPClient(&device)
 	if err != nil {
+		now := time.Now()
+		_ = h.db.Model(&Firewall{}).Where("id = ?", device.ID).Updates(map[string]interface{}{
+			"status":        0,
+			"last_check_at": &now,
+			"status_reason": truncateFirewallStatusReason(err.Error()),
+		}).Error
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "SNMP配置错误: " + err.Error()})
 		return
 	}
-	defer snmp.Conn.Close()
+	defer closeSNMPConn(snmp)
 
 	// 获取系统描述
 	oids := []string{"1.3.6.1.2.1.1.1.0"} // sysDescr
 	result, err := snmp.Get(oids)
 	if err != nil {
+		now := time.Now()
+		_ = h.db.Model(&Firewall{}).Where("id = ?", device.ID).Updates(map[string]interface{}{
+			"status":        0,
+			"last_check_at": &now,
+			"status_reason": truncateFirewallStatusReason(err.Error()),
+		}).Error
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "SNMP连接失败: " + err.Error()})
 		return
 	}
@@ -183,6 +408,13 @@ func (h *FirewallHandler) TestSNMP(c *gin.Context) {
 			sysDescr = string(v.Value.([]byte))
 		}
 	}
+	now := time.Now()
+	_ = h.db.Model(&Firewall{}).Where("id = ?", device.ID).Updates(map[string]interface{}{
+		"status":         1,
+		"last_check_at":  &now,
+		"last_online_at": &now,
+		"status_reason":  "",
+	}).Error
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
 		"status":   "connected",
@@ -210,123 +442,15 @@ func (h *FirewallHandler) GetSNMPMetrics(c *gin.Context) {
 // CollectSNMP 采集SNMP数据
 func (h *FirewallHandler) CollectSNMP(c *gin.Context) {
 	id := c.Param("id")
-	var device Firewall
-	if err := h.db.First(&device, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "设备不存在"})
-		return
-	}
-
-	snmp, err := h.createSNMPClient(&device)
+	metrics, err := h.syncDeviceStatusByID(id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
-		return
-	}
-	defer snmp.Conn.Close()
-
-	now := time.Now()
-	metrics := make([]SNMPMetric, 0)
-
-	// 通用OID
-	oids := map[string]string{
-		"sysUpTime": "1.3.6.1.2.1.1.3.0",
-		"sysName":   "1.3.6.1.2.1.1.5.0",
-		"ifNumber":  "1.3.6.1.2.1.2.1.0",
-	}
-
-	// 根据厂商添加特定OID
-	switch device.Vendor {
-	case "fortinet":
-		oids["cpuUsage"] = "1.3.6.1.4.1.12356.101.4.1.3.0"
-		oids["memUsage"] = "1.3.6.1.4.1.12356.101.4.1.4.0"
-		oids["sessionCount"] = "1.3.6.1.4.1.12356.101.4.1.8.0"
-	case "huawei":
-		oids["cpuUsage"] = "1.3.6.1.4.1.2011.6.3.4.1.2.0"
-		oids["memUsage"] = "1.3.6.1.4.1.2011.6.3.5.1.1.2.0"
-	case "cisco":
-		oids["cpuUsage"] = "1.3.6.1.4.1.9.9.109.1.1.1.1.3.1"
-		oids["memUsage"] = "1.3.6.1.4.1.9.9.48.1.1.1.5.1"
-	}
-
-	oidList := make([]string, 0)
-	for _, oid := range oids {
-		oidList = append(oidList, oid)
-	}
-
-	result, err := snmp.Get(oidList)
-	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "设备不存在"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "SNMP采集失败: " + err.Error()})
 		return
 	}
-
-	for _, v := range result.Variables {
-		var value float64
-		switch v.Type {
-		case gosnmp.Integer:
-			value = float64(v.Value.(int))
-		case gosnmp.Gauge32:
-			value = float64(v.Value.(uint))
-		case gosnmp.Counter32:
-			value = float64(v.Value.(uint))
-		case gosnmp.Counter64:
-			value = float64(v.Value.(uint64))
-		default:
-			continue
-		}
-
-		metricType := "unknown"
-		metricName := v.Name
-		unit := ""
-
-		// 识别指标类型
-		for name, oid := range oids {
-			if v.Name == "."+oid || v.Name == oid {
-				metricName = name
-				switch name {
-				case "cpuUsage":
-					metricType = "cpu"
-					unit = "%"
-				case "memUsage":
-					metricType = "memory"
-					unit = "%"
-				case "sessionCount":
-					metricType = "session"
-				case "sysUpTime":
-					metricType = "uptime"
-					unit = "ticks"
-				}
-				break
-			}
-		}
-
-		metrics = append(metrics, SNMPMetric{
-			FirewallID:  device.ID,
-			MetricType:  metricType,
-			MetricName:  metricName,
-			Value:       value,
-			Unit:        unit,
-			CollectedAt: now,
-		})
-	}
-
-	// 保存指标
-	for _, m := range metrics {
-		h.db.Create(&m)
-	}
-
-	// 更新设备状态
-	updates := map[string]interface{}{"last_check_at": now, "status": 1}
-	for _, m := range metrics {
-		switch m.MetricType {
-		case "cpu":
-			updates["cpu_usage"] = m.Value
-		case "memory":
-			updates["memory_usage"] = m.Value
-		case "session":
-			updates["session_count"] = int64(m.Value)
-		}
-	}
-	h.db.Model(&device).Updates(updates)
-
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": metrics})
 }
 
