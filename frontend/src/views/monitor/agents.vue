@@ -47,9 +47,7 @@
       <el-table-column prop="os" label="OS" min-width="160" />
       <el-table-column prop="status" label="状态" width="120">
         <template #default="scope">
-          <el-tag :type="agentStatusMeta(scope.row).type">
-            {{ agentStatusMeta(scope.row).text }}
-          </el-tag>
+          <StatusBadge v-bind="agentStatusBadge(scope.row)" />
         </template>
       </el-table-column>
       <el-table-column prop="last_seen" label="最后心跳" min-width="180">
@@ -74,6 +72,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/utils/error'
 import { monitorAgentStatusMeta } from '@/utils/status'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const agents = ref([])
 const loading = ref(false)
@@ -152,6 +151,16 @@ const statusReason = (row) => {
   if (meta.key === 'stale') return '超过 3 分钟未上报心跳'
   if (meta.key === 'offline') return 'Agent 已离线或不可达'
   return '状态未知，建议检查采集器进程'
+}
+
+const agentStatusBadge = (row) => {
+  const meta = agentStatusMeta(row)
+  return {
+    text: meta.text,
+    type: meta.type,
+    reason: statusReason(row),
+    updatedAt: row?.last_seen || row?.last_heartbeat || row?.updated_at
+  }
 }
 </script>
 

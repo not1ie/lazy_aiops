@@ -47,9 +47,7 @@
             <el-table-column prop="severity" label="级别" width="90" />
             <el-table-column prop="status" label="状态" width="90">
               <template #default="scope">
-                <el-tag :type="scope.row.status === 0 ? 'danger' : scope.row.status === 1 ? 'success' : 'info'">
-                  {{ scope.row.status === 0 ? '未处理' : scope.row.status === 1 ? '已处理' : '已忽略' }}
-                </el-tag>
+                <StatusBadge v-bind="alertStatusBadge(scope.row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -73,7 +71,8 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/utils/error'
-import { monitorAgentStatusMeta } from '@/utils/status'
+import { monitorAgentStatusMeta, monitorAlertStatusMeta } from '@/utils/status'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const realtime = ref({ cpu: 0, memory: 0, disk: 0, network: 0 })
 const alertStats = ref({ open: 0, closed: 0, ignored: 0 })
@@ -86,6 +85,20 @@ let trendChart = null
 let refreshTimer = null
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const alertStatusBadge = (row) => {
+  const meta = monitorAlertStatusMeta(row?.status)
+  const parts = []
+  if (row?.severity) parts.push(`级别: ${row.severity}`)
+  if (row?.target) parts.push(`目标: ${row.target}`)
+  if (row?.message) parts.push(row.message)
+  return {
+    text: meta.text,
+    type: meta.type,
+    reason: parts.join(' | '),
+    updatedAt: row?.updated_at || row?.created_at
+  }
+}
 
 const fetchRealtime = async () => {
   try {

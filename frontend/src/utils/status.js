@@ -93,6 +93,39 @@ export const monitorAgentStatusMeta = (row, options = {}) => {
   return { key: 'unknown', text: '未知', type: 'info' }
 }
 
+export const monitorAlertStatusMeta = (status) => {
+  const normalized = normalizeText(status)
+  const numeric = Number(status)
+  if (
+    numeric === 0 ||
+    normalized === 'open' ||
+    normalized === 'firing' ||
+    normalized === 'pending' ||
+    normalized === 'new'
+  ) {
+    return { key: 'open', text: '未处理', type: 'danger' }
+  }
+  if (
+    numeric === 1 ||
+    normalized === 'closed' ||
+    normalized === 'resolved' ||
+    normalized === 'ack' ||
+    normalized === 'handled' ||
+    normalized === 'done'
+  ) {
+    return { key: 'closed', text: '已处理', type: 'success' }
+  }
+  if (
+    numeric === 2 ||
+    normalized === 'ignored' ||
+    normalized === 'mute' ||
+    normalized === 'silenced'
+  ) {
+    return { key: 'ignored', text: '已忽略', type: 'info' }
+  }
+  return { key: 'unknown', text: '未知', type: 'info' }
+}
+
 export const jumpIntegrationSyncStatusMeta = (status, options = {}) => {
   const enabled = options?.enabled !== false
   const staleMinutes = Number(options?.staleMinutes || 30)

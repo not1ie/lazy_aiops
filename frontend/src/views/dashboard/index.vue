@@ -213,9 +213,7 @@
             <el-table-column prop="label" label="检查项" min-width="180" />
             <el-table-column label="状态" width="120">
               <template #default="{ row }">
-                <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'warning' ? 'warning' : 'danger'">
-                  {{ row.status === 'ok' ? '正常' : row.status === 'warning' ? '降级' : '失败' }}
-                </el-tag>
+                <StatusBadge v-bind="diagnosticStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="countText" label="数据量" width="110" />
@@ -770,9 +768,7 @@
             <el-table-column prop="severity" label="级别" width="110" />
             <el-table-column prop="status" label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="row.status === 0 ? 'danger' : row.status === 1 ? 'success' : 'info'">
-                  {{ row.status === 0 ? '未处理' : row.status === 1 ? '已处理' : '已忽略' }}
-                </el-tag>
+                <StatusBadge v-bind="alertStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="created_at" label="时间" width="180">
@@ -834,9 +830,7 @@
             <el-table-column prop="score" label="完整性分" width="120" />
             <el-table-column label="结果" width="120">
               <template #default="{ row }">
-                <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'warning' ? 'warning' : 'danger'">
-                  {{ row.status === 'ok' ? '通过' : row.status === 'warning' ? '降级' : '失败' }}
-                </el-tag>
+                <StatusBadge v-bind="selfCheckResultBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="summary" label="摘要" min-width="260" show-overflow-tooltip />
@@ -865,7 +859,7 @@
             <el-table-column prop="name" label="对象" min-width="170" show-overflow-tooltip />
             <el-table-column label="状态" width="120">
               <template #default="{ row }">
-                <el-tag :type="row.level === 'danger' ? 'danger' : 'warning'">{{ row.statusText }}</el-tag>
+                <StatusBadge v-bind="integrityIssueStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="reason" label="异常原因" min-width="260" show-overflow-tooltip />
@@ -891,6 +885,8 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import { monitorAlertStatusMeta } from '@/utils/status'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -3278,6 +3274,95 @@ const formatTime = (val) => {
   const t = new Date(val)
   if (Number.isNaN(t.getTime())) return '-'
   return t.toLocaleString()
+}
+
+const diagnosticStatusBadge = (row) => {
+  const status = normalizeModuleStatus(row?.status)
+  if (status === 'ok') {
+    return {
+      text: '正常',
+      type: 'success',
+      reason: row?.message || '链路正常',
+      updatedAt: row?.updated_at || row?.checked_at || row?.created_at
+    }
+  }
+  if (status === 'warning') {
+    return {
+      text: '降级',
+      type: 'warning',
+      reason: row?.message || '存在降级风险',
+      updatedAt: row?.updated_at || row?.checked_at || row?.created_at
+    }
+  }
+  if (status === 'error') {
+    return {
+      text: '失败',
+      type: 'danger',
+      reason: row?.message || '检查失败',
+      updatedAt: row?.updated_at || row?.checked_at || row?.created_at
+    }
+  }
+  return {
+    text: '未知',
+    type: 'info',
+    reason: row?.message || '状态未知',
+    updatedAt: row?.updated_at || row?.checked_at || row?.created_at
+  }
+}
+
+const selfCheckResultBadge = (row) => {
+  const status = normalizeModuleStatus(row?.status)
+  if (status === 'ok') {
+    return {
+      text: '通过',
+      type: 'success',
+      reason: row?.summary || '本次自检未发现异常',
+      updatedAt: row?.at
+    }
+  }
+  if (status === 'warning') {
+    return {
+      text: '降级',
+      type: 'warning',
+      reason: row?.summary || '存在待修复项',
+      updatedAt: row?.at
+    }
+  }
+  if (status === 'error') {
+    return {
+      text: '失败',
+      type: 'danger',
+      reason: row?.summary || '存在关键失败链路',
+      updatedAt: row?.at
+    }
+  }
+  return {
+    text: '未知',
+    type: 'info',
+    reason: row?.summary || '结果未知',
+    updatedAt: row?.at
+  }
+}
+
+const integrityIssueStatusBadge = (row) => ({
+  text: row?.statusText || '异常',
+  type: row?.level === 'danger' ? 'danger' : 'warning',
+  reason: row?.reason || '状态异常',
+  updatedAt: row?.checkedAt
+})
+
+const alertStatusBadge = (row) => {
+  const meta = monitorAlertStatusMeta(row?.status)
+  const parts = []
+  if (row?.severity) parts.push(`级别: ${row.severity}`)
+  if (row?.target) parts.push(`目标: ${row.target}`)
+  if (row?.message) parts.push(row.message)
+  return {
+    text: meta.text,
+    type: meta.type,
+    reason: parts.join(' | '),
+    updatedAt: row?.updated_at || row?.created_at
+  }
 }
 
 const moduleTagType = (status) => {
