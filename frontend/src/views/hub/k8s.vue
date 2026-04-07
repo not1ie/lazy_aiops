@@ -148,18 +148,6 @@
         </div>
       </template>
 
-      <div class="panel-switch">
-        <el-check-tag
-          v-for="item in panelOptions"
-          :key="item.name"
-          :checked="activePanel === item.name"
-          @change="activePanel = item.name"
-        >
-          {{ item.label }}
-          <span class="panel-switch-count">{{ item.count }}</span>
-        </el-check-tag>
-      </div>
-
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="集群" name="clusters">
           <el-table :fit="true" :data="filteredClusters" size="small" max-height="360" empty-text="暂无集群数据">
@@ -1045,19 +1033,9 @@ onUnmounted(() => {
   width: 260px;
 }
 
-.panel-switch {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.integration-tabs :deep(.el-tabs__header) {
   margin-bottom: 10px;
 }
-
-.panel-switch-count {
-  margin-left: 6px;
-  opacity: 0.8;
-}
-
-.integration-tabs :deep(.el-tabs__header) { display: none; }
 
 .cockpit-header {
   width: 100%;

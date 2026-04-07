@@ -195,18 +195,6 @@
         </div>
       </template>
 
-      <div class="panel-switch">
-        <el-check-tag
-          v-for="item in panelOptions"
-          :key="item.name"
-          :checked="activePanel === item.name"
-          @change="activePanel = item.name"
-        >
-          {{ item.label }}
-          <span class="panel-switch-count">{{ item.count }}</span>
-        </el-check-tag>
-      </div>
-
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="主机" name="hosts">
           <el-table :fit="true" :data="filteredHosts" size="small" max-height="360" empty-text="暂无主机数据">
@@ -1204,19 +1192,9 @@ onBeforeUnmount(() => {
   width: 260px;
 }
 
-.panel-switch {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.integration-tabs :deep(.el-tabs__header) {
   margin-bottom: 10px;
 }
-
-.panel-switch-count {
-  margin-left: 6px;
-  opacity: 0.8;
-}
-
-.integration-tabs :deep(.el-tabs__header) { display: none; }
 
 @media (max-width: 1100px) {
   .integration-header {

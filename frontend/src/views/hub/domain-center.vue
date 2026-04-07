@@ -169,18 +169,6 @@
         </div>
       </template>
 
-      <div class="panel-switch">
-        <el-check-tag
-          v-for="item in panelOptions"
-          :key="item.name"
-          :checked="activePanel === item.name"
-          @change="activePanel = item.name"
-        >
-          {{ item.label }}
-          <span class="panel-switch-count">{{ item.count }}</span>
-        </el-check-tag>
-      </div>
-
       <el-tabs v-model="activePanel" class="integration-tabs">
         <el-tab-pane label="域名体检" name="domains">
           <el-table :fit="true" :data="filteredDomains" size="small" max-height="360" empty-text="暂无域名数据">
@@ -1337,18 +1325,6 @@ onBeforeUnmount(() => {
 
 .panel-search {
   width: 260px;
-}
-
-.panel-switch {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.panel-switch-count {
-  margin-left: 6px;
-  opacity: 0.8;
 }
 
 .integration-tabs :deep(.el-tabs__header) {
