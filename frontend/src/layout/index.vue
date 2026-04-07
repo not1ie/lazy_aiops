@@ -134,6 +134,22 @@
             </template>
           </el-dropdown>
         </div>
+        <div v-if="shouldShowPersistentModuleTabs" class="persistent-module-tabs-wrap">
+          <el-scrollbar>
+            <div class="persistent-module-tabs">
+              <button
+                v-for="link in activeModuleLinks"
+                :key="link.path"
+                type="button"
+                class="persistent-module-tab"
+                :class="{ 'is-active': isContextLinkActive(link.path) }"
+                @click="openTab(link.path)"
+              >
+                {{ link.label }}
+              </button>
+            </div>
+          </el-scrollbar>
+        </div>
 
         <el-dialog
           v-model="teamWorkspacePanelVisible"
@@ -1742,6 +1758,22 @@ const activeModuleLinks = computed(() => {
   return [...pinned, ...normal]
 })
 
+const builtInModuleTabRoutes = new Set([
+  '/asset/ops',
+  '/domain/center',
+  '/k8s/overview',
+  '/monitor/center',
+  '/delivery/center',
+  '/system/center'
+])
+
+const shouldShowPersistentModuleTabs = computed(() => {
+  if (!showModuleContext.value) return false
+  if (!activeModuleGroup.value) return false
+  if (!activeModuleLinks.value.length) return false
+  return !builtInModuleTabRoutes.has(route.path)
+})
+
 const hiddenModuleLinks = computed(() => {
   const group = activeModuleGroup.value
   if (!group) return []
@@ -2285,6 +2317,54 @@ onBeforeUnmount(() => {
   border-color: rgba(96, 165, 250, 0.28);
   color: #93c5fd;
   background: rgba(37, 99, 235, 0.15);
+}
+
+.persistent-module-tabs-wrap {
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--el-border-color-light);
+}
+
+.persistent-module-tabs-wrap :deep(.el-scrollbar__view) {
+  min-width: max-content;
+}
+
+.persistent-module-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.persistent-module-tab {
+  position: relative;
+  border: none;
+  background: transparent;
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  padding: 10px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.18s ease;
+}
+
+.persistent-module-tab:hover {
+  color: var(--el-color-primary);
+}
+
+.persistent-module-tab.is-active {
+  color: var(--el-color-primary);
+}
+
+.persistent-module-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--el-color-primary);
 }
 
 .module-context-wrap {
