@@ -150,8 +150,8 @@
       <el-form-item label="最近同步">
         <div class="integration-sync">
           <span>{{ integrationForm.last_sync_at ? formatTime(integrationForm.last_sync_at) : '-' }}</span>
-          <el-tag v-if="integrationForm.last_sync_status" :type="integrationForm.last_sync_status === 'ok' ? 'success' : 'danger'">
-            {{ integrationForm.last_sync_status }}
+          <el-tag v-if="integrationForm.last_sync_status" :type="integrationSyncMeta.type">
+            {{ integrationSyncMeta.text }}
           </el-tag>
           <span class="integration-sync-msg" v-if="integrationForm.last_sync_msg">{{ integrationForm.last_sync_msg }}</span>
         </div>
@@ -170,6 +170,12 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import {
+  cmdbHostStatusMeta,
+  dockerHostStatusMeta,
+  jumpIntegrationSyncStatusMeta,
+  k8sClusterStatusMeta
+} from '@/utils/status'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -226,6 +232,12 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const formatTime = (value) => {
+  if (!value) return '-'
+  const ts = new Date(value).getTime()
+  if (Number.isNaN(ts)) return '-'
+  return new Date(ts).toLocaleString()
+}
 
 const toFriendlyJumpError = (error, fallback) => {
   const raw = getErrorMessage(error, fallback)
@@ -236,6 +248,9 @@ const toFriendlyJumpError = (error, fallback) => {
   }
   if (lower.includes('/api/v1/assets/hosts')) {
     return `${text}；请确认当前组织下该账号可访问主机资产接口。`
+  }
+  if (lower.includes('/api/v1/assets/databases')) {
+    return `${text}；请确认当前组织下该账号可访问数据库资产接口。`
   }
   return text || fallback
 }
@@ -265,18 +280,14 @@ const handleProtocolChange = (protocol) => {
 }
 
 const normalizeText = (value) => String(value || '').trim().toLowerCase()
-
-const toTime = (value) => {
-  if (!value) return null
-  const ts = new Date(value).getTime()
-  return Number.isNaN(ts) ? null : ts
-}
-
-const isStale = (value, minutes = 5) => {
-  const ts = toTime(value)
-  if (!ts) return true
-  return runtimeNowTs.value - ts > minutes * 60 * 1000
-}
+const integrationSyncMeta = computed(() =>
+  jumpIntegrationSyncStatusMeta(integrationForm.last_sync_status, {
+    enabled: integrationForm.enabled,
+    lastSyncAt: integrationForm.last_sync_at,
+    nowMs: runtimeNowTs.value,
+    staleMinutes: 30
+  })
+)
 
 const safeArrayData = (response) => (Array.isArray(response?.data?.data) ? response.data.data : [])
 
@@ -330,37 +341,42 @@ const resolveRuntimeStatus = (row) => {
   if (source === 'cmdb_host') {
     const host = findCMDBHost(row)
     if (!host) return { text: '未映射', type: 'warning', reason: '未匹配到 CMDB 主机' }
-    if (Number(host.status) === 2) return { text: '维护', type: 'warning', reason: host.status_reason || '主机处于维护状态' }
-    if (Number(host.status) === 1) {
-      if (isStale(host.last_check_at, 3)) return { text: '状态过期', type: 'warning', reason: '主机检测结果超时未更新' }
-      return { text: '在线', type: 'success', reason: host.status_reason || '主机状态正常' }
-    }
-    return { text: '离线', type: 'danger', reason: host.status_reason || '主机不可达' }
+    const meta = cmdbHostStatusMeta(host, { staleMinutes: 3, nowMs: runtimeNowTs.value })
+    if (meta.key === 'online') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机状态正常' }
+    if (meta.key === 'stale') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机检测结果超时未更新' }
+    if (meta.key === 'maintenance') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机处于维护状态' }
+    if (meta.key === 'offline') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机不可达' }
+    return { text: meta.text, type: meta.type, reason: host.status_reason || '主机状态未知' }
   }
   if (source === 'docker_host') {
     const env = findDockerHost(row)
     if (!env) return { text: '未映射', type: 'warning', reason: '未匹配到 Docker 环境' }
-    const status = normalizeText(env.status)
-    if (status === 'online') {
-      if (isStale(env.last_check_at, 3)) return { text: '状态过期', type: 'warning', reason: env.last_error || 'Docker 状态检测超时未更新' }
-      return { text: '在线', type: 'success', reason: 'Docker 环境在线' }
-    }
-    if (status === 'error') return { text: '异常', type: 'warning', reason: env.last_error || 'Docker 状态异常' }
-    if (status === 'offline') return { text: '离线', type: 'danger', reason: env.last_error || 'Docker 环境离线' }
-    return { text: '未知', type: 'info', reason: env.last_error || 'Docker 状态未知' }
+    const meta = dockerHostStatusMeta(env, { staleMinutes: 3, nowMs: runtimeNowTs.value })
+    if (meta.key === 'online') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 环境在线' }
+    if (meta.key === 'stale') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 状态检测超时未更新' }
+    if (meta.key === 'error') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 状态异常' }
+    if (meta.key === 'offline') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 环境离线' }
+    if (meta.key === 'maintenance') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 环境维护中' }
+    return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 状态未知' }
   }
   if (source === 'k8s_cluster') {
     const cluster = findK8sCluster(row)
     if (!cluster) return { text: '未映射', type: 'warning', reason: '未匹配到 K8s 集群' }
-    if (Number(cluster.status) === 2) return { text: '维护', type: 'warning', reason: cluster.status_reason || '集群处于维护状态' }
-    if (Number(cluster.status) === 1) {
-      if (isStale(cluster.last_check_at, 5)) return { text: '状态过期', type: 'warning', reason: cluster.status_reason || 'K8s 状态检测超时未更新' }
-      return { text: '在线', type: 'success', reason: cluster.status_reason || '集群状态正常' }
-    }
-    return { text: '异常', type: 'danger', reason: cluster.status_reason || '集群连接异常' }
+    const meta = k8sClusterStatusMeta(cluster, { staleMinutes: 5, nowMs: runtimeNowTs.value })
+    if (meta.key === 'online') return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群状态正常' }
+    if (meta.key === 'stale') return { text: meta.text, type: meta.type, reason: cluster.status_reason || 'K8s 状态检测超时未更新' }
+    if (meta.key === 'maintenance') return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群处于维护状态' }
+    if (meta.key === 'abnormal') return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群连接异常' }
+    return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群状态未知' }
   }
   if (source === 'jumpserver') {
-    return { text: '已同步', type: 'success', reason: '来自 JumpServer 同步资产' }
+    if (integrationSyncMeta.value.key === 'failed') {
+      return { text: '同步异常', type: 'danger', reason: integrationForm.last_sync_msg || 'JumpServer 最近同步失败' }
+    }
+    if (integrationSyncMeta.value.key === 'partial' || integrationSyncMeta.value.key === 'stale') {
+      return { text: '同步降级', type: 'warning', reason: integrationForm.last_sync_msg || 'JumpServer 最近同步部分成功或状态过期' }
+    }
+    return { text: '已同步', type: 'success', reason: integrationForm.last_sync_msg || '来自 JumpServer 同步资产' }
   }
   return { text: '启用', type: 'success', reason: '手工资产，待接入实时检测链路' }
 }
@@ -404,7 +420,11 @@ const fetchAssets = async ({ silent = false } = {}) => {
       k8sClusters.value = safeArrayData(k8sRes.value)
     }
 
-    const failedCount = [assetsRes, cmdbRes, dockerRes, k8sRes].filter((item) => item.status === 'rejected').length
+    const failedCount = [assetsRes, cmdbRes, dockerRes, k8sRes].filter((item) => {
+      if (item.status === 'rejected') return true
+      if (item.status === 'fulfilled' && Number(item.value?.data?.code) !== 0) return true
+      return false
+    }).length
     if (!silent && failedCount > 0) {
       ElMessage.warning(`部分状态源刷新失败(${failedCount}项)，已展示可用状态`)
     }
@@ -520,7 +540,13 @@ const runSync = async (url, okText = '同步成功') => {
   try {
     const res = await axios.post(url, {}, { headers: authHeaders() })
     if (res.data.code === 0) {
-      ElMessage.success(res.data.message || okText)
+      const message = res.data.message || okText
+      const warnings = Array.isArray(res.data?.data?.warnings) ? res.data.data.warnings : []
+      if (warnings.length > 0 || message.includes('部分成功')) {
+        ElMessage.warning(message)
+      } else {
+        ElMessage.success(message)
+      }
       fetchAssets()
     }
   } catch (error) {

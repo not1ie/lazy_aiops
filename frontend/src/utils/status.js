@@ -75,3 +75,37 @@ export const jumpSessionStatusMeta = (row, options = {}) => {
   if (status === 'closed' || status === 'finished' || status === 'done') return { key: 'closed', text: '已关闭', type: 'info' }
   return { key: 'unknown', text: '未知', type: 'info' }
 }
+
+export const monitorAgentStatusMeta = (row, options = {}) => {
+  const staleMinutes = Number(options?.staleMinutes || 3)
+  const status = normalizeText(row?.status)
+  const heartbeatAt = row?.last_seen || row?.last_heartbeat || row?.updated_at
+  if (status === 'online' || status === 'connected' || status === 'running' || status === 'up') {
+    if (isStaleByMinutes(heartbeatAt, staleMinutes, options?.nowMs)) {
+      return { key: 'stale', text: '状态过期', type: 'warning' }
+    }
+    return { key: 'online', text: '在线', type: 'success' }
+  }
+  if (status === 'offline' || status === 'down' || status === 'disconnected' || status === 'error') {
+    return { key: 'offline', text: '离线', type: 'danger' }
+  }
+  if (status === 'maintenance') return { key: 'maintenance', text: '维护', type: 'warning' }
+  return { key: 'unknown', text: '未知', type: 'info' }
+}
+
+export const jumpIntegrationSyncStatusMeta = (status, options = {}) => {
+  const enabled = options?.enabled !== false
+  const staleMinutes = Number(options?.staleMinutes || 30)
+  const lastSyncAt = options?.lastSyncAt
+  const normalized = normalizeText(status)
+  if (!enabled) return { key: 'disabled', text: '未启用', type: 'info' }
+  if (normalized === 'failed') return { key: 'failed', text: '同步失败', type: 'danger' }
+  if (normalized === 'partial' || normalized === 'warning') return { key: 'partial', text: '部分成功', type: 'warning' }
+  if (normalized === 'ok' || normalized === 'success') {
+    if (isStaleByMinutes(lastSyncAt, staleMinutes, options?.nowMs)) {
+      return { key: 'stale', text: '状态过期', type: 'warning' }
+    }
+    return { key: 'ok', text: '同步成功', type: 'success' }
+  }
+  return { key: 'unknown', text: '未知', type: 'info' }
+}

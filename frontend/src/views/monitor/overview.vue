@@ -36,7 +36,9 @@
         <el-card class="mt-12">
           <div class="section-title">Agent 在线</div>
           <el-statistic title="在线" :value="agentStats.online" />
+          <el-statistic title="状态过期" :value="agentStats.stale" />
           <el-statistic title="离线" :value="agentStats.offline" />
+          <el-statistic title="未知" :value="agentStats.unknown" />
         </el-card>
         <el-card class="mt-12">
           <div class="section-title">最近告警</div>
@@ -71,15 +73,17 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/utils/error'
+import { monitorAgentStatusMeta } from '@/utils/status'
 
 const realtime = ref({ cpu: 0, memory: 0, disk: 0, network: 0 })
 const alertStats = ref({ open: 0, closed: 0, ignored: 0 })
-const agentStats = ref({ online: 0, offline: 0 })
+const agentStats = ref({ online: 0, stale: 0, offline: 0, unknown: 0 })
 const recentAlerts = ref([])
 const topNodes = ref([])
 
 const trendRef = ref(null)
 let trendChart = null
+let refreshTimer = null
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -109,8 +113,19 @@ const fetchAgents = async () => {
   try {
     const res = await axios.get('/api/v1/monitor/agents', { headers: authHeaders() })
     const data = res.data.data || []
-    agentStats.value.online = data.filter(a => a.status === 'online').length
-    agentStats.value.offline = data.filter(a => a.status !== 'online').length
+    const now = Date.now()
+    const counts = { online: 0, stale: 0, offline: 0, unknown: 0 }
+    data.forEach((item) => {
+      const key = monitorAgentStatusMeta(item, { staleMinutes: 3, nowMs: now }).key
+      if (Object.prototype.hasOwnProperty.call(counts, key)) {
+        counts[key] += 1
+      } else if (key === 'stale') {
+        counts.stale += 1
+      } else {
+        counts.unknown += 1
+      }
+    })
+    agentStats.value = counts
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '加载 Agent 状态失败'))
   }
@@ -183,12 +198,20 @@ const refreshAll = async () => {
 
 onMounted(() => {
   refreshAll()
+  refreshTimer = window.setInterval(() => {
+    if (document.hidden) return
+    refreshAll()
+  }, 60 * 1000)
 })
 
 onBeforeUnmount(() => {
   if (trendChart) {
     trendChart.dispose()
     trendChart = null
+  }
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
   }
 })
 </script>

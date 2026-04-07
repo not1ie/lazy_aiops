@@ -1749,10 +1749,13 @@ const statusBaselineRows = computed(() => {
   const jumpEnabled = jumpAssets.filter((item) => item?.enabled !== false).length
   const jumpUnknown = Math.max(0, jumpAssets.length - jumpEnabled)
   const jumpConflict = consistencyIssueRows.value.filter((item) => String(item?.module || '').includes('堡垒机')).length
-  const jumpSyncFailed = normalizeText(jumpIntegrationState.lastSyncStatus) === 'failed'
+  const jumpSyncStatus = normalizeText(jumpIntegrationState.lastSyncStatus)
+  const jumpSyncFailed = jumpSyncStatus === 'failed'
+  const jumpSyncPartial = jumpSyncStatus === 'partial' || jumpSyncStatus === 'warning'
   const jumpSyncTs = parseTimestamp(jumpIntegrationState.lastSyncAt)
   const jumpSyncStale = jumpIntegrationState.enabled && (!jumpSyncTs || nowMs() - jumpSyncTs > 30 * 60 * 1000)
-  const jumpAbnormal = jumpSyncFailed ? jumpEnabled : Math.min(jumpEnabled, jumpConflict)
+  const jumpPartialPenalty = jumpSyncPartial ? Math.max(1, Math.ceil(jumpEnabled * 0.25)) : 0
+  const jumpAbnormal = jumpSyncFailed ? jumpEnabled : Math.min(jumpEnabled, jumpConflict + jumpPartialPenalty)
   const jumpStale = (!jumpSyncFailed && jumpSyncStale) ? Math.max(0, jumpEnabled - jumpAbnormal) : 0
   const jumpRealtime = Math.max(0, jumpEnabled - jumpAbnormal - jumpStale)
 
@@ -2139,7 +2142,7 @@ const intelligentActions = computed(() => {
     })
   }
 
-  if (moduleStatus.jump !== 'ok' || normalizeText(jumpIntegrationState.lastSyncStatus) === 'failed') {
+  if (moduleStatus.jump !== 'ok' || ['failed', 'partial', 'warning'].includes(normalizeText(jumpIntegrationState.lastSyncStatus))) {
     const syncMsg = truncateText(jumpIntegrationState.lastSyncMsg || 'Jump 同步链路异常', 72)
     add({
       key: 'jump-sync',
@@ -2500,7 +2503,12 @@ const moduleCapabilityRows = computed(() => {
       actionPaths: ['/jump'],
       status: moduleStatus.jump,
       targetScore: 90,
-      freshScore: freshnessScore(normalizeText(jumpIntegrationState.lastSyncStatus) === 'failed' ? 1 : 0, 1)
+      freshScore: freshnessScore(
+        normalizeText(jumpIntegrationState.lastSyncStatus) === 'failed'
+          ? 1
+          : (normalizeText(jumpIntegrationState.lastSyncStatus) === 'partial' ? 0.5 : 0),
+        1
+      )
     }
   ]
 
@@ -3872,12 +3880,14 @@ const refreshDashboard = async (options = {}) => {
       (item) => normalizeText(item.status) === 'pending_approval' && elapsedMinutes(item.started_at) >= 30
     ).length
     const riskCritical = jumpRiskEvents.filter((item) => normalizeText(item.severity) === 'critical').length
-    const jumpSyncFailed = normalizeText(jumpIntegrationPayload?.last_sync_status) === 'failed'
+    const jumpSyncStatus = normalizeText(jumpIntegrationPayload?.last_sync_status)
+    const jumpSyncFailed = jumpSyncStatus === 'failed'
+    const jumpSyncPartial = jumpSyncStatus === 'partial' || jumpSyncStatus === 'warning'
     const jumpSyncMsg = jumpIntegrationPayload?.last_sync_msg || ''
     if (jumpSessionsPayload !== null && jumpRiskPayload !== null) {
       if (riskCritical > 0) {
         moduleStatus.jump = 'error'
-      } else if (jumpPendingTimeout > 0 || jumpSyncFailed) {
+      } else if (jumpPendingTimeout > 0 || jumpSyncFailed || jumpSyncPartial) {
         moduleStatus.jump = 'warning'
       } else {
         moduleStatus.jump = 'ok'
@@ -4065,11 +4075,15 @@ const refreshDashboard = async (options = {}) => {
       {
         label: 'JumpServer会话链路',
         path: '/jump/sessions',
-        status: jumpSessionsPayload === null || jumpRiskPayload === null ? 'error' : (jumpPendingTimeout > 0 || riskCritical > 0 || jumpSyncFailed ? 'warning' : 'ok'),
+        status: jumpSessionsPayload === null || jumpRiskPayload === null ? 'error' : (jumpPendingTimeout > 0 || riskCritical > 0 || jumpSyncFailed || jumpSyncPartial ? 'warning' : 'ok'),
         countText: `${jumpSessions.length}`,
         message: jumpSessionsPayload === null || jumpRiskPayload === null
           ? (callErrorMessage(10, 'Jump会话') || callErrorMessage(11, 'Jump风控') || '堡垒机链路异常')
-          : (riskCritical > 0 ? `高危风控 ${riskCritical} 条` : (jumpPendingTimeout > 0 ? `超时待审批 ${jumpPendingTimeout} 条` : (jumpSyncFailed ? truncateText(jumpSyncMsg || '最近同步失败', 80) : '会话同步正常')))
+          : (riskCritical > 0
+            ? `高危风控 ${riskCritical} 条`
+            : (jumpPendingTimeout > 0
+              ? `超时待审批 ${jumpPendingTimeout} 条`
+              : ((jumpSyncFailed || jumpSyncPartial) ? truncateText(jumpSyncMsg || '最近同步降级', 80) : '会话同步正常')))
       },
       {
         label: '堡垒机资产映射链路',

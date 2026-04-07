@@ -156,7 +156,7 @@ type JumpIntegrationConfig struct {
 	VerifyTLS      bool       `gorm:"default:true" json:"verify_tls"`
 	AutoSync       bool       `gorm:"default:false" json:"auto_sync"`
 	LastSyncAt     *time.Time `json:"last_sync_at"`
-	LastSyncStatus string     `gorm:"size:32" json:"last_sync_status"` // ok, failed
+	LastSyncStatus string     `gorm:"size:32" json:"last_sync_status"` // ok, partial, failed
 	LastSyncMsg    string     `gorm:"size:512" json:"last_sync_msg"`
 }
 

@@ -50,6 +50,7 @@ type jumpServerSyncResult struct {
 	Sessions  syncStat `json:"sessions"`
 	Commands  syncStat `json:"commands"`
 	Total     syncStat `json:"total"`
+	Warnings  []string `json:"warnings,omitempty"`
 }
 
 type jumpServerClient struct {
@@ -179,28 +180,61 @@ func (h *JumpHandler) TestIntegrationConnection(c *gin.Context) {
 	}
 
 	_, hostEndpoint, hostErr := client.listByCandidates(jumpHostAssetCandidates())
+	_, dbEndpoint, dbErr := client.listByCandidates(jumpDatabaseAssetCandidates())
+	hostReadable := hostErr == nil
+	dbReadable := dbErr == nil
+	warnings := make([]string, 0, 2)
 	if hostErr != nil {
+		warnings = append(warnings, describeJumpSyncError(hostErr, "主机资产"))
+	}
+	if dbErr != nil {
+		warnings = append(warnings, describeJumpSyncError(dbErr, "数据库资产"))
+	}
+	data := gin.H{
+		"checked_endpoint": profileEndpoint,
+		"required_sync_endpoints": gin.H{
+			"hosts":     jumpHostAssetCandidates()[0],
+			"databases": jumpDatabaseAssetCandidates()[0],
+		},
+		"readable_endpoints": gin.H{
+			"hosts":     hostEndpoint,
+			"databases": dbEndpoint,
+		},
+		"permissions": gin.H{
+			"hosts":     hostReadable,
+			"databases": dbReadable,
+		},
+	}
+	if len(warnings) > 0 {
+		data["warnings"] = warnings
+	}
+	if !hostReadable && !dbReadable {
 		status := http.StatusBadGateway
-		if apiErr := asJumpServerAPIError(hostErr); apiErr != nil && (apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {
-			status = http.StatusForbidden
+		for _, e := range []error{hostErr, dbErr} {
+			if apiErr := asJumpServerAPIError(e); apiErr != nil && (apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {
+				status = http.StatusForbidden
+				break
+			}
 		}
 		c.JSON(status, gin.H{
 			"code":    403,
-			"message": describeJumpSyncError(hostErr, "主机资产"),
-			"data": gin.H{
-				"checked_endpoint":       profileEndpoint,
-				"required_sync_endpoint": jumpHostAssetCandidates()[0],
-			},
+			"message": "JumpServer 连接成功，但资产读取权限不足，请为账号授权主机/数据库资产读取权限",
+			"data":    data,
+		})
+		return
+	}
+	if !hostReadable || !dbReadable {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    0,
+			"message": "JumpServer 连接成功，但资产读取权限部分缺失（可先同步已授权资产）",
+			"data":    data,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
 		"message": "JumpServer 连接成功，资产读取权限正常",
-		"data": gin.H{
-			"checked_endpoint":       profileEndpoint,
-			"required_sync_endpoint": hostEndpoint,
-		},
+		"data":    data,
 	})
 }
 
@@ -214,7 +248,16 @@ func (h *JumpHandler) SyncFromJumpServer(c *gin.Context) {
 		c.JSON(status, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result, "message": fmt.Sprintf("JumpServer 同步完成，新增%d，更新%d", result.Total.Created, result.Total.Updated)})
+	message := fmt.Sprintf("JumpServer 同步完成，新增%d，更新%d", result.Total.Created, result.Total.Updated)
+	if len(result.Warnings) > 0 {
+		message = fmt.Sprintf(
+			"JumpServer 同步部分成功，新增%d，更新%d；%s",
+			result.Total.Created,
+			result.Total.Updated,
+			truncateJumpText(strings.Join(result.Warnings, "；"), 260),
+		)
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result, "message": message})
 }
 
 func (h *JumpHandler) SyncJumpServerSessions(c *gin.Context) {
@@ -280,15 +323,50 @@ func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResul
 
 	result.Total.Created = result.Hosts.Created + result.Databases.Created
 	result.Total.Updated = result.Hosts.Updated + result.Databases.Updated
+	if hostErr != nil {
+		result.Warnings = append(result.Warnings, hostErr.Error())
+	}
+	if dbErr != nil {
+		result.Warnings = append(result.Warnings, dbErr.Error())
+	}
 
 	cfg := client.config
 	now := time.Now()
 	if cfg != nil {
-		if hostErr != nil || dbErr != nil {
-			msg := strings.TrimSpace(nonEmptyError(hostErr, dbErr))
+		bothFailed := hostErr != nil && dbErr != nil
+		anyFailed := hostErr != nil || dbErr != nil
+		if bothFailed {
+			msg := strings.TrimSpace(strings.Join(result.Warnings, "; "))
+			if msg == "" {
+				msg = strings.TrimSpace(nonEmptyError(hostErr, dbErr))
+			}
 			_ = h.db.Model(cfg).Updates(map[string]interface{}{
 				"last_sync_at":     now,
 				"last_sync_status": "failed",
+				"last_sync_msg":    truncateJumpText(msg, 500),
+			}).Error
+		} else if anyFailed {
+			hostLabel := hostEndpoint
+			if strings.TrimSpace(hostLabel) == "" {
+				hostLabel = jumpHostAssetCandidates()[0]
+			}
+			dbLabel := dbEndpoint
+			if strings.TrimSpace(dbLabel) == "" {
+				dbLabel = jumpDatabaseAssetCandidates()[0]
+			}
+			msg := fmt.Sprintf(
+				"partial: hosts(%s) +%d/%d, databases(%s) +%d/%d; %s",
+				hostLabel,
+				result.Hosts.Created,
+				result.Hosts.Updated,
+				dbLabel,
+				result.Databases.Created,
+				result.Databases.Updated,
+				truncateJumpText(strings.Join(result.Warnings, "; "), 320),
+			)
+			_ = h.db.Model(cfg).Updates(map[string]interface{}{
+				"last_sync_at":     now,
+				"last_sync_status": "partial",
 				"last_sync_msg":    truncateJumpText(msg, 500),
 			}).Error
 		} else {
@@ -316,11 +394,8 @@ func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResul
 		}
 	}
 
-	if hostErr != nil {
-		return result, fmt.Errorf("同步 JumpServer 主机失败: %s", hostErr.Error())
-	}
-	if dbErr != nil {
-		return result, fmt.Errorf("同步 JumpServer 数据库失败: %s", dbErr.Error())
+	if hostErr != nil && dbErr != nil {
+		return result, fmt.Errorf("同步 JumpServer 资产失败: %s", strings.Join(result.Warnings, "; "))
 	}
 	return result, nil
 }
