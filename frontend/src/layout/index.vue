@@ -134,6 +134,93 @@
             </template>
           </el-dropdown>
         </div>
+        <div
+          v-if="showModuleContext && activeModuleGroup && activeModuleLinks.length"
+          :class="[
+            'module-context-wrap',
+            `module-context-${activeModuleGroup.key}`,
+            { 'is-compact': activeModuleLinks.length >= 10 }
+          ]"
+        >
+          <span class="module-context-label">{{ moduleContextLabel }}</span>
+          <el-scrollbar>
+            <div class="module-context-links">
+              <el-tag
+                v-for="link in activeModuleLinks"
+                :key="link.path"
+                effect="plain"
+                class="module-context-tag"
+                :class="{ 'is-active': isContextLinkActive(link.path), 'is-pinned': link.pinned }"
+                draggable="true"
+                @click="openTab(link.path)"
+                @contextmenu.prevent.stop="openModuleLinkContextMenu($event, link.path)"
+                @dragstart="onModuleLinkDragStart(link.path)"
+                @dragover.prevent
+                @drop.prevent="onModuleLinkDrop(link.path)"
+                @dragend="onModuleLinkDragEnd"
+                @auxclick="onModuleLinkAuxClick($event, link.path)"
+              >
+                <span class="module-context-tag-inner">
+                  <span class="module-context-tag-title">{{ link.label }}</span>
+                  <span class="module-context-tag-actions">
+                    <el-icon class="module-pin-icon" @click.stop="toggleModuleLinkPin(link.path)">
+                      <StarFilled />
+                    </el-icon>
+                    <el-icon class="module-close-icon" @click.stop="hideModuleLink(link.path)">
+                      <Close />
+                    </el-icon>
+                  </span>
+                </span>
+              </el-tag>
+              <span v-if="!activeModuleLinks.length" class="module-context-empty">当前模块暂无可访问页签</span>
+            </div>
+          </el-scrollbar>
+          <el-dropdown trigger="click" @command="handleModuleLinksCommand">
+            <el-button class="module-context-action" link>模块页签</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="openAll">批量打开</el-dropdown-item>
+                <el-dropdown-item command="reset">恢复默认</el-dropdown-item>
+                <el-dropdown-item
+                  v-for="link in hiddenModuleLinks"
+                  :key="`show-${link.path}`"
+                  :command="`show:${link.path}`"
+                >
+                  显示 {{ link.label }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+        <transition name="module-context-menu-fade">
+          <div
+            v-if="moduleContextMenu.visible"
+            class="module-context-menu"
+            :style="{ left: `${moduleContextMenu.x}px`, top: `${moduleContextMenu.y}px` }"
+            @click.stop
+          >
+            <button class="module-context-menu-item" type="button" @click="handleModuleContextMenuCommand('open')">
+              打开页面
+            </button>
+            <button class="module-context-menu-item" type="button" @click="handleModuleContextMenuCommand('togglePin')">
+              {{ moduleContextMenuLink?.pinned ? '取消固定' : '固定到前' }}
+            </button>
+            <button
+              class="module-context-menu-item"
+              type="button"
+              :disabled="activeModuleLinks.length <= 1"
+              @click="handleModuleContextMenuCommand('closeCurrent')"
+            >
+              隐藏当前
+            </button>
+            <button class="module-context-menu-item" type="button" @click="handleModuleContextMenuCommand('closeOthers')">
+              仅保留当前
+            </button>
+            <button class="module-context-menu-item danger" type="button" @click="handleModuleContextMenuCommand('reset')">
+              恢复默认布局
+            </button>
+          </div>
+        </transition>
 
         <el-dialog
           v-model="teamWorkspacePanelVisible"
@@ -1684,6 +1771,20 @@ const moduleQuickLinks = [
 const activeModuleGroup = computed(() => {
   const path = route.path || ''
   return moduleQuickLinks.find((item) => item.prefixes.some((prefix) => path.startsWith(prefix))) || null
+})
+
+const moduleGroupLabels = {
+  asset: '资产管理',
+  k8s: '容器管理',
+  monitor: '监控中心',
+  delivery: '服务管理',
+  system: '系统管理',
+  automation: '自动化'
+}
+
+const moduleContextLabel = computed(() => {
+  const key = activeModuleGroup.value?.key || ''
+  return moduleGroupLabels[key] ? `${moduleGroupLabels[key]}页签` : '模块页签'
 })
 
 const ensureModuleState = (group) => {
