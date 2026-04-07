@@ -12,14 +12,16 @@
       </div>
     </div>
 
-    <div class="workbench-toolbar">
-      <div class="workbench-toolbar-left">
-        <span class="workbench-toolbar-label">场景工作台</span>
-        <el-check-tag checked @click="go('/domain/center')">域名监控中心</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/monitor/center')">监控告警中心</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/domain/ssl')">域名与证书</el-check-tag>
-      </div>
-      <div class="workbench-toolbar-right">
+    <div class="hub-tabs-wrap">
+      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+        <el-tab-pane
+          v-for="tab in workbenchTabs"
+          :key="tab.path"
+          :name="tab.path"
+          :label="tab.label"
+        />
+      </el-tabs>
+      <div class="hub-tabs-extra">
         <el-tag type="danger" effect="light">高危 {{ riskCriticalCount }}</el-tag>
         <el-tag type="warning" effect="light">待复检 {{ riskStaleCount }}</el-tag>
         <el-tag type="info" effect="light">证书≤7天 {{ stats.certCriticalSoon }}</el-tag>
@@ -368,8 +370,8 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -377,6 +379,7 @@ import { getErrorMessage, isCancelError } from '@/utils/error'
 import { monitorAlertStatusMeta } from '@/utils/status'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
+const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const checking = ref(false)
@@ -458,6 +461,17 @@ const dispositionPrimaryLabel = computed(() => {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const workbenchTabs = [
+  { label: '域名监控中心', path: '/domain/center' },
+  { label: '监控告警中心', path: '/monitor/center' },
+  { label: '域名与证书', path: '/domain/ssl' }
+]
+const activeWorkbenchTab = ref('/domain/center')
+const handleWorkbenchTabClick = (pane) => {
+  const path = String(pane?.paneName || '').trim()
+  if (!path || path === route.path) return
+  go(path)
+}
 
 const healthChartRef = ref(null)
 let healthChart = null
@@ -1183,6 +1197,14 @@ onMounted(() => {
   }, 60 * 1000)
   window.addEventListener('resize', resizeChart)
 })
+watch(
+  () => route.path,
+  (path) => {
+    const matched = workbenchTabs.find((item) => item.path === path)
+    activeWorkbenchTab.value = matched ? matched.path : '/domain/center'
+  },
+  { immediate: true }
+)
 
 const resizeChart = () => {
   if (healthChart) healthChart.resize()
@@ -1206,28 +1228,39 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.workbench-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--card-bg) 86%, #ffffff 14%);
-  padding: 10px 12px;
+.hub-tabs-wrap {
   margin-bottom: 12px;
 }
-.workbench-toolbar-left,
-.workbench-toolbar-right {
+
+.hub-tabs-extra {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  margin-top: 4px;
 }
-.workbench-toolbar-label {
-  font-size: 12px;
-  color: var(--muted-text);
-  margin-right: 4px;
+
+.hub-tabs-wrap :deep(.el-tabs__header) {
+  margin-bottom: 0;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__item) {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
+  padding: 0 14px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--el-border-color-light);
+}
+
+.hub-tabs-wrap :deep(.el-tabs__active-bar) {
+  height: 2px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__content) {
+  display: none;
 }
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
@@ -1323,9 +1356,8 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1100px) {
-  .workbench-toolbar {
+  .hub-tabs-extra {
     align-items: flex-start;
-    flex-direction: column;
   }
 
   .integration-header {

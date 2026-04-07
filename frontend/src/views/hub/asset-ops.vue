@@ -11,15 +11,16 @@
       </div>
     </div>
 
-    <div class="workbench-toolbar">
-      <div class="workbench-toolbar-left">
-        <span class="workbench-toolbar-label">场景工作台</span>
-        <el-check-tag checked @click="go('/asset/ops')">资产作战台</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/asset/overview')">资产总览</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/overview')">容器总览</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/domain/center')">域名中心</el-check-tag>
-      </div>
-      <div class="workbench-toolbar-right">
+    <div class="hub-tabs-wrap">
+      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+        <el-tab-pane
+          v-for="tab in workbenchTabs"
+          :key="tab.path"
+          :name="tab.path"
+          :label="tab.label"
+        />
+      </el-tabs>
+      <div class="hub-tabs-extra">
         <el-tag type="warning" effect="light">待处置 {{ stats.pendingBacklog }}</el-tag>
         <el-tag type="danger" effect="light">高危 {{ riskCriticalCount }}</el-tag>
         <el-tag type="info" effect="light">待审批 {{ stats.jumpPending }}</el-tag>
@@ -476,7 +477,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
@@ -484,6 +485,7 @@ import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
 
+const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const hosts = ref([])
@@ -554,6 +556,18 @@ const assetDetailRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const workbenchTabs = [
+  { label: '资产作战台', path: '/asset/ops' },
+  { label: '资产总览', path: '/asset/overview' },
+  { label: '容器总览', path: '/k8s/overview' },
+  { label: '域名中心', path: '/domain/center' }
+]
+const activeWorkbenchTab = ref('/asset/ops')
+const handleWorkbenchTabClick = (pane) => {
+  const path = String(pane?.paneName || '').trim()
+  if (!path || path === route.path) return
+  go(path)
+}
 const focusAssetPanel = (panel) => {
   if (!panel || panel === activePanel.value) return
   activePanel.value = panel
@@ -1607,6 +1621,14 @@ onMounted(() => {
     nowTick.value = Date.now()
   }, 60 * 1000)
 })
+watch(
+  () => route.path,
+  (path) => {
+    const matched = workbenchTabs.find((item) => item.path === path)
+    activeWorkbenchTab.value = matched ? matched.path : '/asset/ops'
+  },
+  { immediate: true }
+)
 
 onBeforeUnmount(() => {
   if (freshnessTicker) {
@@ -1621,28 +1643,39 @@ onBeforeUnmount(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.workbench-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--card-bg) 86%, #ffffff 14%);
-  padding: 10px 12px;
+.hub-tabs-wrap {
   margin-bottom: 12px;
 }
-.workbench-toolbar-left,
-.workbench-toolbar-right {
+
+.hub-tabs-extra {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  margin-top: 4px;
 }
-.workbench-toolbar-label {
-  font-size: 12px;
-  color: var(--muted-text);
-  margin-right: 4px;
+
+.hub-tabs-wrap :deep(.el-tabs__header) {
+  margin-bottom: 0;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__item) {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
+  padding: 0 14px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--el-border-color-light);
+}
+
+.hub-tabs-wrap :deep(.el-tabs__active-bar) {
+  height: 2px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__content) {
+  display: none;
 }
 
 .workbench-layout {
@@ -1799,9 +1832,8 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
 
-  .workbench-toolbar {
+  .hub-tabs-extra {
     align-items: flex-start;
-    flex-direction: column;
   }
 
   .integration-actions {
