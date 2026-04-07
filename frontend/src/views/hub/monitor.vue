@@ -262,7 +262,7 @@
             </el-table-column>
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="alertStatusTag(row.status)">{{ alertStatusText(row.status) }}</el-tag>
+                <StatusBadge v-bind="alertStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="时间" min-width="170">
@@ -404,6 +404,8 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import { monitorAlertStatusMeta } from '@/utils/status'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -495,20 +497,21 @@ const severityTag = (value) => {
 }
 
 const alertStatusText = (status) => {
-  const v = Number(status)
-  if (v === 0) return '进行中'
-  if (v === 1) return '已确认'
-  if (v === 2) return '已恢复'
-  if (v === 3) return '已抑制'
-  return '-'
+  return monitorAlertStatusMeta(status).text
 }
 
-const alertStatusTag = (status) => {
-  const v = Number(status)
-  if (v === 0) return 'danger'
-  if (v === 1) return 'warning'
-  if (v === 2) return 'success'
-  return ''
+const alertStatusBadge = (row) => {
+  const meta = monitorAlertStatusMeta(row?.status)
+  const parts = []
+  if (row?.severity) parts.push(`级别: ${severityText(row.severity)}`)
+  if (row?.target) parts.push(`目标: ${row.target}`)
+  if (row?.message) parts.push(row.message)
+  return {
+    text: meta.text,
+    type: meta.type,
+    reason: parts.join(' | '),
+    updatedAt: row?.updated_at || row?.fired_at || row?.created_at
+  }
 }
 
 const parseTimestamp = (value) => {

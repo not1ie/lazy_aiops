@@ -294,7 +294,7 @@
             </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="alertStatusTag(row.status)">{{ alertStatusText(row.status) }}</el-tag>
+                <StatusBadge v-bind="alertStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="触发时间" min-width="165">
@@ -374,6 +374,8 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import { monitorAlertStatusMeta } from '@/utils/status'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -540,19 +542,22 @@ const severityTag = (value) => {
 }
 
 const alertStatusText = (status) => {
-  const v = Number(status)
-  if (v === 0) return '触发'
-  if (v === 1) return '确认'
-  if (v === 2) return '恢复'
-  if (v === 3) return '抑制'
-  return '未知'
+  return monitorAlertStatusMeta(status).text
 }
 
-const alertStatusTag = (status) => {
-  const v = Number(status)
-  if (v === 0) return 'danger'
-  if (v === 2) return 'success'
-  return 'info'
+const alertStatusBadge = (row) => {
+  const meta = monitorAlertStatusMeta(row?.status)
+  const parts = []
+  if (row?.severity) parts.push(`级别: ${severityText(row.severity)}`)
+  if (row?.target) parts.push(`目标: ${row.target}`)
+  if (row?.metric) parts.push(`指标: ${row.metric}`)
+  if (row?.message) parts.push(row.message)
+  return {
+    text: meta.text,
+    type: meta.type,
+    reason: parts.join(' | '),
+    updatedAt: row?.updated_at || row?.fired_at || row?.created_at
+  }
 }
 
 const domainHealthyRate = computed(() => {
