@@ -10,32 +10,15 @@
       </div>
     </div>
 
-    <div class="workbench-toolbar">
-      <div class="workbench-toolbar-left">
-        <span class="workbench-toolbar-label">场景工作台</span>
-        <el-check-tag checked @click="go('/delivery/center')">交付中心</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/workflow/orchestrator')">编排中心</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/workflow/designer')">工作流编排</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/task/schedules')">任务调度</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/cicd/pipelines')">流水线管理</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/cicd/executions')">执行记录</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/cicd/schedules')">定时发布</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/cicd/releases')">发布管理</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/workorder/tickets')">工单管理</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/workorder/types')">工单类型</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/sqlaudit/requests')">SQL工单</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/sqlaudit/rules')">SQL审核规则</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/gitops/repos')">GitOps仓库</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/gitops/sync')">GitOps同步</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/application')">应用中心</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/ansible/playbooks')">Playbook管理</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/ansible/inventories')">Inventory管理</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/oncall/schedule')">值班排班</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/oncall/escalation')">升级策略</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/executor')">批量执行</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/nacos/servers')">Nacos服务器</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/nacos/configs')">配置管理</el-check-tag>
-      </div>
+    <div class="hub-tabs-wrap">
+      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+        <el-tab-pane
+          v-for="tab in workbenchTabs"
+          :key="tab.path"
+          :name="tab.path"
+          :label="tab.label"
+        />
+      </el-tabs>
     </div>
 
     <el-row :gutter="12" class="summary-row">
@@ -436,8 +419,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
@@ -445,6 +428,7 @@ import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
 
+const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const pipelines = ref([])
@@ -500,6 +484,36 @@ const panelRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const workbenchTabs = [
+  { label: '交付中心', path: '/delivery/center' },
+  { label: '编排中心', path: '/workflow/orchestrator' },
+  { label: '工作流编排', path: '/workflow/designer' },
+  { label: '任务调度', path: '/task/schedules' },
+  { label: '流水线管理', path: '/cicd/pipelines' },
+  { label: '执行记录', path: '/cicd/executions' },
+  { label: '定时发布', path: '/cicd/schedules' },
+  { label: '发布管理', path: '/cicd/releases' },
+  { label: '工单管理', path: '/workorder/tickets' },
+  { label: '工单类型', path: '/workorder/types' },
+  { label: 'SQL工单', path: '/sqlaudit/requests' },
+  { label: 'SQL审核规则', path: '/sqlaudit/rules' },
+  { label: 'GitOps仓库', path: '/gitops/repos' },
+  { label: 'GitOps同步', path: '/gitops/sync' },
+  { label: '应用中心', path: '/application' },
+  { label: 'Playbook管理', path: '/ansible/playbooks' },
+  { label: 'Inventory管理', path: '/ansible/inventories' },
+  { label: '值班排班', path: '/oncall/schedule' },
+  { label: '升级策略', path: '/oncall/escalation' },
+  { label: '批量执行', path: '/executor' },
+  { label: 'Nacos服务器', path: '/nacos/servers' },
+  { label: '配置管理', path: '/nacos/configs' }
+]
+const activeWorkbenchTab = ref('/delivery/center')
+const handleWorkbenchTabClick = (pane) => {
+  const path = String(pane?.paneName || '').trim()
+  if (!path || path === route.path) return
+  go(path)
+}
 
 const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
 const filterRows = (rows, fields) => {
@@ -1238,6 +1252,14 @@ const refreshAll = async () => {
 }
 
 onMounted(refreshAll)
+watch(
+  () => route.path,
+  (path) => {
+    const matched = workbenchTabs.find((item) => item.path === path)
+    activeWorkbenchTab.value = matched ? matched.path : '/delivery/center'
+  },
+  { immediate: true }
+)
 onMounted(() => {
   minuteTicker = window.setInterval(() => {
     nowTs.value = Date.now()
@@ -1256,28 +1278,31 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.workbench-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px 12px;
+.hub-tabs-wrap {
   margin-bottom: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--el-fill-color) 86%, transparent);
 }
 
-.workbench-toolbar-left {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.hub-tabs-wrap :deep(.el-tabs__header) {
+  margin-bottom: 0;
 }
 
-.workbench-toolbar-label {
-  color: var(--muted-text);
-  font-size: 12px;
-  margin-right: 2px;
+.hub-tabs-wrap :deep(.el-tabs__item) {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
+  padding: 0 14px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--el-border-color-light);
+}
+
+.hub-tabs-wrap :deep(.el-tabs__active-bar) {
+  height: 2px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__content) {
+  display: none;
 }
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }

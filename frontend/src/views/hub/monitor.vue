@@ -10,30 +10,15 @@
       </div>
     </div>
 
-    <div class="workbench-toolbar">
-      <div class="workbench-toolbar-left">
-        <span class="workbench-toolbar-label">场景工作台</span>
-        <el-check-tag checked @click="go('/monitor/center')">监控告警中心</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/domain/center')">域名监控中心</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/alert/events')">告警事件</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/alert/rules')">告警规则</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/alert/silences')">告警静默</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/alert/aggregation')">告警聚合</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/alert/history')">告警复盘</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/notify/channels')">通知渠道</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/notify/groups')">通知组</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/notify/templates')">通知模板</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/domain/ssl')">域名与证书</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/monitor/overview')">监控概览</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/monitor/hosts')">主机监控</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/monitor/metrics')">指标采集</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/monitor/containers')">容器监控</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/monitor/pods')">Pod监控</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/monitor/agents')">Agent心跳</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/topology')">服务拓扑</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/cost/overview')">成本概览</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/cost/budget')">预算告警</el-check-tag>
-      </div>
+    <div class="hub-tabs-wrap">
+      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+        <el-tab-pane
+          v-for="tab in workbenchTabs"
+          :key="tab.path"
+          :name="tab.path"
+          :label="tab.label"
+        />
+      </el-tabs>
     </div>
 
     <el-row :gutter="12" class="summary-row">
@@ -399,14 +384,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import { monitorAlertStatusMeta } from '@/utils/status'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
+const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const alerts = ref([])
@@ -461,6 +447,34 @@ const panelRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const workbenchTabs = [
+  { label: '监控告警中心', path: '/monitor/center' },
+  { label: '域名监控中心', path: '/domain/center' },
+  { label: '告警事件', path: '/alert/events' },
+  { label: '告警规则', path: '/alert/rules' },
+  { label: '告警静默', path: '/alert/silences' },
+  { label: '告警聚合', path: '/alert/aggregation' },
+  { label: '告警复盘', path: '/alert/history' },
+  { label: '通知渠道', path: '/notify/channels' },
+  { label: '通知组', path: '/notify/groups' },
+  { label: '通知模板', path: '/notify/templates' },
+  { label: '域名与证书', path: '/domain/ssl' },
+  { label: '监控概览', path: '/monitor/overview' },
+  { label: '主机监控', path: '/monitor/hosts' },
+  { label: '指标采集', path: '/monitor/metrics' },
+  { label: '容器监控', path: '/monitor/containers' },
+  { label: 'Pod监控', path: '/monitor/pods' },
+  { label: 'Agent心跳', path: '/monitor/agents' },
+  { label: '服务拓扑', path: '/topology' },
+  { label: '成本概览', path: '/cost/overview' },
+  { label: '预算告警', path: '/cost/budget' }
+]
+const activeWorkbenchTab = ref('/monitor/center')
+const handleWorkbenchTabClick = (pane) => {
+  const path = String(pane?.paneName || '').trim()
+  if (!path || path === route.path) return
+  go(path)
+}
 
 const normalizeText = (value) => String(value ?? '').trim().toLowerCase()
 const parseChannels = (text) => {
@@ -987,6 +1001,14 @@ const refreshAll = async () => {
 }
 
 onMounted(refreshAll)
+watch(
+  () => route.path,
+  (path) => {
+    const matched = workbenchTabs.find((item) => item.path === path)
+    activeWorkbenchTab.value = matched ? matched.path : '/monitor/center'
+  },
+  { immediate: true }
+)
 onMounted(() => {
   minuteTicker = window.setInterval(() => {
     nowTs.value = Date.now()
@@ -1012,28 +1034,31 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; }
-.workbench-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px 12px;
+.hub-tabs-wrap {
   margin-bottom: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--el-fill-color) 86%, transparent);
 }
 
-.workbench-toolbar-left {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.hub-tabs-wrap :deep(.el-tabs__header) {
+  margin-bottom: 0;
 }
 
-.workbench-toolbar-label {
-  color: var(--muted-text);
-  font-size: 12px;
-  margin-right: 2px;
+.hub-tabs-wrap :deep(.el-tabs__item) {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
+  padding: 0 14px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--el-border-color-light);
+}
+
+.hub-tabs-wrap :deep(.el-tabs__active-bar) {
+  height: 2px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__content) {
+  display: none;
 }
 .risk-header {
   display: flex;

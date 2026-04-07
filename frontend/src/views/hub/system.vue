@@ -12,18 +12,15 @@
       </div>
     </div>
 
-    <div class="workbench-toolbar">
-      <div class="workbench-toolbar-left">
-        <span class="workbench-toolbar-label">系统工作台</span>
-        <el-check-tag
+    <div class="hub-tabs-wrap">
+      <el-tabs v-model="activeTab" @tab-click="handleSystemTabClick">
+        <el-tab-pane
           v-for="tab in visibleTabs"
           :key="tab.key"
-          :checked="activeTab === tab.key"
-          @change="() => changeTab(tab.key)"
-        >
-          {{ tab.label }}
-        </el-check-tag>
-      </div>
+          :name="tab.key"
+          :label="tab.label"
+        />
+      </el-tabs>
     </div>
 
     <el-row :gutter="12" class="mt-12">
@@ -491,6 +488,12 @@ const changeTab = (tab) => {
   updateRouteTab(tab)
 }
 
+const handleSystemTabClick = (pane) => {
+  const tab = String(pane?.paneName || '').trim()
+  if (!tab) return
+  changeTab(tab)
+}
+
 const activeComponent = computed(() => {
   const item = visibleTabs.value.find((tab) => tab.key === activeTab.value)
   return item?.component || null
@@ -542,25 +545,31 @@ watch(
   border-radius: 16px;
 }
 
-.workbench-toolbar {
+.hub-tabs-wrap {
   margin-bottom: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--el-border-color-light);
-  background: var(--el-fill-color-extra-light);
 }
 
-.workbench-toolbar-left {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+.hub-tabs-wrap :deep(.el-tabs__header) {
+  margin-bottom: 0;
 }
 
-.workbench-toolbar-label {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  margin-right: 4px;
+.hub-tabs-wrap :deep(.el-tabs__item) {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
+  padding: 0 14px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--el-border-color-light);
+}
+
+.hub-tabs-wrap :deep(.el-tabs__active-bar) {
+  height: 2px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__content) {
+  display: none;
 }
 
 .mt-12 {

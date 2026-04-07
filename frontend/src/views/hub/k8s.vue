@@ -18,24 +18,16 @@
       </div>
     </div>
 
-    <div class="workbench-toolbar">
-      <div class="workbench-toolbar-left">
-        <span class="workbench-toolbar-label">场景工作台</span>
-        <el-check-tag checked @click="go('/k8s/overview')">平台总览</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/deployments')">Deployments</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/pods')">Pods</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/services')">服务与Ingress</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/workloads')">工作负载</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/clusters')">K8s集群</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/namespaces')">命名空间</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/configs')">Config/Secret</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/storage')">存储管理</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/nodes')">节点管理</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/events')">事件与诊断</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/k8s/terminal')">K8s WebShell</el-check-tag>
-        <el-check-tag :checked="false" @click="go('/docker')">Docker管理</el-check-tag>
-      </div>
-      <div class="workbench-toolbar-right">
+    <div class="hub-tabs-wrap">
+      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+        <el-tab-pane
+          v-for="tab in workbenchTabs"
+          :key="tab.path"
+          :name="tab.path"
+          :label="tab.label"
+        />
+      </el-tabs>
+      <div class="hub-tabs-extra">
         <el-tag type="warning" effect="light">待处置 {{ pendingBacklog }}</el-tag>
         <el-tag type="danger" effect="light">异常工作负载 {{ stats.degradedWorkloads }}</el-tag>
         <el-tag type="info" effect="light">NotReady 节点 {{ notReadyNodes }}</el-tag>
@@ -442,12 +434,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 
+const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const clusters = ref([])
@@ -495,6 +488,27 @@ const panelRouteMap = {
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const go = (path) => router.push(path)
+const workbenchTabs = [
+  { label: '平台总览', path: '/k8s/overview' },
+  { label: 'Deployments', path: '/k8s/deployments' },
+  { label: 'Pods', path: '/k8s/pods' },
+  { label: '服务与Ingress', path: '/k8s/services' },
+  { label: '工作负载', path: '/k8s/workloads' },
+  { label: 'K8s集群', path: '/k8s/clusters' },
+  { label: '命名空间', path: '/k8s/namespaces' },
+  { label: 'Config/Secret', path: '/k8s/configs' },
+  { label: '存储管理', path: '/k8s/storage' },
+  { label: '节点管理', path: '/k8s/nodes' },
+  { label: '事件与诊断', path: '/k8s/events' },
+  { label: 'K8s WebShell', path: '/k8s/terminal' },
+  { label: 'Docker管理', path: '/docker' }
+]
+const activeWorkbenchTab = ref('/k8s/overview')
+const handleWorkbenchTabClick = (pane) => {
+  const path = String(pane?.paneName || '').trim()
+  if (!path || path === route.path) return
+  go(path)
+}
 const focusK8sPanel = (panel) => {
   if (!panel || panel === activePanel.value) return
   activePanel.value = panel
@@ -929,6 +943,14 @@ const refreshAll = async () => {
 }
 
 onMounted(refreshAll)
+watch(
+  () => route.path,
+  (path) => {
+    const matched = workbenchTabs.find((item) => item.path === path)
+    activeWorkbenchTab.value = matched ? matched.path : '/k8s/overview'
+  },
+  { immediate: true }
+)
 onMounted(() => {
   minuteTicker = window.setInterval(() => {
     nowTs.value = Date.now()
@@ -947,29 +969,41 @@ onUnmounted(() => {
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .page-desc { color: var(--muted-text); margin: 4px 0 0; }
 .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.workbench-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--card-bg) 86%, #ffffff 14%);
-  padding: 10px 12px;
+.hub-tabs-wrap {
   margin-bottom: 12px;
 }
-.workbench-toolbar-left,
-.workbench-toolbar-right {
+
+.hub-tabs-extra {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  margin-top: 4px;
 }
-.workbench-toolbar-label {
-  font-size: 12px;
-  color: var(--muted-text);
-  margin-right: 4px;
+
+.hub-tabs-wrap :deep(.el-tabs__header) {
+  margin-bottom: 0;
 }
+
+.hub-tabs-wrap :deep(.el-tabs__item) {
+  height: 36px;
+  line-height: 36px;
+  font-size: 14px;
+  padding: 0 14px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--el-border-color-light);
+}
+
+.hub-tabs-wrap :deep(.el-tabs__active-bar) {
+  height: 2px;
+}
+
+.hub-tabs-wrap :deep(.el-tabs__content) {
+  display: none;
+}
+
 .summary-row { margin-bottom: 12px; }
 .summary-row :deep(.el-card) { margin-bottom: 8px; }
 .metric-title { color: var(--muted-text); font-size: 12px; }
@@ -1086,9 +1120,8 @@ onUnmounted(() => {
     flex-direction: column;
   }
 
-  .workbench-toolbar {
+  .hub-tabs-extra {
     align-items: flex-start;
-    flex-direction: column;
   }
 
   .integration-actions {
