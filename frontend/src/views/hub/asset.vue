@@ -71,7 +71,13 @@
             <el-table-column prop="ip" label="IP" min-width="130" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="hostStatusTag(row).type">{{ hostStatusTag(row).text }}</el-tag>
+                <StatusBadge
+                  :text="hostStatusTag(row).text"
+                  :type="hostStatusTag(row).type"
+                  :reason="hostStatusReason(row)"
+                  :updated-at="row.last_check_at || row.updated_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column prop="os" label="系统" min-width="120" />
@@ -209,7 +215,13 @@
             <el-table-column prop="os" label="系统" min-width="140" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="hostStatusTag(row).type">{{ hostStatusTag(row).text }}</el-tag>
+                <StatusBadge
+                  :text="hostStatusTag(row).text"
+                  :type="hostStatusTag(row).type"
+                  :reason="hostStatusReason(row)"
+                  :updated-at="row.last_check_at || row.updated_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column label="最近检查" min-width="170">
@@ -232,7 +244,13 @@
             <el-table-column prop="ip" label="管理IP" min-width="140" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="networkStatusTag(row).type">{{ networkStatusTag(row).text }}</el-tag>
+                <StatusBadge
+                  :text="networkStatusTag(row).text"
+                  :type="networkStatusTag(row).type"
+                  :reason="networkStatusReason(row)"
+                  :updated-at="row.last_check_at || row.updated_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column label="最近检查" min-width="170">
@@ -255,7 +273,13 @@
             <el-table-column prop="environment" label="环境" width="100" />
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="databaseStatusTag(row).type">{{ databaseStatusTag(row).text }}</el-tag>
+                <StatusBadge
+                  :text="databaseStatusTag(row).text"
+                  :type="databaseStatusTag(row).type"
+                  :reason="databaseStatusReason(row)"
+                  :updated-at="row.updated_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
@@ -276,7 +300,13 @@
             </el-table-column>
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="cloudStatusTag(row).type">{{ cloudStatusTag(row).text }}</el-tag>
+                <StatusBadge
+                  :text="cloudStatusTag(row).text"
+                  :type="cloudStatusTag(row).type"
+                  :reason="cloudStatusReason(row)"
+                  :updated-at="row.updated_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
@@ -292,7 +322,13 @@
             <el-table-column prop="ip" label="IP" min-width="140" />
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="firewallStatus(row).type">{{ firewallStatus(row).text }}</el-tag>
+                <StatusBadge
+                  :text="firewallStatus(row).text"
+                  :type="firewallStatus(row).type"
+                  :reason="firewallStatusReason(row)"
+                  :updated-at="row.last_check_at || row.updated_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column label="最近检查" min-width="170">
@@ -315,7 +351,13 @@
             <el-table-column prop="source" label="来源" width="120" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="jumpAssetStatus(row).type">{{ jumpAssetStatus(row).text }}</el-tag>
+                <StatusBadge
+                  :text="jumpAssetStatus(row).text"
+                  :type="jumpAssetStatus(row).type"
+                  :reason="jumpAssetStatus(row).reason"
+                  :updated-at="row.updated_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
@@ -332,7 +374,13 @@
             <el-table-column prop="port" label="端口" width="90" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="terminalSessionStatus(row.status).type">{{ terminalSessionStatus(row.status).text }}</el-tag>
+                <StatusBadge
+                  :text="terminalSessionStatus(row).text"
+                  :type="terminalSessionStatus(row).type"
+                  :reason="terminalSessionStatus(row).reason"
+                  :updated-at="row.started_at || row.created_at"
+                  size="small"
+                />
               </template>
             </el-table-column>
             <el-table-column label="开始时间" min-width="170">
@@ -353,6 +401,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import {
   cloudResourceStatusMeta,
   cmdbHostStatusMeta,
@@ -463,17 +512,33 @@ const isMaintenanceStatus = (status) => {
 }
 
 const hostStatusTag = (row) => cmdbHostStatusMeta(row, { staleMinutes: 3, nowMs: nowMs() })
+const hostStatusReason = (row) => {
+  const meta = hostStatusTag(row)
+  if (meta.key === 'online') return row?.status_reason || '主机状态正常'
+  if (meta.key === 'stale') return row?.status_reason || '超过 3 分钟未更新'
+  if (meta.key === 'maintenance') return row?.status_reason || '主机处于维护状态'
+  if (meta.key === 'offline') return row?.status_reason || '主机离线或不可达'
+  return row?.status_reason || '状态未知，建议复核主机连通性'
+}
 
 const networkStatusTag = (row, staleMinutes = 5) => {
-  if (isMaintenanceStatus(row?.status)) return { text: '维护', type: 'warning' }
+  if (isMaintenanceStatus(row?.status)) return { key: 'maintenance', text: '维护', type: 'warning' }
   if (isOnlineStatus(row?.status)) {
-    if (isStatusStale(row, staleMinutes)) return { text: '状态过期', type: 'warning' }
-    return { text: '在线', type: 'success' }
+    if (isStatusStale(row, staleMinutes)) return { key: 'stale', text: '状态过期', type: 'warning' }
+    return { key: 'online', text: '在线', type: 'success' }
   }
   const normalized = normalizeText(row?.status)
-  if (normalized === 'offline' || Number(row?.status) === 0) return { text: '离线', type: 'danger' }
-  if (isStatusStale(row, staleMinutes)) return { text: '待检测', type: 'info' }
-  return { text: '未知', type: 'info' }
+  if (normalized === 'offline' || Number(row?.status) === 0) return { key: 'offline', text: '离线', type: 'danger' }
+  if (isStatusStale(row, staleMinutes)) return { key: 'pending', text: '待检测', type: 'info' }
+  return { key: 'unknown', text: '未知', type: 'info' }
+}
+const networkStatusReason = (row) => {
+  const meta = networkStatusTag(row)
+  if (meta.key === 'online') return row?.status_reason || '网络设备状态正常'
+  if (meta.key === 'stale') return row?.status_reason || '超过 5 分钟未更新'
+  if (meta.key === 'maintenance') return row?.status_reason || '设备维护中'
+  if (meta.key === 'offline') return row?.status_reason || '设备离线或不可达'
+  return row?.status_reason || '状态未知，建议执行连通性巡检'
 }
 
 const databaseStatusTag = (row) => databaseAssetStatusMeta(row, { staleDays: 30, nowMs: nowMs() })
@@ -502,13 +567,21 @@ const cloudStatusReason = (row) => {
 
 const firewallStatus = (row) => {
   const value = Number(row?.status)
-  if (value === 2) return { text: '告警', type: 'danger' }
+  if (value === 2) return { key: 'alert', text: '告警', type: 'danger' }
   if (value === 1) {
-    if (isStatusStale(row, 5)) return { text: '状态过期', type: 'warning' }
-    return { text: '在线', type: 'success' }
+    if (isStatusStale(row, 5)) return { key: 'stale', text: '状态过期', type: 'warning' }
+    return { key: 'online', text: '在线', type: 'success' }
   }
-  if (value === 0) return { text: '离线', type: 'danger' }
-  return { text: '未知', type: 'info' }
+  if (value === 0) return { key: 'offline', text: '离线', type: 'danger' }
+  return { key: 'unknown', text: '未知', type: 'info' }
+}
+const firewallStatusReason = (row) => {
+  const meta = firewallStatus(row)
+  if (meta.key === 'online') return row?.status_reason || '防火墙状态正常'
+  if (meta.key === 'stale') return row?.status_reason || '超过 5 分钟未更新'
+  if (meta.key === 'alert') return row?.status_reason || '存在策略或设备告警'
+  if (meta.key === 'offline') return row?.status_reason || '防火墙离线或不可达'
+  return row?.status_reason || '状态未知，建议执行SNMP巡检'
 }
 
 const jumpIntegrationStatusMeta = computed(() =>
@@ -613,12 +686,12 @@ const jumpAssetStatus = (row) => {
   return { text: '可用', type: 'success', reason: '手工资产，待接入实时检测链路' }
 }
 
-const terminalSessionStatus = (status) => {
-  const value = Number(status)
-  if (value === 1) return { text: '在线', type: 'success' }
-  if (value === 2) return { text: '已关闭', type: 'info' }
-  if (value === 3) return { text: '失败', type: 'danger' }
-  return { text: '待连', type: 'warning' }
+const terminalSessionStatus = (row) => {
+  const value = Number(row?.status)
+  if (value === 1) return { key: 'online', text: '在线', type: 'success', reason: '会话进行中' }
+  if (value === 2) return { key: 'closed', text: '已关闭', type: 'info', reason: row?.close_reason || '会话已结束' }
+  if (value === 3) return { key: 'failed', text: '失败', type: 'danger', reason: row?.last_error || '会话连接或执行失败' }
+  return { key: 'pending', text: '待连', type: 'warning', reason: row?.last_error || '等待建立会话连接' }
 }
 
 const filterRows = (rows, fields) => {

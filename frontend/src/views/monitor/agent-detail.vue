@@ -17,7 +17,13 @@
       <el-descriptions-item label="版本">{{ agent.version }}</el-descriptions-item>
       <el-descriptions-item label="OS">{{ agent.os }}</el-descriptions-item>
       <el-descriptions-item label="状态">
-        <el-tag :type="agentStatusMeta.type">{{ agentStatusMeta.text }}</el-tag>
+        <StatusBadge
+          :text="agentStatusMeta.text"
+          :type="agentStatusMeta.type"
+          :reason="agentStatusReason"
+          :updated-at="agent.last_seen"
+          size="small"
+        />
       </el-descriptions-item>
       <el-descriptions-item label="最后心跳">{{ formatTime(agent.last_seen) }}</el-descriptions-item>
       <el-descriptions-item label="状态说明">{{ agentStatusReason }}</el-descriptions-item>
@@ -59,6 +65,7 @@ import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { monitorAgentStatusMeta } from '@/utils/status'
 
 const route = useRoute()

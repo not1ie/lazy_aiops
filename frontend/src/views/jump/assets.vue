@@ -42,9 +42,13 @@
       <el-table-column prop="source" label="来源" width="130" />
       <el-table-column label="运行状态" width="110">
         <template #default="{ row }">
-          <el-tag :type="assetRuntimeByID[row.id]?.type || 'info'">
-            {{ assetRuntimeByID[row.id]?.text || '未知' }}
-          </el-tag>
+          <StatusBadge
+            :text="assetRuntimeByID[row.id]?.text || '未知'"
+            :type="assetRuntimeByID[row.id]?.type || 'info'"
+            :reason="assetRuntimeByID[row.id]?.reason || ''"
+            :updated-at="row.updated_at"
+            size="small"
+          />
         </template>
       </el-table-column>
       <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
@@ -150,9 +154,14 @@
       <el-form-item label="最近同步">
         <div class="integration-sync">
           <span>{{ integrationForm.last_sync_at ? formatTime(integrationForm.last_sync_at) : '-' }}</span>
-          <el-tag v-if="integrationForm.last_sync_status" :type="integrationSyncMeta.type">
-            {{ integrationSyncMeta.text }}
-          </el-tag>
+          <StatusBadge
+            v-if="integrationForm.last_sync_status"
+            :text="integrationSyncMeta.text"
+            :type="integrationSyncMeta.type"
+            :reason="integrationForm.last_sync_msg || ''"
+            :updated-at="integrationForm.last_sync_at"
+            size="small"
+          />
           <span class="integration-sync-msg" v-if="integrationForm.last_sync_msg">{{ integrationForm.last_sync_msg }}</span>
         </div>
       </el-form-item>
@@ -170,6 +179,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import {
   cmdbHostStatusMeta,
   dockerHostStatusMeta,
