@@ -154,6 +154,7 @@
 import { ref, reactive, onBeforeUnmount, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { cmdbHostStatusMeta } from '@/utils/status'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -202,23 +203,12 @@ const toTime = (value) => {
   return Number.isNaN(ts) ? null : ts
 }
 
-const isStatusStale = (row) => {
-  const ts = toTime(row?.last_check_at)
-  if (!ts) return true
-  return Date.now() - ts > 3 * 60 * 1000
-}
-
 const statusTag = (row) => {
-  if (Number(row?.status) === 2) return 'warning'
-  if (Number(row?.status) === 1) return isStatusStale(row) ? 'warning' : 'success'
-  return 'danger'
+  return cmdbHostStatusMeta(row, { staleMinutes: 3 }).type
 }
 
 const statusText = (row) => {
-  const status = Number(row?.status)
-  if (status === 2) return '维护'
-  if (status === 1) return isStatusStale(row) ? '在线(过期)' : '在线'
-  return '离线'
+  return cmdbHostStatusMeta(row, { staleMinutes: 3 }).text
 }
 
 const formatTime = (value) => {

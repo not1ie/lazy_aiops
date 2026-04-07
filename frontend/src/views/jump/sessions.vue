@@ -17,11 +17,11 @@
     <div class="toolbar">
       <el-input v-model="filters.username" clearable placeholder="按用户过滤" class="filter-item" @change="loadSessions" />
       <el-select v-model="filters.status" clearable placeholder="状态" class="filter-item" @change="loadSessions">
-        <el-option label="pending_approval" value="pending_approval" />
-        <el-option label="active" value="active" />
-        <el-option label="closed" value="closed" />
-        <el-option label="blocked" value="blocked" />
-        <el-option label="rejected" value="rejected" />
+        <el-option label="待审批" value="pending_approval" />
+        <el-option label="活跃" value="active" />
+        <el-option label="已关闭" value="closed" />
+        <el-option label="已阻断" value="blocked" />
+        <el-option label="已拒绝" value="rejected" />
       </el-select>
       <el-select v-model="filters.asset_id" clearable filterable placeholder="资产" class="filter-item" @change="loadSessions">
         <el-option v-for="item in assets" :key="item.id" :label="item.name" :value="item.id" />
@@ -34,9 +34,9 @@
       <el-table-column prop="asset_name" label="资产" min-width="150" />
       <el-table-column prop="account_name" label="账号" min-width="120" />
       <el-table-column prop="protocol" label="协议" width="90" />
-      <el-table-column label="状态" width="90">
+      <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)">{{ row.status }}</el-tag>
+          <el-tag :type="statusType(row)">{{ statusText(row) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="command_count" label="命令数" width="90" />
@@ -216,10 +216,11 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import { jumpSessionStatusMeta } from '@/utils/status'
 
 const loading = ref(false)
 const starting = ref(false)
@@ -241,6 +242,9 @@ const recordDialogVisible = ref(false)
 const sqlConsoleVisible = ref(false)
 const commandsVisible = ref(false)
 const riskEventsVisible = ref(false)
+const nowTick = ref(Date.now())
+let statusTickTimer = null
+let autoRefreshTimer = null
 
 const recordSessionID = ref('')
 const sqlSessionID = ref('')
@@ -278,12 +282,19 @@ const formatTime = (value) => {
   return String(value).replace('T', ' ').replace('Z', '')
 }
 
-const statusType = (status) => {
-  if (status === 'pending_approval') return 'warning'
-  if (status === 'active') return 'success'
-  if (status === 'rejected') return 'danger'
-  if (status === 'blocked') return 'danger'
-  return 'info'
+const sessionStatusMeta = (row) =>
+  jumpSessionStatusMeta(row, {
+    nowMs: nowTick.value,
+    pendingTimeoutMinutes: 15,
+    activeLongMinutes: 180
+  })
+
+const statusType = (row) => {
+  return sessionStatusMeta(row).type
+}
+
+const statusText = (row) => {
+  return sessionStatusMeta(row).text
 }
 
 const riskType = (level) => {
@@ -316,6 +327,7 @@ const loadAccounts = async () => {
 }
 
 const loadSessions = async () => {
+  if (loading.value) return
   loading.value = true
   try {
     const res = await axios.get('/api/v1/jump/sessions', {
@@ -568,6 +580,24 @@ const executeSQL = async () => {
 
 onMounted(async () => {
   await Promise.all([loadAssets(), loadAccounts(), loadSessions()])
+  statusTickTimer = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 60 * 1000)
+  autoRefreshTimer = window.setInterval(() => {
+    if (document.hidden || loading.value) return
+    loadSessions()
+  }, 60 * 1000)
+})
+
+onUnmounted(() => {
+  if (statusTickTimer) {
+    window.clearInterval(statusTickTimer)
+    statusTickTimer = null
+  }
+  if (autoRefreshTimer) {
+    window.clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
 })
 </script>
 

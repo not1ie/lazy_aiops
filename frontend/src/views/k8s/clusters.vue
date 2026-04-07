@@ -12,18 +12,22 @@
     </div>
 
     <div class="table-scroll">
-      <el-table :fit="true" :data="clusters" stripe style="width: 100%; min-width: 1160px">
+      <el-table :fit="true" :data="clusters" v-loading="loading" stripe style="width: 100%; min-width: 1240px">
       <el-table-column prop="name" label="名称" min-width="140" />
       <el-table-column prop="display_name" label="显示名" min-width="140" />
       <el-table-column prop="api_server" label="API Server" min-width="200" />
       <el-table-column prop="version" label="版本" width="120" />
-      <el-table-column prop="status" label="状态" width="100">
+      <el-table-column prop="status" label="状态" width="110">
         <template #default="scope">
-          <el-tag :type="scope.row.status === 1 ? 'success' : 'warning'">
-            {{ scope.row.status === 1 ? '正常' : '异常' }}
+          <el-tag :type="clusterStatusMeta(scope.row).type">
+            {{ clusterStatusMeta(scope.row).text }}
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="最后检测" width="180">
+        <template #default="scope">{{ formatTime(scope.row.last_check_at) }}</template>
+      </el-table-column>
+      <el-table-column prop="status_reason" label="状态说明" min-width="180" show-overflow-tooltip />
       <el-table-column prop="description" label="描述" min-width="180" />
       <el-table-column label="操作" width="240">
         <template #default="scope">
@@ -62,15 +66,18 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onBeforeUnmount, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { k8sClusterStatusMeta } from '@/utils/status'
 
 const clusters = ref([])
+const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('')
 const isEdit = ref(false)
 const currentId = ref('')
+let autoRefreshTimer = null
 const form = ref({
   name: '',
   display_name: '',
@@ -82,13 +89,24 @@ const testingId = ref('')
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
+const clusterStatusMeta = (row) => k8sClusterStatusMeta(row, { staleMinutes: 5 })
+const formatTime = (value) => {
+  if (!value) return '-'
+  const ts = new Date(value).getTime()
+  if (Number.isNaN(ts)) return '-'
+  return new Date(ts).toLocaleString()
+}
 
 const fetchClusters = async () => {
+  if (loading.value) return
+  loading.value = true
   try {
-    const res = await axios.get('/api/v1/k8s/clusters', { headers: authHeaders() })
+    const res = await axios.get('/api/v1/k8s/clusters', { headers: authHeaders(), params: { live: 1 } })
     clusters.value = res.data.data || []
   } catch (e) {
     ElMessage.error(getErrorMessage(e, '加载集群失败'))
+  } finally {
+    loading.value = false
   }
 }
 
@@ -163,7 +181,20 @@ const removeCluster = async (row) => {
   }
 }
 
-onMounted(fetchClusters)
+onMounted(() => {
+  fetchClusters()
+  autoRefreshTimer = window.setInterval(() => {
+    if (document.hidden || loading.value) return
+    fetchClusters()
+  }, 60 * 1000)
+})
+
+onBeforeUnmount(() => {
+  if (autoRefreshTimer) {
+    window.clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+})
 </script>
 
 <style scoped>

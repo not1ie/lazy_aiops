@@ -8,6 +8,7 @@
             <el-tag effect="plain">总环境 {{ tableData.length }}</el-tag>
             <el-tag type="success" effect="plain">在线 {{ onlineHosts }}</el-tag>
             <el-tag type="danger" effect="plain">离线 {{ offlineHosts }}</el-tag>
+            <el-tag type="danger" effect="plain">异常 {{ errorHosts }}</el-tag>
             <el-tag type="warning" effect="plain">状态过期 {{ staleHosts }}</el-tag>
           </div>
         </div>
@@ -81,7 +82,7 @@
         <div>
           <div class="drawer-title">{{ activeHost?.name || 'Docker 环境' }}</div>
           <div class="drawer-sub">
-            状态：<el-tag size="small" :type="activeHost?.status === 'online' ? 'success' : 'danger'">{{ activeHost?.status || 'unknown' }}</el-tag>
+            状态：<el-tag size="small" :type="activeHostStatusMeta.type">{{ activeHostStatusMeta.text }}</el-tag>
             <span class="drawer-meta">容器：{{ activeHost?.container_count ?? '-' }}</span>
             <span class="drawer-meta">镜像：{{ activeHost?.image_count ?? '-' }}</span>
             <span class="drawer-meta">版本：{{ activeHost?.version || '-' }}</span>
@@ -97,7 +98,7 @@
         <el-tab-pane label="概览" name="overview">
           <el-descriptions :column="2" border>
             <el-descriptions-item label="名称">{{ activeHost?.name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="状态">{{ activeHost?.status || 'unknown' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">{{ activeHostStatusMeta.text }}</el-descriptions-item>
             <el-descriptions-item label="容器数">{{ activeHost?.container_count ?? '-' }}</el-descriptions-item>
             <el-descriptions-item label="镜像数">{{ activeHost?.image_count ?? '-' }}</el-descriptions-item>
             <el-descriptions-item label="版本">{{ activeHost?.version || '-' }}</el-descriptions-item>
@@ -1591,6 +1592,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import * as echarts from 'echarts'
+import { dockerHostStatusMeta } from '@/utils/status'
 import 'xterm/css/xterm.css'
 
 const loading = ref(false)
@@ -1598,37 +1600,22 @@ const tableData = ref([])
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const hosts = ref([])
-const onlineHosts = computed(() => (tableData.value || []).filter((item) => item.status === 'online').length)
-const offlineHosts = computed(() => Math.max(0, (tableData.value || []).length - onlineHosts.value))
-const hostLastCheckTs = (row) => {
-  if (!row?.last_check_at) return null
-  const ts = new Date(row.last_check_at).getTime()
-  return Number.isNaN(ts) ? null : ts
-}
-const isHostStatusStale = (row) => {
-  const ts = hostLastCheckTs(row)
-  if (!ts) return true
-  return Date.now() - ts > 3 * 60 * 1000
-}
-const staleHosts = computed(() => (tableData.value || []).filter((item) => isHostStatusStale(item)).length)
+const hostStatusMeta = (row) => dockerHostStatusMeta(row, { staleMinutes: 3 })
+const onlineHosts = computed(() => (tableData.value || []).filter((item) => hostStatusMeta(item).key === 'online').length)
+const staleHosts = computed(() => (tableData.value || []).filter((item) => hostStatusMeta(item).key === 'stale').length)
+const offlineHosts = computed(() => (tableData.value || []).filter((item) => hostStatusMeta(item).key === 'offline').length)
+const errorHosts = computed(() => (tableData.value || []).filter((item) => hostStatusMeta(item).key === 'error').length)
 const hostStatusTag = (row) => {
-  const status = String(row?.status || '').toLowerCase()
-  if (status === 'online') return isHostStatusStale(row) ? 'warning' : 'success'
-  if (status === 'error') return 'warning'
-  if (status === 'offline') return 'danger'
-  return 'info'
+  return hostStatusMeta(row).type
 }
 const hostStatusText = (row) => {
-  const status = String(row?.status || '').toLowerCase()
-  if (status === 'online') return isHostStatusStale(row) ? 'online(stale)' : 'online'
-  if (status === 'offline') return 'offline'
-  if (status === 'error') return 'error'
-  return status || 'unknown'
+  return hostStatusMeta(row).text
 }
 
 const manageVisible = ref(false)
 const manageTab = ref('overview')
 const activeHost = ref(null)
+const activeHostStatusMeta = computed(() => hostStatusMeta(activeHost.value))
 
 const containers = ref([])
 const containersLoading = ref(false)

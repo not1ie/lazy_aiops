@@ -235,6 +235,98 @@
         <el-card shadow="never" class="integrity-card">
           <div class="panel-header">
             <div>
+              <h3>状态基线矩阵</h3>
+              <p class="panel-desc">统一展示各模块实时/过期/异常/未知分布，避免逐页核验。</p>
+            </div>
+            <div class="integrity-summary-tags">
+              <el-tag :type="statusBaselineSummary.realtimeRate >= 85 ? 'success' : statusBaselineSummary.realtimeRate >= 70 ? 'warning' : 'danger'" effect="light">
+                实时率 {{ statusBaselineSummary.realtimeRate }}%
+              </el-tag>
+              <el-tag :type="statusBaselineSummary.riskyModules > 0 ? 'warning' : 'success'" effect="light">
+                风险模块 {{ statusBaselineSummary.riskyModules }}
+              </el-tag>
+            </div>
+          </div>
+          <el-table :fit="true" :data="statusBaselineRows" size="small" style="width: 100%" empty-text="暂无状态基线数据">
+            <el-table-column prop="module" label="模块" width="110" />
+            <el-table-column prop="total" label="总量" width="80" />
+            <el-table-column label="实时" width="84">
+              <template #default="{ row }"><span class="baseline-pill success">{{ row.realtime }}</span></template>
+            </el-table-column>
+            <el-table-column label="过期" width="84">
+              <template #default="{ row }"><span class="baseline-pill warning">{{ row.stale }}</span></template>
+            </el-table-column>
+            <el-table-column label="异常" width="84">
+              <template #default="{ row }"><span class="baseline-pill danger">{{ row.abnormal }}</span></template>
+            </el-table-column>
+            <el-table-column label="未知" width="84">
+              <template #default="{ row }"><span class="baseline-pill info">{{ row.unknown }}</span></template>
+            </el-table-column>
+            <el-table-column label="实时覆盖" width="130">
+              <template #default="{ row }">
+                <el-progress :percentage="row.realtimeRate" :stroke-width="10" :show-text="false" />
+                <div class="mini-percent">{{ row.realtimeRate }}%</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :span="10" :lg="10" :xs="24">
+        <el-card shadow="never" class="integrity-card">
+          <div class="panel-header">
+            <div>
+              <h3>巡检守护</h3>
+              <p class="panel-desc">自动刷新 + 人工补位清单，降低漏检与误判风险。</p>
+            </div>
+          </div>
+          <div class="guardrail-grid">
+            <div class="guardrail-item">
+              <div class="guardrail-label">自动刷新周期</div>
+              <div class="guardrail-value">60s</div>
+            </div>
+            <div class="guardrail-item">
+              <div class="guardrail-label">数据源健康率</div>
+              <div class="guardrail-value">{{ statusGuardrailSummary.healthRate }}%</div>
+            </div>
+            <div class="guardrail-item">
+              <div class="guardrail-label">最近刷新</div>
+              <div class="guardrail-value">{{ lastUpdated || '-' }}</div>
+            </div>
+            <div class="guardrail-item">
+              <div class="guardrail-label">人工复核项</div>
+              <div class="guardrail-value">{{ statusGuardrailSummary.manualCheckCount }}</div>
+            </div>
+          </div>
+          <el-table :fit="true" :data="manualVerifyRows" size="small" style="width: 100%" empty-text="当前无人工复核项">
+            <el-table-column label="状态" width="86">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.level === 'error' ? 'danger' : 'warning'">
+                  {{ row.level === 'error' ? '失败' : '降级' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="item" label="复核项" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="reason" label="原因" min-width="190" show-overflow-tooltip />
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">复核</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" class="panel-row motion-up delay-5">
+      <el-col :span="14" :lg="14" :xs="24">
+        <el-card shadow="never" class="integrity-card">
+          <div class="panel-header">
+            <div>
               <h3>差异清单（对比强化）</h3>
               <p class="panel-desc">按“现状-目标-影响”列出优先修复项，减少逐页人工验证。</p>
             </div>
@@ -1650,6 +1742,154 @@ const dataSourceSummary = computed(() => {
     warning: rows.filter((item) => item.status === 'warning').length,
     error: rows.filter((item) => item.status === 'error').length
   }
+})
+
+const statusBaselineRows = computed(() => {
+  const jumpAssets = toArray(jumpAssetsSnapshot.value)
+  const jumpEnabled = jumpAssets.filter((item) => item?.enabled !== false).length
+  const jumpUnknown = Math.max(0, jumpAssets.length - jumpEnabled)
+  const jumpConflict = consistencyIssueRows.value.filter((item) => String(item?.module || '').includes('堡垒机')).length
+  const jumpSyncFailed = normalizeText(jumpIntegrationState.lastSyncStatus) === 'failed'
+  const jumpSyncTs = parseTimestamp(jumpIntegrationState.lastSyncAt)
+  const jumpSyncStale = jumpIntegrationState.enabled && (!jumpSyncTs || nowMs() - jumpSyncTs > 30 * 60 * 1000)
+  const jumpAbnormal = jumpSyncFailed ? jumpEnabled : Math.min(jumpEnabled, jumpConflict)
+  const jumpStale = (!jumpSyncFailed && jumpSyncStale) ? Math.max(0, jumpEnabled - jumpAbnormal) : 0
+  const jumpRealtime = Math.max(0, jumpEnabled - jumpAbnormal - jumpStale)
+
+  const rows = [
+    {
+      key: 'cmdb',
+      module: 'CMDB主机',
+      total: stats.hostTotal,
+      realtime: Math.max(0, stats.hostOnline - stats.hostStale),
+      stale: stats.hostStale,
+      abnormal: stats.hostOffline,
+      unknown: 0,
+      path: '/host'
+    },
+    {
+      key: 'docker',
+      module: 'Docker',
+      total: stats.dockerTotal,
+      realtime: Math.max(0, stats.dockerOnline - stats.dockerStale),
+      stale: stats.dockerStale,
+      abnormal: stats.dockerOffline,
+      unknown: 0,
+      path: '/docker'
+    },
+    {
+      key: 'k8s',
+      module: 'K8s',
+      total: stats.k8sTotal,
+      realtime: Math.max(0, stats.k8sHealthy - stats.k8sStale),
+      stale: stats.k8sStale,
+      abnormal: stats.k8sUnhealthy + stats.k8sMaintenance,
+      unknown: 0,
+      path: '/k8s/overview'
+    },
+    {
+      key: 'firewall',
+      module: '防火墙',
+      total: stats.firewallTotal,
+      realtime: Math.max(0, stats.firewallOnline - stats.firewallStale),
+      stale: stats.firewallStale,
+      abnormal: stats.firewallOffline + stats.firewallAlert,
+      unknown: 0,
+      path: '/firewall'
+    },
+    {
+      key: 'domain',
+      module: '域名证书',
+      total: stats.domainTotal,
+      realtime: Math.max(0, stats.domainHealthy - stats.domainStale),
+      stale: stats.domainStale,
+      abnormal: stats.domainWarning + stats.domainCritical,
+      unknown: 0,
+      path: '/domain/ssl'
+    },
+    {
+      key: 'jump',
+      module: '堡垒机资产',
+      total: jumpAssets.length,
+      realtime: jumpRealtime,
+      stale: jumpStale,
+      abnormal: jumpAbnormal,
+      unknown: jumpUnknown,
+      path: '/jump/assets'
+    }
+  ]
+  return rows.map((item) => {
+    const total = Math.max(0, toNumber(item.total, 0))
+    const realtime = Math.max(0, toNumber(item.realtime, 0))
+    const stale = Math.max(0, toNumber(item.stale, 0))
+    const abnormal = Math.max(0, toNumber(item.abnormal, 0))
+    const unknown = Math.max(0, toNumber(item.unknown, 0))
+    const boundedRealtime = Math.min(total, realtime)
+    return {
+      ...item,
+      realtime: boundedRealtime,
+      stale: Math.min(total, stale),
+      abnormal: Math.min(total, abnormal),
+      unknown: Math.min(total, unknown),
+      realtimeRate: total > 0 ? clampPercent((boundedRealtime / total) * 100) : 100
+    }
+  })
+})
+
+const statusBaselineSummary = computed(() => {
+  const rows = statusBaselineRows.value
+  const total = rows.reduce((sum, item) => sum + toNumber(item.total, 0), 0)
+  const realtime = rows.reduce((sum, item) => sum + toNumber(item.realtime, 0), 0)
+  const riskyModules = rows.filter((item) => toNumber(item.abnormal, 0) > 0 || toNumber(item.stale, 0) > 0).length
+  return {
+    total,
+    realtime,
+    riskyModules,
+    realtimeRate: total > 0 ? clampPercent((realtime / total) * 100) : 100
+  }
+})
+
+const statusGuardrailSummary = computed(() => {
+  const summary = dataSourceSummary.value
+  const total = summary.ok + summary.warning + summary.error
+  const healthRate = total > 0 ? clampPercent(((summary.ok + summary.warning * 0.6) / total) * 100) : 100
+  return {
+    healthRate,
+    manualCheckCount: manualVerifyRows.value.length
+  }
+})
+
+const manualVerifyRows = computed(() => {
+  const rows = []
+  toArray(dataSourceDiagnostics.value).forEach((item) => {
+    const level = normalizeModuleStatus(item?.status)
+    if (level !== 'warning' && level !== 'error') return
+    rows.push({
+      key: `diag-${item?.label || rows.length}`,
+      level,
+      item: item?.label || '数据源检查',
+      reason: item?.message || '状态异常',
+      path: item?.path || '/dashboard'
+    })
+  })
+  toArray(gapChecklistRows.value)
+    .filter((item) => toNumber(item.priority, 0) >= 90)
+    .forEach((item) => {
+      rows.push({
+        key: `gap-${item?.key || item?.gap || rows.length}`,
+        level: 'warning',
+        item: item?.gap || '关键差异',
+        reason: item?.current || item?.impact || '存在关键差异',
+        path: item?.path || '/dashboard'
+      })
+    })
+  const dedup = new Set()
+  return rows.filter((item) => {
+    const key = `${item.item}-${item.path}`
+    if (dedup.has(key)) return false
+    dedup.add(key)
+    return true
+  }).slice(0, 8)
 })
 
 const overviewSourceErrorCount = computed(() => Object.keys(overviewSourceErrorsSnapshot.value || {}).length)
@@ -4463,6 +4703,65 @@ onBeforeUnmount(() => {
   color: #4b5563;
 }
 
+.baseline-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.baseline-pill.success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.baseline-pill.warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.baseline-pill.danger {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.baseline-pill.info {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.guardrail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.guardrail-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.guardrail-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.guardrail-value {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
 .motion-up {
   animation: motion-up 0.38s ease both;
 }
@@ -4510,6 +4809,10 @@ onBeforeUnmount(() => {
 
   .risk-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guardrail-grid {
+    grid-template-columns: 1fr;
   }
 
   .trust-dimension-list {
