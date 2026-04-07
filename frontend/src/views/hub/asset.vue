@@ -57,6 +57,8 @@
           <div class="health-row"><span>主机状态过期</span><strong>{{ stats.hostStale }}</strong></div>
           <div class="health-row"><span>网络状态过期</span><strong>{{ stats.networkDeviceStale }}</strong></div>
           <div class="health-row"><span>防火墙状态过期</span><strong>{{ stats.firewallStale }}</strong></div>
+          <div class="health-row"><span>数据库异常/过期</span><strong>{{ stats.databaseRisk + stats.databaseStale }}</strong></div>
+          <div class="health-row"><span>云资源异常/过期</span><strong>{{ stats.cloudRisk + stats.cloudStale }}</strong></div>
           <div class="health-row"><span>堡垒机降级资产</span><strong>{{ stats.jumpRuntimeDegraded }}</strong></div>
           <div class="health-row"><span>Jump同步状态</span><strong>{{ jumpIntegrationStatusText }}</strong></div>
         </el-card>
@@ -251,6 +253,14 @@
             </el-table-column>
             <el-table-column prop="database" label="库名" min-width="120" />
             <el-table-column prop="environment" label="环境" width="100" />
+            <el-table-column label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag :type="databaseStatusTag(row).type">{{ databaseStatusTag(row).text }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ databaseStatusReason(row) }}</template>
+            </el-table-column>
             <el-table-column prop="owner" label="负责人" width="120" />
           </el-table>
         </el-tab-pane>
@@ -264,7 +274,14 @@
             <el-table-column label="账号" min-width="140">
               <template #default="{ row }">{{ row.account?.name || '-' }}</template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" width="110" />
+            <el-table-column label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag :type="cloudStatusTag(row).type">{{ cloudStatusTag(row).text }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ cloudStatusReason(row) }}</template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -337,7 +354,9 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import {
+  cloudResourceStatusMeta,
   cmdbHostStatusMeta,
+  databaseAssetStatusMeta,
   dockerHostStatusMeta,
   jumpIntegrationSyncStatusMeta,
   k8sClusterStatusMeta
@@ -369,7 +388,11 @@ const stats = reactive({
   networkDeviceOnline: 0,
   networkDeviceStale: 0,
   databaseTotal: 0,
+  databaseRisk: 0,
+  databaseStale: 0,
   cloudResourceTotal: 0,
+  cloudRisk: 0,
+  cloudStale: 0,
   credentialTotal: 0,
   groupTotal: 0,
   firewallDeviceTotal: 0,
@@ -451,6 +474,30 @@ const networkStatusTag = (row, staleMinutes = 5) => {
   if (normalized === 'offline' || Number(row?.status) === 0) return { text: '离线', type: 'danger' }
   if (isStatusStale(row, staleMinutes)) return { text: '待检测', type: 'info' }
   return { text: '未知', type: 'info' }
+}
+
+const databaseStatusTag = (row) => databaseAssetStatusMeta(row, { staleDays: 30, nowMs: nowMs() })
+
+const databaseStatusReason = (row) => {
+  const meta = databaseStatusTag(row)
+  if (meta.key === 'disabled') return '数据库资产被禁用'
+  if (meta.key === 'error') return '地址或端口配置缺失'
+  if (meta.key === 'stale') return '超过 30 天未更新'
+  if (meta.key === 'online') return '配置完整，可用于运维链路'
+  return '状态未知，建议复核配置'
+}
+
+const cloudStatusTag = (row) => cloudResourceStatusMeta(row, { staleDays: 7, nowMs: nowMs() })
+
+const cloudStatusReason = (row) => {
+  const meta = cloudStatusTag(row)
+  if (meta.key === 'account_disabled') return '关联云账号已禁用'
+  if (meta.key === 'offline') return `云资源状态=${row?.status || 'offline'}`
+  if (meta.key === 'error') return `云资源状态=${row?.status || 'error'}`
+  if (meta.key === 'pending') return `云资源状态=${row?.status || 'pending'}`
+  if (meta.key === 'stale') return '超过 7 天未更新'
+  if (meta.key === 'online') return '资源状态正常'
+  return '状态未知，建议核对云资源同步任务'
 }
 
 const firewallStatus = (row) => {
@@ -647,9 +694,15 @@ const moduleCapabilityRows = computed(() => {
       : (networkOnlineRate.value >= 80 ? 'ok' : networkOnlineRate.value >= 50 ? 'warning' : 'error'))
 
   const serviceLink = worstStatus(dataSourceStatus.databases, dataSourceStatus.cloudResources)
-  const serviceStatus = (stats.databaseTotal > 0 && stats.cloudResourceTotal > 0)
-    ? 'ok'
-    : ((stats.databaseTotal + stats.cloudResourceTotal) > 0 ? 'warning' : 'error')
+  const serviceRiskTotal = stats.databaseRisk + stats.cloudRisk
+  const serviceStaleTotal = stats.databaseStale + stats.cloudStale
+  const serviceStatus = (stats.databaseTotal + stats.cloudResourceTotal) === 0
+    ? 'error'
+    : (
+      serviceRiskTotal > 0
+        ? 'error'
+        : (serviceStaleTotal > 0 ? 'warning' : 'ok')
+    )
 
   const jumpLink = worstStatus(
     dataSourceStatus.jumpAssets,
@@ -706,10 +759,14 @@ const moduleCapabilityRows = computed(() => {
       path: '/cmdb/database',
       linkStatus: serviceLink,
       status: serviceStatus,
-      automationScore: (stats.databaseTotal > 0 && stats.cloudResourceTotal > 0) ? 82 : 68,
+      automationScore: (stats.databaseTotal > 0 && stats.cloudResourceTotal > 0) ? 84 : 70,
       targetScore: 86,
-      freshnessScore: (stats.databaseTotal + stats.cloudResourceTotal) > 0 ? 100 : 70,
-      suggestion: serviceStatus === 'ok' ? '保持资源账实一致' : '补齐数据库/云资源接入，避免盲区'
+      freshnessScore: (stats.databaseTotal + stats.cloudResourceTotal) > 0
+        ? clampPercent(100 - serviceRiskTotal * 12 - serviceStaleTotal * 8)
+        : 70,
+      suggestion: serviceStatus === 'ok'
+        ? '保持数据库与云资源账实一致'
+        : (serviceRiskTotal > 0 ? '优先修复数据库/云资源异常状态' : '处理过期状态并补齐资源同步')
     },
     {
       key: 'jump',
@@ -927,7 +984,13 @@ const refreshAll = async () => {
     stats.groupTotal = groupList.length
     stats.credentialTotal = credentialList.length
     stats.databaseTotal = databaseList.length
+    const databaseRuntime = databaseList.map((item) => databaseStatusTag(item))
+    stats.databaseRisk = databaseRuntime.filter((item) => item.key === 'error').length
+    stats.databaseStale = databaseRuntime.filter((item) => item.key === 'stale').length
     stats.cloudResourceTotal = cloudResourceList.length
+    const cloudRuntime = cloudResourceList.map((item) => cloudStatusTag(item))
+    stats.cloudRisk = cloudRuntime.filter((item) => item.key === 'offline' || item.key === 'error' || item.key === 'account_disabled').length
+    stats.cloudStale = cloudRuntime.filter((item) => item.key === 'stale').length
     stats.networkDeviceTotal = networkList.length
     const networkRuntime = networkList.map((item) => networkStatusTag(item))
     stats.networkDeviceOnline = networkRuntime.filter((item) => item.type === 'success').length
@@ -943,6 +1006,12 @@ const refreshAll = async () => {
 
     if (dataSourceStatus.jumpAssets === 'ok' && stats.jumpRuntimeDegraded > 0) {
       dataSourceStatus.jumpAssets = 'warning'
+    }
+    if (dataSourceStatus.databases === 'ok' && (stats.databaseRisk > 0 || stats.databaseStale > 0)) {
+      dataSourceStatus.databases = 'warning'
+    }
+    if (dataSourceStatus.cloudResources === 'ok' && (stats.cloudRisk > 0 || stats.cloudStale > 0)) {
+      dataSourceStatus.cloudResources = 'warning'
     }
     if (dataSourceStatus.jumpIntegration === 'ok') {
       const syncMeta = jumpIntegrationSyncStatusMeta(jumpIntegrationCfg?.last_sync_status, {

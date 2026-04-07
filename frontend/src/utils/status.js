@@ -109,3 +109,47 @@ export const jumpIntegrationSyncStatusMeta = (status, options = {}) => {
   }
   return { key: 'unknown', text: '未知', type: 'info' }
 }
+
+export const databaseAssetStatusMeta = (row, options = {}) => {
+  const staleDays = Number(options?.staleDays || 30)
+  const status = Number(row?.status)
+  const nowMs = Number(options?.nowMs || Date.now())
+  const stale = isStaleByMinutes(row?.updated_at, staleDays * 24 * 60, nowMs)
+  const hasEndpoint = String(row?.host || '').trim() !== '' && Number(row?.port || 0) > 0
+  if (status === 0) return { key: 'disabled', text: '禁用', type: 'info' }
+  if (!hasEndpoint) return { key: 'error', text: '配置异常', type: 'danger' }
+  if (status === 1) {
+    if (stale) return { key: 'stale', text: '状态过期', type: 'warning' }
+    return { key: 'online', text: '可用', type: 'success' }
+  }
+  if (stale) return { key: 'stale', text: '状态过期', type: 'warning' }
+  return { key: 'unknown', text: '未知', type: 'info' }
+}
+
+export const cloudResourceStatusMeta = (row, options = {}) => {
+  const staleDays = Number(options?.staleDays || 7)
+  const nowMs = Number(options?.nowMs || Date.now())
+  const status = normalizeText(row?.status)
+  const accountStatus = Number(row?.account?.status)
+  const stale = isStaleByMinutes(row?.updated_at, staleDays * 24 * 60, nowMs)
+  if (accountStatus === 0) return { key: 'account_disabled', text: '账号禁用', type: 'warning' }
+  if (status === 'running' || status === 'online' || status === 'active' || status === 'available' || status === 'normal') {
+    if (stale) return { key: 'stale', text: '状态过期', type: 'warning' }
+    return { key: 'online', text: '在线', type: 'success' }
+  }
+  if (status === 'stopped' || status === 'offline' || status === 'inactive' || status === 'disabled') {
+    return { key: 'offline', text: '离线', type: 'danger' }
+  }
+  if (status === 'error' || status === 'failed' || status === 'abnormal') {
+    return { key: 'error', text: '异常', type: 'danger' }
+  }
+  if (status === 'pending' || status === 'creating' || status === 'updating' || status === 'starting') {
+    return { key: 'pending', text: '初始化中', type: 'warning' }
+  }
+  if (!status) {
+    if (stale) return { key: 'stale', text: '状态过期', type: 'warning' }
+    return { key: 'unknown', text: '未知', type: 'info' }
+  }
+  if (stale) return { key: 'stale', text: '状态过期', type: 'warning' }
+  return { key: 'unknown', text: '未知', type: 'info' }
+}
