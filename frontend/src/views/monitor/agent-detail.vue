@@ -17,9 +17,10 @@
       <el-descriptions-item label="版本">{{ agent.version }}</el-descriptions-item>
       <el-descriptions-item label="OS">{{ agent.os }}</el-descriptions-item>
       <el-descriptions-item label="状态">
-        <el-tag :type="agent.status === 'online' ? 'success' : 'info'">{{ agent.status }}</el-tag>
+        <el-tag :type="agentStatusMeta.type">{{ agentStatusMeta.text }}</el-tag>
       </el-descriptions-item>
-      <el-descriptions-item label="最后心跳">{{ agent.last_seen }}</el-descriptions-item>
+      <el-descriptions-item label="最后心跳">{{ formatTime(agent.last_seen) }}</el-descriptions-item>
+      <el-descriptions-item label="状态说明">{{ agentStatusReason }}</el-descriptions-item>
     </el-descriptions>
 
     <el-divider />
@@ -52,12 +53,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/utils/error'
+import { monitorAgentStatusMeta } from '@/utils/status'
 
 const route = useRoute()
 const agent = ref({})
@@ -66,8 +68,21 @@ const metaText = ref('')
 const historyRef = ref(null)
 let historyChart = null
 const hours = ref(24)
+const loading = ref(false)
+const historyLoading = ref(false)
+const nowTick = ref(Date.now())
+let statusTicker = null
+let autoRefreshTicker = null
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+const agentStatusMeta = computed(() => monitorAgentStatusMeta(agent.value, { staleMinutes: 3, nowMs: nowTick.value }))
+const agentStatusReason = computed(() => {
+  if (agentStatusMeta.value.key === 'online') return '心跳正常'
+  if (agentStatusMeta.value.key === 'stale') return '超过 3 分钟未上报心跳'
+  if (agentStatusMeta.value.key === 'offline') return '采集器离线或不可达'
+  if (agentStatusMeta.value.key === 'maintenance') return '采集器处于维护状态'
+  return '状态未知，请检查采集器进程和网络'
+})
 
 const parseJSON = (text) => {
   try {
@@ -80,6 +95,8 @@ const parseJSON = (text) => {
 const fetchAgent = async () => {
   const id = route.query.id
   if (!id) return
+  if (loading.value) return
+  loading.value = true
   try {
     const res = await axios.get(`/api/v1/monitor/agents/${id}`, { headers: authHeaders() })
     agent.value = res.data.data || {}
@@ -88,12 +105,16 @@ const fetchAgent = async () => {
     metaText.value = JSON.stringify(meta, null, 2)
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '加载 Agent 详情失败'))
+  } finally {
+    loading.value = false
   }
 }
 
 const fetchHistory = async () => {
   const id = route.query.id
   if (!id) return
+  if (historyLoading.value) return
+  historyLoading.value = true
   try {
     const res = await axios.get(`/api/v1/monitor/agents/${id}/history`, {
       headers: authHeaders(),
@@ -103,6 +124,8 @@ const fetchHistory = async () => {
     renderHistory(records)
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '加载 Agent 历史失败'))
+  } finally {
+    historyLoading.value = false
   }
 }
 
@@ -164,14 +187,36 @@ const renderHistory = (records) => {
 onMounted(async () => {
   await fetchAgent()
   await fetchHistory()
+  statusTicker = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 60 * 1000)
+  autoRefreshTicker = window.setInterval(() => {
+    if (document.hidden) return
+    fetchAgent()
+  }, 60 * 1000)
 })
 
 onBeforeUnmount(() => {
+  if (statusTicker) {
+    window.clearInterval(statusTicker)
+    statusTicker = null
+  }
+  if (autoRefreshTicker) {
+    window.clearInterval(autoRefreshTicker)
+    autoRefreshTicker = null
+  }
   if (historyChart) {
     historyChart.dispose()
     historyChart = null
   }
 })
+
+const formatTime = (value) => {
+  if (!value) return '-'
+  const ts = new Date(value).getTime()
+  if (Number.isNaN(ts)) return '-'
+  return new Date(ts).toLocaleString()
+}
 </script>
 
 <style scoped>

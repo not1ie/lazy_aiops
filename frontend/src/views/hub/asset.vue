@@ -57,6 +57,8 @@
           <div class="health-row"><span>主机状态过期</span><strong>{{ stats.hostStale }}</strong></div>
           <div class="health-row"><span>网络状态过期</span><strong>{{ stats.networkDeviceStale }}</strong></div>
           <div class="health-row"><span>防火墙状态过期</span><strong>{{ stats.firewallStale }}</strong></div>
+          <div class="health-row"><span>堡垒机降级资产</span><strong>{{ stats.jumpRuntimeDegraded }}</strong></div>
+          <div class="health-row"><span>Jump同步状态</span><strong>{{ jumpIntegrationStatusText }}</strong></div>
         </el-card>
       </el-col>
       <el-col :span="14">
@@ -67,7 +69,7 @@
             <el-table-column prop="ip" label="IP" min-width="130" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="assetStatusTag(row).type">{{ assetStatusTag(row).text }}</el-tag>
+                <el-tag :type="hostStatusTag(row).type">{{ hostStatusTag(row).text }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="os" label="系统" min-width="120" />
@@ -205,7 +207,7 @@
             <el-table-column prop="os" label="系统" min-width="140" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="assetStatusTag(row).type">{{ assetStatusTag(row).text }}</el-tag>
+                <el-tag :type="hostStatusTag(row).type">{{ hostStatusTag(row).text }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="最近检查" min-width="170">
@@ -228,7 +230,7 @@
             <el-table-column prop="ip" label="管理IP" min-width="140" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="assetStatusTag(row).type">{{ assetStatusTag(row).text }}</el-tag>
+                <el-tag :type="networkStatusTag(row).type">{{ networkStatusTag(row).text }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="最近检查" min-width="170">
@@ -299,6 +301,9 @@
                 <el-tag :type="jumpAssetStatus(row).type">{{ jumpAssetStatus(row).text }}</el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ jumpAssetStatus(row).reason || '-' }}</template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -331,6 +336,12 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import {
+  cmdbHostStatusMeta,
+  dockerHostStatusMeta,
+  jumpIntegrationSyncStatusMeta,
+  k8sClusterStatusMeta
+} from '@/utils/status'
 
 const router = useRouter()
 const loading = ref(false)
@@ -343,6 +354,9 @@ const groups = ref([])
 const firewallDevices = ref([])
 const jumpAssets = ref([])
 const terminalSessions = ref([])
+const dockerHosts = ref([])
+const k8sClusters = ref([])
+const jumpIntegration = ref(null)
 const activePanel = ref('hosts')
 const panelKeyword = ref('')
 let autoRefreshTimer = null
@@ -362,6 +376,8 @@ const stats = reactive({
   firewallRisk: 0,
   firewallStale: 0,
   jumpAssetTotal: 0,
+  jumpRuntimeHealthy: 0,
+  jumpRuntimeDegraded: 0,
   terminalSessionTotal: 0
 })
 const dataSourceStatus = reactive({
@@ -373,6 +389,9 @@ const dataSourceStatus = reactive({
   networkDevices: 'unknown',
   firewallDevices: 'unknown',
   jumpAssets: 'unknown',
+  dockerHosts: 'unknown',
+  k8sClusters: 'unknown',
+  jumpIntegration: 'unknown',
   terminalSessions: 'unknown'
 })
 
@@ -401,6 +420,7 @@ const statusFreshnessTs = (row) =>
   row?.last_check_at ||
   row?.last_seen_at ||
   row?.last_heartbeat_at ||
+  row?.last_seen ||
   row?.updated_at
 
 const isStatusStale = (row, minutes = 5) => {
@@ -419,7 +439,9 @@ const isMaintenanceStatus = (status) => {
   return normalized === 'maintenance' || normalized === 'maintain' || Number(status) === 2
 }
 
-const assetStatusTag = (row, staleMinutes = 5) => {
+const hostStatusTag = (row) => cmdbHostStatusMeta(row, { staleMinutes: 3, nowMs: nowMs() })
+
+const networkStatusTag = (row, staleMinutes = 5) => {
   if (isMaintenanceStatus(row?.status)) return { text: '维护', type: 'warning' }
   if (isOnlineStatus(row?.status)) {
     if (isStatusStale(row, staleMinutes)) return { text: '状态过期', type: 'warning' }
@@ -442,11 +464,106 @@ const firewallStatus = (row) => {
   return { text: '未知', type: 'info' }
 }
 
-const jumpAssetStatus = (row) => {
-  if (row?.enabled === false || row?.status === 0 || String(row?.status || '').toLowerCase() === 'offline') {
-    return { text: '禁用', type: 'info' }
+const jumpIntegrationStatusMeta = computed(() =>
+  jumpIntegrationSyncStatusMeta(jumpIntegration.value?.last_sync_status, {
+    enabled: jumpIntegration.value?.enabled !== false,
+    lastSyncAt: jumpIntegration.value?.last_sync_at,
+    nowMs: nowMs(),
+    staleMinutes: 30
+  })
+)
+
+const jumpIntegrationStatusText = computed(() => jumpIntegrationStatusMeta.value.text)
+
+const findCMDBHostByJumpAsset = (row) => {
+  const sourceRef = String(row?.source_ref || '').trim()
+  if (sourceRef) {
+    const byID = hosts.value.find((item) => String(item.id || '') === sourceRef)
+    if (byID) return byID
   }
-  return { text: '可用', type: 'success' }
+  const address = String(row?.address || '').trim()
+  if (address) {
+    return hosts.value.find((item) => String(item.ip || '').trim() === address) || null
+  }
+  return null
+}
+
+const findDockerHostByJumpAsset = (row) => {
+  const sourceRef = String(row?.source_ref || '').trim()
+  if (sourceRef) {
+    const byID = dockerHosts.value.find((item) => String(item.id || '') === sourceRef)
+    if (byID) return byID
+  }
+  const address = String(row?.address || '').trim()
+  if (address) {
+    const byCMDB = hosts.value.find((item) => String(item.ip || '').trim() === address)
+    if (byCMDB) {
+      return dockerHosts.value.find((item) => String(item.host_id || '') === String(byCMDB.id || '')) || null
+    }
+  }
+  return null
+}
+
+const findK8sClusterByJumpAsset = (row) => {
+  const sourceRef = String(row?.source_ref || '').trim()
+  if (sourceRef) {
+    const byID = k8sClusters.value.find((item) => String(item.id || '') === sourceRef)
+    if (byID) return byID
+  }
+  const address = normalizeText(row?.address)
+  if (address) {
+    return k8sClusters.value.find((item) => normalizeText(item.api_server) === address || normalizeText(item.name) === address) || null
+  }
+  return null
+}
+
+const jumpAssetStatus = (row) => {
+  if (!row) return { text: '未知', type: 'info', reason: '资产数据为空' }
+  if (row?.enabled === false || row?.status === 0 || normalizeText(row?.status) === 'offline') {
+    return { text: '禁用', type: 'info', reason: '资产已禁用' }
+  }
+  const source = normalizeText(row?.source)
+  if (source === 'cmdb_host') {
+    const host = findCMDBHostByJumpAsset(row)
+    if (!host) return { text: '未映射', type: 'warning', reason: '未匹配到 CMDB 主机' }
+    const meta = hostStatusTag(host)
+    if (meta.key === 'online') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机状态正常' }
+    if (meta.key === 'stale') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机状态检测超时' }
+    if (meta.key === 'maintenance') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机维护中' }
+    if (meta.key === 'offline') return { text: meta.text, type: meta.type, reason: host.status_reason || '主机不可达' }
+    return { text: meta.text, type: meta.type, reason: host.status_reason || '主机状态未知' }
+  }
+  if (source === 'docker_host') {
+    const env = findDockerHostByJumpAsset(row)
+    if (!env) return { text: '未映射', type: 'warning', reason: '未匹配到 Docker 环境' }
+    const meta = dockerHostStatusMeta(env, { staleMinutes: 3, nowMs: nowMs() })
+    if (meta.key === 'online') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 环境在线' }
+    if (meta.key === 'stale') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 状态检测超时' }
+    if (meta.key === 'error') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 环境异常' }
+    if (meta.key === 'offline') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 环境离线' }
+    if (meta.key === 'maintenance') return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 环境维护中' }
+    return { text: meta.text, type: meta.type, reason: env.last_error || 'Docker 状态未知' }
+  }
+  if (source === 'k8s_cluster') {
+    const cluster = findK8sClusterByJumpAsset(row)
+    if (!cluster) return { text: '未映射', type: 'warning', reason: '未匹配到 K8s 集群' }
+    const meta = k8sClusterStatusMeta(cluster, { staleMinutes: 5, nowMs: nowMs() })
+    if (meta.key === 'online') return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群状态正常' }
+    if (meta.key === 'stale') return { text: meta.text, type: meta.type, reason: cluster.status_reason || 'K8s 状态检测超时' }
+    if (meta.key === 'maintenance') return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群维护中' }
+    if (meta.key === 'abnormal') return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群连接异常' }
+    return { text: meta.text, type: meta.type, reason: cluster.status_reason || '集群状态未知' }
+  }
+  if (source === 'jumpserver' || source === 'jumpserver_host' || source === 'jumpserver_database') {
+    const syncMeta = jumpIntegrationStatusMeta.value
+    if (syncMeta.key === 'failed') return { text: '同步异常', type: 'danger', reason: jumpIntegration.value?.last_sync_msg || 'JumpServer 最近同步失败' }
+    if (syncMeta.key === 'partial' || syncMeta.key === 'stale' || syncMeta.key === 'unknown') {
+      return { text: '同步降级', type: 'warning', reason: jumpIntegration.value?.last_sync_msg || 'JumpServer 同步部分成功或状态过期' }
+    }
+    return { text: '已同步', type: 'success', reason: jumpIntegration.value?.last_sync_msg || 'JumpServer 同步正常' }
+  }
+  if (source === 'cmdb_database') return { text: '可用', type: 'success', reason: 'CMDB 数据库资产已接入' }
+  return { text: '可用', type: 'success', reason: '手工资产，待接入实时检测链路' }
 }
 
 const terminalSessionStatus = (status) => {
@@ -476,10 +593,9 @@ const networkOnlineRate = computed(() => {
   return Math.round((stats.networkDeviceOnline / stats.networkDeviceTotal) * 100)
 })
 
-const jumpEnabledRate = computed(() => {
+const jumpHealthyRate = computed(() => {
   if (!stats.jumpAssetTotal) return 0
-  const enabled = jumpAssets.value.filter((item) => jumpAssetStatus(item).type === 'success').length
-  return Math.round((enabled / stats.jumpAssetTotal) * 100)
+  return Math.round((stats.jumpRuntimeHealthy / stats.jumpAssetTotal) * 100)
 })
 
 const terminalFailureCount = computed(() =>
@@ -535,8 +651,26 @@ const moduleCapabilityRows = computed(() => {
     ? 'ok'
     : ((stats.databaseTotal + stats.cloudResourceTotal) > 0 ? 'warning' : 'error')
 
-  const jumpLink = worstStatus(dataSourceStatus.jumpAssets, dataSourceStatus.hosts)
-  const jumpStatus = stats.jumpAssetTotal === 0 ? 'warning' : (jumpEnabledRate.value >= 80 ? 'ok' : jumpEnabledRate.value >= 50 ? 'warning' : 'error')
+  const jumpLink = worstStatus(
+    dataSourceStatus.jumpAssets,
+    dataSourceStatus.hosts,
+    dataSourceStatus.dockerHosts,
+    dataSourceStatus.k8sClusters,
+    dataSourceStatus.jumpIntegration
+  )
+  const jumpRuntimeDegradedRate = stats.jumpAssetTotal > 0
+    ? Math.round((stats.jumpRuntimeDegraded / stats.jumpAssetTotal) * 100)
+    : 0
+  const jumpSyncRisk = jumpIntegrationStatusMeta.value.key === 'failed'
+    ? 'error'
+    : (['partial', 'stale', 'unknown'].includes(jumpIntegrationStatusMeta.value.key) ? 'warning' : 'ok')
+  const jumpStatus = stats.jumpAssetTotal === 0
+    ? 'warning'
+    : (
+      jumpSyncRisk === 'error'
+        ? 'error'
+        : (jumpRuntimeDegradedRate >= 35 ? 'error' : (jumpRuntimeDegradedRate > 0 || jumpSyncRisk === 'warning' ? 'warning' : 'ok'))
+    )
 
   const terminalLink = dataSourceStatus.terminalSessions
   const terminalStatus = stats.terminalSessionTotal === 0
@@ -585,8 +719,10 @@ const moduleCapabilityRows = computed(() => {
       status: jumpStatus,
       automationScore: stats.jumpAssetTotal > 0 ? 86 : 64,
       targetScore: 88,
-      freshnessScore: jumpEnabledRate.value,
-      suggestion: jumpStatus === 'ok' ? '持续验证来源映射与授权链路' : '修复禁用资产并校验来源映射关系'
+      freshnessScore: jumpHealthyRate.value,
+      suggestion: jumpStatus === 'ok'
+        ? '持续验证来源映射与授权链路'
+        : `优先修复降级资产并处理同步状态（${jumpIntegrationStatusMeta.value.text}）`
     },
     {
       key: 'terminal',
@@ -702,7 +838,18 @@ const formatTime = (value) => {
 
 const fetchList = async (url, params = {}) => {
   const res = await axios.get(url, { headers: authHeaders(), params })
+  if (Object.prototype.hasOwnProperty.call(res.data || {}, 'code') && Number(res.data?.code) !== 0) {
+    throw new Error(res.data?.message || `${url} 返回异常`)
+  }
   return Array.isArray(res.data?.data) ? res.data.data : []
+}
+
+const fetchObject = async (url, params = {}) => {
+  const res = await axios.get(url, { headers: authHeaders(), params })
+  if (Object.prototype.hasOwnProperty.call(res.data || {}, 'code') && Number(res.data?.code) !== 0) {
+    throw new Error(res.data?.message || `${url} 返回异常`)
+  }
+  return res.data?.data && typeof res.data.data === 'object' ? res.data.data : {}
 }
 
 const openCurrentPanel = () => {
@@ -710,6 +857,8 @@ const openCurrentPanel = () => {
 }
 
 const safeData = (result) => (result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : [])
+const safeObject = (result) => (result.status === 'fulfilled' && result.value && typeof result.value === 'object' ? result.value : null)
+const settledToStatus = (result) => (result.status === 'fulfilled' ? 'ok' : 'error')
 
 const refreshAll = async () => {
   if (loading.value) return
@@ -724,10 +873,26 @@ const refreshAll = async () => {
       fetchList('/api/v1/cmdb/network-devices', { live: 1 }),
       fetchList('/api/v1/firewall/devices', { live: 1 }),
       fetchList('/api/v1/jump/assets'),
-      fetchList('/api/v1/terminal/sessions')
+      fetchList('/api/v1/terminal/sessions'),
+      fetchList('/api/v1/docker/hosts', { sync: 1 }),
+      fetchList('/api/v1/k8s/clusters', { live: 1 }),
+      fetchObject('/api/v1/jump/integration/config')
     ])
 
-    const [hostList, groupList, credentialList, databaseList, cloudResourceList, networkList, firewallList, jumpAssetList, sessionList] = settled.map(safeData)
+    const [
+      hostList,
+      groupList,
+      credentialList,
+      databaseList,
+      cloudResourceList,
+      networkList,
+      firewallList,
+      jumpAssetList,
+      sessionList,
+      dockerHostList,
+      k8sClusterList
+    ] = settled.map((item, idx) => (idx <= 10 ? safeData(item) : []))
+    const jumpIntegrationCfg = safeObject(settled[11])
 
     hosts.value = hostList
     groups.value = groupList
@@ -738,31 +903,69 @@ const refreshAll = async () => {
     firewallDevices.value = firewallList
     jumpAssets.value = jumpAssetList
     terminalSessions.value = sessionList
-    dataSourceStatus.hosts = settled[0].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.groups = settled[1].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.credentials = settled[2].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.databases = settled[3].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.cloudResources = settled[4].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.networkDevices = settled[5].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.firewallDevices = settled[6].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.jumpAssets = settled[7].status === 'fulfilled' ? 'ok' : 'error'
-    dataSourceStatus.terminalSessions = settled[8].status === 'fulfilled' ? 'ok' : 'error'
+    dockerHosts.value = dockerHostList
+    k8sClusters.value = k8sClusterList
+    jumpIntegration.value = jumpIntegrationCfg
+
+    dataSourceStatus.hosts = settledToStatus(settled[0])
+    dataSourceStatus.groups = settledToStatus(settled[1])
+    dataSourceStatus.credentials = settledToStatus(settled[2])
+    dataSourceStatus.databases = settledToStatus(settled[3])
+    dataSourceStatus.cloudResources = settledToStatus(settled[4])
+    dataSourceStatus.networkDevices = settledToStatus(settled[5])
+    dataSourceStatus.firewallDevices = settledToStatus(settled[6])
+    dataSourceStatus.jumpAssets = settledToStatus(settled[7])
+    dataSourceStatus.terminalSessions = settledToStatus(settled[8])
+    dataSourceStatus.dockerHosts = settledToStatus(settled[9])
+    dataSourceStatus.k8sClusters = settledToStatus(settled[10])
+    dataSourceStatus.jumpIntegration = settledToStatus(settled[11])
 
     stats.hostTotal = hostList.length
-    stats.hostOnline = hostList.filter((item) => isOnlineStatus(item.status)).length
-    stats.hostStale = hostList.filter((item) => isStatusStale(item, 3)).length
+    const hostRuntime = hostList.map((item) => hostStatusTag(item))
+    stats.hostOnline = hostRuntime.filter((item) => item.key === 'online').length
+    stats.hostStale = hostRuntime.filter((item) => item.key === 'stale').length
     stats.groupTotal = groupList.length
     stats.credentialTotal = credentialList.length
     stats.databaseTotal = databaseList.length
     stats.cloudResourceTotal = cloudResourceList.length
     stats.networkDeviceTotal = networkList.length
-    stats.networkDeviceOnline = networkList.filter((item) => isOnlineStatus(item.status)).length
-    stats.networkDeviceStale = networkList.filter((item) => isStatusStale(item, 5)).length
+    const networkRuntime = networkList.map((item) => networkStatusTag(item))
+    stats.networkDeviceOnline = networkRuntime.filter((item) => item.type === 'success').length
+    stats.networkDeviceStale = networkRuntime.filter((item) => item.text === '状态过期').length
     stats.firewallDeviceTotal = firewallList.length
     stats.firewallRisk = firewallList.filter((item) => firewallStatus(item).type === 'danger').length
     stats.firewallStale = firewallList.filter((item) => isStatusStale(item, 5)).length
     stats.jumpAssetTotal = jumpAssetList.length
+    const jumpRuntime = jumpAssetList.map((item) => jumpAssetStatus(item))
+    stats.jumpRuntimeHealthy = jumpRuntime.filter((item) => item.type === 'success').length
+    stats.jumpRuntimeDegraded = jumpRuntime.filter((item) => item.type === 'warning' || item.type === 'danger').length
     stats.terminalSessionTotal = sessionList.length
+
+    if (dataSourceStatus.jumpAssets === 'ok' && stats.jumpRuntimeDegraded > 0) {
+      dataSourceStatus.jumpAssets = 'warning'
+    }
+    if (dataSourceStatus.jumpIntegration === 'ok') {
+      const syncMeta = jumpIntegrationSyncStatusMeta(jumpIntegrationCfg?.last_sync_status, {
+        enabled: jumpIntegrationCfg?.enabled !== false,
+        lastSyncAt: jumpIntegrationCfg?.last_sync_at,
+        nowMs: nowMs(),
+        staleMinutes: 30
+      })
+      const hasJumpServerAsset = jumpAssetList.some((item) => {
+        const source = normalizeText(item?.source)
+        return source === 'jumpserver' || source === 'jumpserver_host' || source === 'jumpserver_database'
+      })
+      if (syncMeta.key === 'failed') {
+        dataSourceStatus.jumpIntegration = 'error'
+      } else if (
+        syncMeta.key === 'partial' ||
+        syncMeta.key === 'stale' ||
+        syncMeta.key === 'unknown' ||
+        (syncMeta.key === 'disabled' && hasJumpServerAsset)
+      ) {
+        dataSourceStatus.jumpIntegration = 'warning'
+      }
+    }
 
     const failed = settled.filter((item) => item.status === 'rejected').length
     if (failed > 0) {
