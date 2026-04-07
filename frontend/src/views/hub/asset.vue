@@ -327,7 +327,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -345,6 +345,7 @@ const jumpAssets = ref([])
 const terminalSessions = ref([])
 const activePanel = ref('hosts')
 const panelKeyword = ref('')
+let autoRefreshTimer = null
 
 const stats = reactive({
   hostTotal: 0,
@@ -711,6 +712,7 @@ const openCurrentPanel = () => {
 const safeData = (result) => (result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : [])
 
 const refreshAll = async () => {
+  if (loading.value) return
   loading.value = true
   try {
     const settled = await Promise.allSettled([
@@ -773,7 +775,20 @@ const refreshAll = async () => {
   }
 }
 
-onMounted(refreshAll)
+onMounted(() => {
+  refreshAll()
+  autoRefreshTimer = window.setInterval(() => {
+    if (document.hidden || loading.value) return
+    refreshAll()
+  }, 90 * 1000)
+})
+
+onBeforeUnmount(() => {
+  if (autoRefreshTimer) {
+    window.clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+})
 </script>
 
 <style scoped>

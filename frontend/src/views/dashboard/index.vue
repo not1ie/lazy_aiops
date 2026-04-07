@@ -127,6 +127,67 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="16" class="panel-row motion-up delay-4">
+      <el-col :span="24">
+        <el-card shadow="never" class="value-card">
+          <div class="panel-header value-header">
+            <div>
+              <h3>经营价值看板</h3>
+              <p class="panel-desc">把运维状态映射为可汇报、可售卖的业务价值指标。</p>
+            </div>
+            <div class="value-header-actions">
+              <el-tag :type="businessReadinessScore >= 85 ? 'success' : businessReadinessScore >= 70 ? 'warning' : 'danger'" effect="light">
+                商业就绪度 {{ businessReadinessScore }}%
+              </el-tag>
+              <el-button size="small" plain @click="exportWeeklyReportMarkdown">导出周报MD</el-button>
+              <el-button size="small" plain @click="exportWeeklyReportPDF">导出周报PDF</el-button>
+              <el-button size="small" type="primary" plain @click="copyExecutiveSummary">复制汇报摘要</el-button>
+            </div>
+          </div>
+
+          <div class="value-kpi-grid">
+            <div v-for="item in businessValueCards" :key="item.key" class="value-kpi-item">
+              <div class="value-kpi-label">{{ item.label }}</div>
+              <div class="value-kpi-main">{{ item.value }}</div>
+              <div class="value-kpi-target">目标 {{ item.target }}</div>
+              <div class="value-kpi-desc">{{ item.desc }}</div>
+            </div>
+          </div>
+
+          <el-table :fit="true" :data="executiveValueRows" size="small" style="width: 100%" empty-text="暂无经营价值数据">
+            <el-table-column prop="metric" label="经营指标" min-width="140" />
+            <el-table-column prop="current" label="当前值" width="110" />
+            <el-table-column prop="target" label="目标值" width="110" />
+            <el-table-column prop="gap" label="差值" width="110" />
+            <el-table-column prop="impact" label="业务影响" min-width="220" show-overflow-tooltip />
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="go(row.path)">进入处置</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="value-trend-wrap">
+            <div class="panel-header value-trend-header">
+              <div>
+                <h3>ROI 变化趋势（近7天）</h3>
+                <p class="panel-desc">{{ weeklyReportPeriodLabel }}</p>
+              </div>
+              <div class="integrity-summary-tags">
+                <el-tag :type="weeklyReadinessDelta >= 0 ? 'success' : 'danger'" effect="light">
+                  就绪度 {{ weeklyReadinessDelta >= 0 ? '+' : '' }}{{ weeklyReadinessDelta }}%
+                </el-tag>
+                <el-tag :type="weeklyOverdueDelta <= 0 ? 'success' : 'warning'" effect="light">
+                  超时积压 {{ weeklyOverdueDelta <= 0 ? '' : '+' }}{{ weeklyOverdueDelta }}
+                </el-tag>
+              </div>
+            </div>
+            <div ref="businessTrendRef" class="value-trend-chart"></div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-row :gutter="16" class="panel-row motion-up delay-5">
       <el-col :span="24">
         <el-card shadow="never" class="selfcheck-card">
@@ -747,7 +808,9 @@ const lastUpdated = ref('')
 const realtimeRefreshing = ref(false)
 
 const trendRef = ref(null)
+const businessTrendRef = ref(null)
 let trendChart = null
+let businessTrendChart = null
 let realtimeTimer = null
 let overviewTimer = null
 const SELF_CHECK_HISTORY_KEY = 'lao:dashboard:selfcheck-history'
@@ -895,6 +958,13 @@ const k8sClustersSnapshot = ref([])
 const networkDevicesSnapshot = ref([])
 const firewallsSnapshot = ref([])
 const jumpAssetsSnapshot = ref([])
+const jumpSessionsSnapshot = ref([])
+const jumpRiskEventsSnapshot = ref([])
+const cicdExecutionsSnapshot = ref([])
+const cicdSchedulesSnapshot = ref([])
+const workordersSnapshot = ref([])
+const workflowExecutionsSnapshot = ref([])
+const terminalSessionsSnapshot = ref([])
 
 const readHistory = () => {
   try {
@@ -976,6 +1046,406 @@ const backlogCards = computed(() => [
     path: '/delivery/center'
   }
 ])
+
+const alertClosedRate = computed(() => {
+  if (stats.alertTotal <= 0) return 100
+  return clampPercent(((stats.alertTotal - stats.alertOpen) / stats.alertTotal) * 100)
+})
+
+const deliverySuccessRate = computed(() => {
+  const rows = toArray(cicdExecutionsSnapshot.value)
+  const finished = rows.filter((item) => Number(item.status) !== 0)
+  if (!finished.length) return 0
+  const success = finished.filter((item) => Number(item.status) === 1).length
+  return clampPercent((success / finished.length) * 100)
+})
+
+const workorderClosureRate = computed(() => {
+  const rows = toArray(workordersSnapshot.value)
+  if (!rows.length) return 100
+  const closed = rows.filter((item) => {
+    const status = Number(item.status)
+    return status === 3 || status === 5 || status === 6
+  }).length
+  return clampPercent((closed / rows.length) * 100)
+})
+
+const automationCoverageRate = computed(() => {
+  const rows = toArray(moduleCapabilityRows.value)
+  if (!rows.length) return 0
+  const covered = rows.filter((item) => toNumber(item.automationScore, 0) >= 85).length
+  return clampPercent((covered / rows.length) * 100)
+})
+
+const businessReadinessScore = computed(() => {
+  const trust = toNumber(statusTrust.value?.score, 0)
+  const closure = toNumber(alertClosedRate.value, 0)
+  const delivery = toNumber(deliverySuccessRate.value, 0)
+  const automation = toNumber(automationCoverageRate.value, 0)
+  const riskPenalty = Math.min(24, toNumber(backlog.overdue, 0) * 1.5 + toNumber(integritySummary.value.critical, 0) * 2)
+  return clampPercent(trust * 0.38 + closure * 0.22 + delivery * 0.2 + automation * 0.2 - riskPenalty)
+})
+
+const businessValueCards = computed(() => {
+  const mttr = toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0)
+  return [
+    {
+      key: 'alert-closure',
+      label: '故障闭环率',
+      value: `${alertClosedRate.value}%`,
+      target: '>=95%',
+      desc: stats.alertOpen > 0 ? `未闭环 ${stats.alertOpen} 条` : '当前无未闭环告警'
+    },
+    {
+      key: 'delivery-success',
+      label: '交付成功率',
+      value: `${deliverySuccessRate.value}%`,
+      target: '>=98%',
+      desc: `执行样本 ${toArray(cicdExecutionsSnapshot.value).length} 条`
+    },
+    {
+      key: 'workorder-closure',
+      label: '工单闭环率',
+      value: `${workorderClosureRate.value}%`,
+      target: '>=92%',
+      desc: `工单总量 ${toArray(workordersSnapshot.value).length} 条`
+    },
+    {
+      key: 'mttr',
+      label: '恢复中位时长',
+      value: mttr > 0 ? `${mttr} 分钟` : '-',
+      target: '<=15 分钟',
+      desc: `近24h 恢复事件 ${toNumber(statusFlappingSummary.value?.recoveryCount, 0)} 次`
+    },
+    {
+      key: 'automation',
+      label: '自动处置覆盖率',
+      value: `${automationCoverageRate.value}%`,
+      target: '>=90%',
+      desc: `能力模块 ${toArray(moduleCapabilityRows.value).length} 项`
+    }
+  ]
+})
+
+const executiveValueRows = computed(() => [
+  {
+    key: 'readiness',
+    metric: '商业就绪度',
+    current: `${businessReadinessScore.value}%`,
+    target: '>=85%',
+    gap: `${toNumber(businessReadinessScore.value, 0) - 85 >= 0 ? '+' : ''}${toNumber(businessReadinessScore.value, 0) - 85}%`,
+    impact: businessReadinessScore.value >= 85 ? '具备对外POC与签约试点基础。' : '需先压降积压与关键异常，避免试点阶段体验波动。',
+    path: '/dashboard'
+  },
+  {
+    key: 'closure',
+    metric: '告警闭环率',
+    current: `${alertClosedRate.value}%`,
+    target: '>=95%',
+    gap: `${alertClosedRate.value - 95 >= 0 ? '+' : ''}${alertClosedRate.value - 95}%`,
+    impact: '直接影响 MTTR 与值班成本，是企业最敏感运维 KPI。',
+    path: '/monitor/center'
+  },
+  {
+    key: 'delivery',
+    metric: '交付成功率',
+    current: `${deliverySuccessRate.value}%`,
+    target: '>=98%',
+    gap: `${deliverySuccessRate.value - 98 >= 0 ? '+' : ''}${deliverySuccessRate.value - 98}%`,
+    impact: '影响变更失败率与发布信心，是交付团队采购核心依据。',
+    path: '/delivery/center'
+  },
+  {
+    key: 'mttr',
+    metric: '恢复中位时长',
+    current: toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0) > 0 ? `${toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0)} 分钟` : '-',
+    target: '<=15 分钟',
+    gap: toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0) > 0
+      ? `${toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0) - 15 > 0 ? '+' : ''}${toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0) - 15} 分钟`
+      : '-',
+    impact: '恢复时长越短，业务中断损失越小，能直接量化客户价值。',
+    path: '/dashboard'
+  },
+  {
+    key: 'automation',
+    metric: '自动处置覆盖率',
+    current: `${automationCoverageRate.value}%`,
+    target: '>=90%',
+    gap: `${automationCoverageRate.value - 90 >= 0 ? '+' : ''}${automationCoverageRate.value - 90}%`,
+    impact: '覆盖率越高，人工介入越少，能持续降低运维人力投入。',
+    path: '/dashboard'
+  }
+])
+
+const executiveSummaryText = computed(() => [
+  `商业就绪度 ${businessReadinessScore.value}%`,
+  `告警闭环率 ${alertClosedRate.value}%`,
+  `交付成功率 ${deliverySuccessRate.value}%`,
+  `工单闭环率 ${workorderClosureRate.value}%`,
+  `恢复中位时长 ${toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0) > 0 ? `${toNumber(statusFlappingSummary.value?.medianRecoveryMinutes, 0)} 分钟` : '-'}`,
+  `自动处置覆盖率 ${automationCoverageRate.value}%`,
+  `当前超时积压 ${backlog.overdue} 项`
+].join(' | '))
+
+const copyExecutiveSummary = async () => {
+  const text = `【Lazy Auto Ops 经营价值摘要】${executiveSummaryText.value}`
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      ElMessage.success('汇报摘要已复制')
+      return
+    }
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.position = 'fixed'
+    area.style.left = '-9999px'
+    document.body.appendChild(area)
+    area.focus()
+    area.select()
+    document.execCommand('copy')
+    document.body.removeChild(area)
+    ElMessage.success('汇报摘要已复制')
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '复制失败'))
+  }
+}
+
+const dayKeyOf = (value) => {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) return ''
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const weekDateKeys = computed(() => {
+  const keys = []
+  for (let i = 6; i >= 0; i -= 1) {
+    const date = new Date()
+    date.setDate(date.getDate() - i)
+    keys.push(dayKeyOf(date))
+  }
+  return keys
+})
+
+const weeklyTimelineSamples = computed(() => {
+  const keys = new Set(weekDateKeys.value)
+  return toArray(statusTimelineHistory.value)
+    .filter((item) => keys.has(dayKeyOf(item?.at)))
+    .sort((a, b) => parseTimestamp(a?.at || 0) - parseTimestamp(b?.at || 0))
+})
+
+const sampleValueForWeekly = (sample) => {
+  const readinessRaw = Number(sample?.business?.readiness)
+  if (Number.isFinite(readinessRaw)) {
+    return {
+      readiness: clampPercent(readinessRaw),
+      availability: clampPercent(Number(sample?.business?.availability || readinessRaw)),
+      overdue: Math.max(0, toNumber(sample?.backlog?.overdue, 0))
+    }
+  }
+
+  const modules = sample?.modules && typeof sample.modules === 'object' ? Object.values(sample.modules) : []
+  const moduleTotal = modules.length || 1
+  const moduleError = modules.filter((item) => normalizeModuleStatus(item) === 'error').length
+  const moduleWarning = modules.filter((item) => normalizeModuleStatus(item) === 'warning').length
+  const diagnostics = toArray(sample?.diagnostics)
+  const diagError = diagnostics.filter((item) => normalizeModuleStatus(item?.status) === 'error').length
+  const diagWarning = diagnostics.filter((item) => normalizeModuleStatus(item?.status) === 'warning').length
+  const availability = clampPercent(((moduleTotal - moduleError - moduleWarning * 0.5) / moduleTotal) * 100)
+
+  const hostRate = toNumber(sample?.stats?.hostTotal, 0) > 0
+    ? (toNumber(sample?.stats?.hostOnline, 0) / toNumber(sample?.stats?.hostTotal, 1)) * 100
+    : 0
+  const dockerRate = toNumber(sample?.stats?.dockerTotal, 0) > 0
+    ? (toNumber(sample?.stats?.dockerOnline, 0) / toNumber(sample?.stats?.dockerTotal, 1)) * 100
+    : 0
+  const k8sRate = toNumber(sample?.stats?.k8sTotal, 0) > 0
+    ? (toNumber(sample?.stats?.k8sHealthy, 0) / toNumber(sample?.stats?.k8sTotal, 1)) * 100
+    : 0
+  const freshRates = [hostRate, dockerRate, k8sRate].filter((item) => item > 0)
+  const freshness = freshRates.length
+    ? clampPercent(freshRates.reduce((sum, item) => sum + item, 0) / freshRates.length)
+    : availability
+
+  const overdue = Math.max(0, toNumber(sample?.backlog?.overdue, 0))
+  const base = clampPercent(availability * 0.5 + freshness * 0.25 + clampPercent(100 - diagWarning * 8 - diagError * 15) * 0.25)
+  const readiness = clampPercent(base - Math.min(20, overdue * 2))
+  return { readiness, availability, overdue }
+}
+
+const weeklyBusinessTrendRows = computed(() => {
+  const bucket = new Map()
+  weekDateKeys.value.forEach((date) => {
+    bucket.set(date, { date, readiness: [], availability: [], overdue: [], samples: 0 })
+  })
+  weeklyTimelineSamples.value.forEach((item) => {
+    const key = dayKeyOf(item?.at)
+    if (!bucket.has(key)) return
+    const row = bucket.get(key)
+    const metric = sampleValueForWeekly(item)
+    row.readiness.push(metric.readiness)
+    row.availability.push(metric.availability)
+    row.overdue.push(metric.overdue)
+    row.samples += 1
+  })
+
+  return Array.from(bucket.values()).map((item) => {
+    const avg = (arr) => (arr.length ? arr.reduce((sum, value) => sum + value, 0) / arr.length : null)
+    const readinessAvg = avg(item.readiness)
+    const availabilityAvg = avg(item.availability)
+    const overdueAvg = avg(item.overdue)
+    return {
+      date: item.date,
+      label: item.date.slice(5),
+      readiness: readinessAvg === null ? null : clampPercent(readinessAvg),
+      availability: availabilityAvg === null ? null : clampPercent(availabilityAvg),
+      overdue: overdueAvg === null ? 0 : Math.max(0, Math.round(overdueAvg)),
+      samples: item.samples,
+      hasData: item.samples > 0
+    }
+  })
+})
+
+const weeklyReportPeriodLabel = computed(() => {
+  const keys = weekDateKeys.value
+  if (!keys.length) return ''
+  return `统计周期：${keys[0]} 至 ${keys[keys.length - 1]}`
+})
+
+const weeklyReadinessDelta = computed(() => {
+  const rows = weeklyBusinessTrendRows.value.filter((item) => item.hasData && item.readiness !== null)
+  if (rows.length < 2) return 0
+  return Math.round(toNumber(rows[rows.length - 1].readiness, 0) - toNumber(rows[0].readiness, 0))
+})
+
+const weeklyOverdueDelta = computed(() => {
+  const rows = weeklyBusinessTrendRows.value.filter((item) => item.hasData)
+  if (rows.length < 2) return 0
+  return Math.round(toNumber(rows[rows.length - 1].overdue, 0) - toNumber(rows[0].overdue, 0))
+})
+
+const buildWeeklyReportMarkdown = () => {
+  const now = new Date().toLocaleString()
+  const lines = [
+    '# Lazy Auto Ops 试点客户周报',
+    '',
+    `- 生成时间：${now}`,
+    `- ${weeklyReportPeriodLabel.value}`,
+    '',
+    '## 经营摘要',
+    `- ${executiveSummaryText.value}`,
+    '',
+    '## 关键指标',
+    '',
+    '| 指标 | 当前值 | 目标值 | 差值 |',
+    '| --- | --- | --- | --- |'
+  ]
+  executiveValueRows.value.forEach((item) => {
+    lines.push(`| ${item.metric} | ${item.current} | ${item.target} | ${item.gap} |`)
+  })
+
+  lines.push('', '## 近7天 ROI 趋势', '', '| 日期 | 商业就绪度 | 链路可用性 | 超时积压 | 样本数 |', '| --- | --- | --- | --- | --- |')
+  weeklyBusinessTrendRows.value.forEach((item) => {
+    lines.push(`| ${item.date} | ${item.readiness === null ? '-' : `${item.readiness}%`} | ${item.availability === null ? '-' : `${item.availability}%`} | ${item.overdue} | ${item.samples} |`)
+  })
+
+  lines.push('', '## 高优先级动作', '')
+  intelligentActions.value.slice(0, 8).forEach((item, index) => {
+    lines.push(`${index + 1}. [${item.module}] ${item.title} - ${item.reason}`)
+  })
+
+  return lines.join('\n')
+}
+
+const buildWeeklyReportHTML = () => {
+  const esc = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  const rows = executiveValueRows.value.map((item) =>
+    `<tr><td>${esc(item.metric)}</td><td>${esc(item.current)}</td><td>${esc(item.target)}</td><td>${esc(item.gap)}</td><td>${esc(item.impact)}</td></tr>`
+  ).join('')
+  const trendRows = weeklyBusinessTrendRows.value.map((item) =>
+    `<tr><td>${esc(item.date)}</td><td>${item.readiness === null ? '-' : `${item.readiness}%`}</td><td>${item.availability === null ? '-' : `${item.availability}%`}</td><td>${item.overdue}</td><td>${item.samples}</td></tr>`
+  ).join('')
+  const actions = intelligentActions.value.slice(0, 8).map((item, index) =>
+    `<li><strong>${index + 1}. [${esc(item.module)}] ${esc(item.title)}</strong><br/>${esc(item.reason)}</li>`
+  ).join('')
+
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Lazy Auto Ops 试点客户周报</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #111827; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    h2 { margin: 18px 0 10px; font-size: 18px; }
+    p, li { font-size: 13px; line-height: 1.5; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; font-size: 12px; text-align: left; vertical-align: top; }
+    th { background: #f8fafc; }
+    .muted { color: #6b7280; }
+  </style>
+</head>
+<body>
+  <h1>Lazy Auto Ops 试点客户周报</h1>
+  <p class="muted">生成时间：${esc(new Date().toLocaleString())}</p>
+  <p class="muted">${esc(weeklyReportPeriodLabel.value)}</p>
+  <h2>经营摘要</h2>
+  <p>${esc(executiveSummaryText.value)}</p>
+  <h2>关键指标</h2>
+  <table>
+    <thead><tr><th>指标</th><th>当前值</th><th>目标值</th><th>差值</th><th>业务影响</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <h2>近7天 ROI 趋势</h2>
+  <table>
+    <thead><tr><th>日期</th><th>商业就绪度</th><th>链路可用性</th><th>超时积压</th><th>样本数</th></tr></thead>
+    <tbody>${trendRows}</tbody>
+  </table>
+  <h2>高优先级动作</h2>
+  <ol>${actions}</ol>
+</body>
+</html>`
+}
+
+const downloadTextFile = (filename, content, mimeType = 'text/plain;charset=utf-8') => {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+const exportWeeklyReportMarkdown = () => {
+  const stamp = dayKeyOf(new Date())
+  downloadTextFile(`lazy-auto-ops-weekly-report-${stamp}.md`, buildWeeklyReportMarkdown(), 'text/markdown;charset=utf-8')
+  ElMessage.success('周报 Markdown 已导出')
+}
+
+const exportWeeklyReportPDF = () => {
+  const html = buildWeeklyReportHTML()
+  const popup = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=800')
+  if (!popup) {
+    ElMessage.warning('浏览器拦截了弹窗，请允许后重试')
+    return
+  }
+  popup.document.open()
+  popup.document.write(html)
+  popup.document.close()
+  popup.focus()
+  window.setTimeout(() => {
+    popup.print()
+  }, 400)
+  ElMessage.success('已打开打印窗口，可另存为 PDF')
+}
 
 const integrityIssueRows = computed(() => {
   const rows = []
@@ -2219,6 +2689,17 @@ const pushStatusTimelineSnapshot = (source) => {
       k8sHealthy: stats.k8sHealthy,
       k8sTotal: stats.k8sTotal
     },
+    backlog: {
+      total: backlog.total,
+      overdue: backlog.overdue
+    },
+    business: {
+      readiness: businessReadinessScore.value,
+      alertClosedRate: alertClosedRate.value,
+      deliverySuccessRate: deliverySuccessRate.value,
+      workorderClosureRate: workorderClosureRate.value,
+      automationCoverageRate: automationCoverageRate.value
+    },
     diagnostics: toArray(dataSourceDiagnostics.value).map((item) => ({
       label: item?.label || '-',
       status: normalizeModuleStatus(item?.status),
@@ -2229,6 +2710,8 @@ const pushStatusTimelineSnapshot = (source) => {
   const signature = JSON.stringify({
     modules: entry.modules,
     stats: entry.stats,
+    backlog: entry.backlog,
+    business: entry.business,
     diagnostics: entry.diagnostics
   })
   const prev = statusTimelineHistory.value[0]
@@ -2239,6 +2722,8 @@ const pushStatusTimelineSnapshot = (source) => {
       const prevSignature = JSON.stringify({
         modules: prev.modules || {},
         stats: prev.stats || {},
+        backlog: prev.backlog || {},
+        business: prev.business || {},
         diagnostics: toArray(prev.diagnostics)
       })
       if (prevSignature === signature) {
@@ -2757,6 +3242,83 @@ const renderTrend = () => {
   })
 }
 
+const renderBusinessTrend = () => {
+  const dom = businessTrendRef.value
+  if (!(dom instanceof HTMLDivElement)) return
+  if (!businessTrendChart) {
+    businessTrendChart = echarts.init(dom)
+  }
+
+  const rows = toArray(weeklyBusinessTrendRows.value)
+  const hasData = rows.some((item) => item.hasData)
+  if (!hasData) {
+    businessTrendChart.setOption({
+      title: {
+        text: '暂无近7天 ROI 样本',
+        left: 'center',
+        top: 'middle',
+        textStyle: { color: '#9ca3af', fontSize: 14, fontWeight: 500 }
+      },
+      xAxis: { show: false, type: 'category', data: [] },
+      yAxis: { show: false, type: 'value' },
+      series: []
+    })
+    return
+  }
+
+  businessTrendChart.setOption({
+    color: ['#2563eb', '#10b981', '#f59e0b'],
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0, data: ['商业就绪度', '链路可用性', '超时积压'] },
+    grid: { left: 40, right: 40, top: 36, bottom: 22 },
+    xAxis: {
+      type: 'category',
+      boundaryGap: true,
+      data: rows.map((item) => item.label)
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '百分比',
+        min: 0,
+        max: 100,
+        axisLabel: { formatter: '{value}%' }
+      },
+      {
+        type: 'value',
+        name: '积压',
+        minInterval: 1
+      }
+    ],
+    series: [
+      {
+        name: '商业就绪度',
+        type: 'line',
+        smooth: true,
+        showSymbol: true,
+        symbolSize: 6,
+        data: rows.map((item) => item.readiness)
+      },
+      {
+        name: '链路可用性',
+        type: 'line',
+        smooth: true,
+        lineStyle: { type: 'dashed' },
+        showSymbol: true,
+        symbolSize: 5,
+        data: rows.map((item) => item.availability)
+      },
+      {
+        name: '超时积压',
+        type: 'bar',
+        yAxisIndex: 1,
+        barMaxWidth: 22,
+        data: rows.map((item) => item.overdue)
+      }
+    ]
+  })
+}
+
 const refreshTopHosts = async () => {
   try {
     const res = await axios.get('/api/v1/monitor/servers', { headers: authHeaders() })
@@ -2975,6 +3537,8 @@ const refreshDashboard = async (options = {}) => {
     firewallsSnapshot.value = firewalls
     const jumpSessions = toArray(jumpSessionsPayload)
     const jumpRiskEvents = toArray(jumpRiskPayload)
+    jumpSessionsSnapshot.value = jumpSessions
+    jumpRiskEventsSnapshot.value = jumpRiskEvents
     const domains = toArray(domainsPayload)
     const certs = toArray(certsPayload)
     const jumpAssets = toArray(jumpAssetsPayload)
@@ -2995,6 +3559,11 @@ const refreshDashboard = async (options = {}) => {
     const workorders = toArray(extractData(calls[16]))
     const workflowExecutions = toArray(extractData(calls[17]))
     const terminalSessions = toArray(extractData(calls[18]))
+    cicdExecutionsSnapshot.value = deliveryExecutions
+    cicdSchedulesSnapshot.value = deliverySchedules
+    workordersSnapshot.value = workorders
+    workflowExecutionsSnapshot.value = workflowExecutions
+    terminalSessionsSnapshot.value = terminalSessions
 
     if (firewallPayload !== null) {
       stats.firewallTotal = firewalls.length
@@ -3321,6 +3890,7 @@ const refreshDashboard = async (options = {}) => {
 
     lastUpdated.value = new Date().toLocaleString()
     renderTrend()
+    renderBusinessTrend()
     await refreshTopHosts()
     throttledPartialFailureMessage(failures)
     pushStatusTimelineSnapshot(source)
@@ -3363,6 +3933,7 @@ const runSelfCheck = async () => {
 
 const onResize = () => {
   if (trendChart) trendChart.resize()
+  if (businessTrendChart) businessTrendChart.resize()
 }
 
 const startAutoRefresh = () => {
@@ -3405,6 +3976,10 @@ onBeforeUnmount(() => {
   if (trendChart) {
     trendChart.dispose()
     trendChart = null
+  }
+  if (businessTrendChart) {
+    businessTrendChart.dispose()
+    businessTrendChart = null
   }
 })
 </script>
@@ -3592,6 +4167,77 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.value-card {
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.value-header {
+  margin-bottom: 14px;
+}
+
+.value-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.value-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.value-kpi-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.value-kpi-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.value-kpi-main {
+  margin-top: 8px;
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.1;
+}
+
+.value-kpi-target {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #2563eb;
+}
+
+.value-kpi-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.value-trend-wrap {
+  margin-top: 12px;
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 12px;
+}
+
+.value-trend-header {
+  margin-bottom: 8px;
+}
+
+.value-trend-chart {
+  width: 100%;
+  height: 280px;
 }
 
 .selfcheck-card {
@@ -3843,10 +4489,18 @@ onBeforeUnmount(() => {
   .backlog-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .value-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 980px) {
   .backlog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .value-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -3870,6 +4524,10 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .backlog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .value-kpi-grid {
     grid-template-columns: 1fr;
   }
 

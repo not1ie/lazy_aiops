@@ -151,7 +151,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onBeforeUnmount, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -176,6 +176,7 @@ const batchStatusVisible = ref(false)
 const batchStatusLoading = ref(false)
 const batchStatus = ref(null)
 const syncingStatus = ref(false)
+let autoSyncTimer = null
 
 const form = reactive({
   name: '',
@@ -503,6 +504,17 @@ const handleTest = async (row) => {
 onMounted(() => {
   fetchGroups()
   syncStatuses(true)
+  autoSyncTimer = window.setInterval(() => {
+    if (document.hidden || syncingStatus.value || loading.value) return
+    syncStatuses(true)
+  }, 60 * 1000)
+})
+
+onBeforeUnmount(() => {
+  if (autoSyncTimer) {
+    window.clearInterval(autoSyncTimer)
+    autoSyncTimer = null
+  }
 })
 </script>
 

@@ -40,9 +40,16 @@
       </el-table-column>
       <el-table-column prop="cluster" label="集群" min-width="120" />
       <el-table-column prop="source" label="来源" width="130" />
-      <el-table-column label="状态" width="90">
+      <el-table-column label="运行状态" width="110">
         <template #default="{ row }">
-          <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
+          <el-tag :type="assetRuntimeByID[row.id]?.type || 'info'">
+            {{ assetRuntimeByID[row.id]?.text || '未知' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ assetRuntimeByID[row.id]?.reason || '-' }}
         </template>
       </el-table-column>
       <el-table-column label="操作" width="190" fixed="right">
@@ -159,7 +166,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
@@ -182,6 +189,12 @@ const filters = reactive({
 })
 
 const assets = ref([])
+const cmdbHosts = ref([])
+const dockerHosts = ref([])
+const k8sClusters = ref([])
+const runtimeNowTs = ref(Date.now())
+let freshnessTicker = null
+let autoRefreshTicker = null
 const integrationForm = reactive({
   enabled: false,
   base_url: '',
@@ -214,6 +227,19 @@ const form = reactive({
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const toFriendlyJumpError = (error, fallback) => {
+  const raw = getErrorMessage(error, fallback)
+  const text = String(raw || '').trim()
+  const lower = text.toLowerCase()
+  if (lower.includes('permission') || lower.includes('403')) {
+    return `${text}；请在 JumpServer 为该账号授予资产读取权限（主机/数据库接口）。`
+  }
+  if (lower.includes('/api/v1/assets/hosts')) {
+    return `${text}；请确认当前组织下该账号可访问主机资产接口。`
+  }
+  return text || fallback
+}
+
 const inferType = (protocol) => {
   if (protocol === 'k8s') return 'k8s'
   if (['mysql', 'postgres', 'redis', 'mongodb'].includes(protocol)) return 'database'
@@ -238,22 +264,152 @@ const handleProtocolChange = (protocol) => {
   form.port = inferPort(protocol)
 }
 
-const fetchAssets = async () => {
+const normalizeText = (value) => String(value || '').trim().toLowerCase()
+
+const toTime = (value) => {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  return Number.isNaN(ts) ? null : ts
+}
+
+const isStale = (value, minutes = 5) => {
+  const ts = toTime(value)
+  if (!ts) return true
+  return runtimeNowTs.value - ts > minutes * 60 * 1000
+}
+
+const safeArrayData = (response) => (Array.isArray(response?.data?.data) ? response.data.data : [])
+
+const findCMDBHost = (row) => {
+  const sourceRef = String(row?.source_ref || '').trim()
+  if (sourceRef) {
+    const byID = cmdbHosts.value.find((item) => String(item.id || '') === sourceRef)
+    if (byID) return byID
+  }
+  const address = String(row?.address || '').trim()
+  if (address) {
+    return cmdbHosts.value.find((item) => String(item.ip || '').trim() === address)
+  }
+  return null
+}
+
+const findDockerHost = (row) => {
+  const sourceRef = String(row?.source_ref || '').trim()
+  if (sourceRef) {
+    const byID = dockerHosts.value.find((item) => String(item.id || '') === sourceRef)
+    if (byID) return byID
+  }
+  const address = String(row?.address || '').trim()
+  if (address) {
+    const byCMDB = cmdbHosts.value.find((item) => String(item.ip || '').trim() === address)
+    if (byCMDB) {
+      return dockerHosts.value.find((item) => String(item.host_id || '') === String(byCMDB.id || '')) || null
+    }
+  }
+  return null
+}
+
+const findK8sCluster = (row) => {
+  const sourceRef = String(row?.source_ref || '').trim()
+  if (sourceRef) {
+    const byID = k8sClusters.value.find((item) => String(item.id || '') === sourceRef)
+    if (byID) return byID
+  }
+  const address = normalizeText(row?.address)
+  if (address) {
+    return k8sClusters.value.find((item) => normalizeText(item.api_server) === address || normalizeText(item.name) === address) || null
+  }
+  return null
+}
+
+const resolveRuntimeStatus = (row) => {
+  if (!row?.enabled) {
+    return { text: '禁用', type: 'info', reason: '资产被禁用' }
+  }
+  const source = normalizeText(row?.source)
+  if (source === 'cmdb_host') {
+    const host = findCMDBHost(row)
+    if (!host) return { text: '未映射', type: 'warning', reason: '未匹配到 CMDB 主机' }
+    if (Number(host.status) === 2) return { text: '维护', type: 'warning', reason: host.status_reason || '主机处于维护状态' }
+    if (Number(host.status) === 1) {
+      if (isStale(host.last_check_at, 3)) return { text: '状态过期', type: 'warning', reason: '主机检测结果超时未更新' }
+      return { text: '在线', type: 'success', reason: host.status_reason || '主机状态正常' }
+    }
+    return { text: '离线', type: 'danger', reason: host.status_reason || '主机不可达' }
+  }
+  if (source === 'docker_host') {
+    const env = findDockerHost(row)
+    if (!env) return { text: '未映射', type: 'warning', reason: '未匹配到 Docker 环境' }
+    const status = normalizeText(env.status)
+    if (status === 'online') {
+      if (isStale(env.last_check_at, 3)) return { text: '状态过期', type: 'warning', reason: env.last_error || 'Docker 状态检测超时未更新' }
+      return { text: '在线', type: 'success', reason: 'Docker 环境在线' }
+    }
+    if (status === 'error') return { text: '异常', type: 'warning', reason: env.last_error || 'Docker 状态异常' }
+    if (status === 'offline') return { text: '离线', type: 'danger', reason: env.last_error || 'Docker 环境离线' }
+    return { text: '未知', type: 'info', reason: env.last_error || 'Docker 状态未知' }
+  }
+  if (source === 'k8s_cluster') {
+    const cluster = findK8sCluster(row)
+    if (!cluster) return { text: '未映射', type: 'warning', reason: '未匹配到 K8s 集群' }
+    if (Number(cluster.status) === 2) return { text: '维护', type: 'warning', reason: cluster.status_reason || '集群处于维护状态' }
+    if (Number(cluster.status) === 1) {
+      if (isStale(cluster.last_check_at, 5)) return { text: '状态过期', type: 'warning', reason: cluster.status_reason || 'K8s 状态检测超时未更新' }
+      return { text: '在线', type: 'success', reason: cluster.status_reason || '集群状态正常' }
+    }
+    return { text: '异常', type: 'danger', reason: cluster.status_reason || '集群连接异常' }
+  }
+  if (source === 'jumpserver') {
+    return { text: '已同步', type: 'success', reason: '来自 JumpServer 同步资产' }
+  }
+  return { text: '启用', type: 'success', reason: '手工资产，待接入实时检测链路' }
+}
+
+const assetRuntimeByID = computed(() => {
+  const result = {}
+  for (const row of assets.value) {
+    if (!row?.id) continue
+    result[row.id] = resolveRuntimeStatus(row)
+  }
+  return result
+})
+
+const fetchAssets = async ({ silent = false } = {}) => {
   loading.value = true
   try {
-    const res = await axios.get('/api/v1/jump/assets', {
-      headers: authHeaders(),
-      params: {
-        keyword: filters.keyword || undefined,
-        asset_type: filters.asset_type || undefined,
-        protocol: filters.protocol || undefined
-      }
-    })
-    if (res.data.code === 0) {
-      assets.value = res.data.data || []
+    const [assetsRes, cmdbRes, dockerRes, k8sRes] = await Promise.allSettled([
+      axios.get('/api/v1/jump/assets', {
+        headers: authHeaders(),
+        params: {
+          keyword: filters.keyword || undefined,
+          asset_type: filters.asset_type || undefined,
+          protocol: filters.protocol || undefined
+        }
+      }),
+      axios.get('/api/v1/cmdb/hosts', { headers: authHeaders(), params: { live: 1 } }),
+      axios.get('/api/v1/docker/hosts', { headers: authHeaders(), params: { sync: 1 } }),
+      axios.get('/api/v1/k8s/clusters', { headers: authHeaders(), params: { live: 1 } })
+    ])
+
+    if (assetsRes.status === 'fulfilled' && assetsRes.value?.data?.code === 0) {
+      assets.value = safeArrayData(assetsRes.value)
+    }
+    if (cmdbRes.status === 'fulfilled' && cmdbRes.value?.data?.code === 0) {
+      cmdbHosts.value = safeArrayData(cmdbRes.value)
+    }
+    if (dockerRes.status === 'fulfilled' && dockerRes.value?.data?.code === 0) {
+      dockerHosts.value = safeArrayData(dockerRes.value)
+    }
+    if (k8sRes.status === 'fulfilled' && k8sRes.value?.data?.code === 0) {
+      k8sClusters.value = safeArrayData(k8sRes.value)
+    }
+
+    const failedCount = [assetsRes, cmdbRes, dockerRes, k8sRes].filter((item) => item.status === 'rejected').length
+    if (!silent && failedCount > 0) {
+      ElMessage.warning(`部分状态源刷新失败(${failedCount}项)，已展示可用状态`)
     }
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载资产失败'))
+    if (!silent) ElMessage.error(getErrorMessage(error, '加载资产失败'))
   } finally {
     loading.value = false
   }
@@ -368,7 +524,7 @@ const runSync = async (url, okText = '同步成功') => {
       fetchAssets()
     }
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '同步失败'))
+    ElMessage.error(toFriendlyJumpError(error, '同步失败'))
   }
 }
 
@@ -420,7 +576,7 @@ const testIntegration = async () => {
       ElMessage.success(res.data?.message || '连接成功')
     }
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '连接测试失败'))
+    ElMessage.error(toFriendlyJumpError(error, '连接测试失败'))
   } finally {
     testingIntegration.value = false
   }
@@ -428,6 +584,24 @@ const testIntegration = async () => {
 
 onMounted(async () => {
   await fetchAssets()
+  freshnessTicker = window.setInterval(() => {
+    runtimeNowTs.value = Date.now()
+  }, 60 * 1000)
+  autoRefreshTicker = window.setInterval(() => {
+    if (document.hidden || loading.value) return
+    fetchAssets({ silent: true })
+  }, 90 * 1000)
+})
+
+onUnmounted(() => {
+  if (freshnessTicker) {
+    window.clearInterval(freshnessTicker)
+    freshnessTicker = null
+  }
+  if (autoRefreshTicker) {
+    window.clearInterval(autoRefreshTicker)
+    autoRefreshTicker = null
+  }
 })
 </script>
 

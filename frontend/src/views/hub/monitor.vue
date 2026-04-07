@@ -420,6 +420,7 @@ const panelKeyword = ref('')
 const nowTs = ref(Date.now())
 const riskBatching = ref(false)
 let minuteTicker = null
+let autoRefreshTick = 0
 
 const stats = reactive({
   alertTotal: 0,
@@ -918,6 +919,7 @@ const batchRecheckRisk = async (mode) => {
 }
 
 const refreshAll = async () => {
+  if (loading.value) return
   loading.value = true
   try {
     const [alertRes, ruleRes, agentRes, domainRes, certRes, channelRes, groupRes, templateRes] = await Promise.allSettled([
@@ -985,6 +987,13 @@ onMounted(refreshAll)
 onMounted(() => {
   minuteTicker = window.setInterval(() => {
     nowTs.value = Date.now()
+    autoRefreshTick += 1
+    if (autoRefreshTick >= 2) {
+      autoRefreshTick = 0
+      if (!document.hidden && !loading.value) {
+        refreshAll()
+      }
+    }
   }, 60 * 1000)
 })
 onUnmounted(() => {
