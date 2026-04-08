@@ -2,7 +2,11 @@ package jump
 
 import (
 	"errors"
+	"log"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
@@ -17,9 +21,12 @@ func init() {
 }
 
 type JumpPlugin struct {
-	core    *core.Core
-	cfg     map[string]interface{}
-	handler *JumpHandler
+	core           *core.Core
+	cfg            map[string]interface{}
+	handler        *JumpHandler
+	autoSyncTicker *time.Ticker
+	stopCh         chan struct{}
+	wg             sync.WaitGroup
 }
 
 func (p *JumpPlugin) Name() string        { return "jump" }
@@ -32,8 +39,50 @@ func (p *JumpPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	return nil
 }
 
-func (p *JumpPlugin) Start() error { return nil }
-func (p *JumpPlugin) Stop() error  { return nil }
+func (p *JumpPlugin) Start() error {
+	secretKey := ""
+	if p.core != nil && p.core.Config != nil {
+		secretKey = p.core.Config.JWT.Secret
+	}
+	if p.handler == nil {
+		p.handler = NewJumpHandler(p.core.DB, secretKey)
+	}
+
+	interval := p.autoSyncInterval()
+	p.autoSyncTicker = time.NewTicker(interval)
+	p.stopCh = make(chan struct{})
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		if err := p.handler.runAutoSyncCycle("bootstrap"); err != nil {
+			log.Printf("[Jump] auto-sync bootstrap failed: %v", err)
+		}
+		for {
+			select {
+			case <-p.stopCh:
+				return
+			case <-p.autoSyncTicker.C:
+				if err := p.handler.runAutoSyncCycle("ticker"); err != nil {
+					log.Printf("[Jump] auto-sync tick failed: %v", err)
+				}
+			}
+		}
+	}()
+	return nil
+}
+
+func (p *JumpPlugin) Stop() error {
+	if p.autoSyncTicker != nil {
+		p.autoSyncTicker.Stop()
+		p.autoSyncTicker = nil
+	}
+	if p.stopCh != nil {
+		close(p.stopCh)
+		p.stopCh = nil
+	}
+	p.wg.Wait()
+	return nil
+}
 
 func (p *JumpPlugin) Migrate() error {
 	if err := p.core.DB.AutoMigrate(
@@ -56,7 +105,9 @@ func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	if p.core != nil && p.core.Config != nil {
 		secretKey = p.core.Config.JWT.Secret
 	}
-	p.handler = NewJumpHandler(p.core.DB, secretKey)
+	if p.handler == nil {
+		p.handler = NewJumpHandler(p.core.DB, secretKey)
+	}
 
 	// 资产
 	r.GET("/assets", p.handler.ListAssets)
@@ -164,4 +215,40 @@ func ensureDefaultJumpCommandRules(c *core.Core) error {
 		}
 	}
 	return nil
+}
+
+func (p *JumpPlugin) autoSyncInterval() time.Duration {
+	const fallback = 120 * time.Second
+	if p.cfg == nil {
+		return fallback
+	}
+	value, ok := p.cfg["integration_auto_sync_interval_seconds"]
+	if !ok {
+		return fallback
+	}
+	parse := func(raw string) time.Duration {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return fallback
+		}
+		if n < 30 {
+			n = 30
+		}
+		if n > 900 {
+			n = 900
+		}
+		return time.Duration(n) * time.Second
+	}
+	switch v := value.(type) {
+	case int:
+		return parse(strconv.Itoa(v))
+	case int64:
+		return parse(strconv.FormatInt(v, 10))
+	case float64:
+		return parse(strconv.Itoa(int(v)))
+	case string:
+		return parse(v)
+	default:
+		return fallback
+	}
 }

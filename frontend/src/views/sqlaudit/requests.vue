@@ -39,12 +39,12 @@
           <el-table-column prop="sql_type" label="SQL类型" width="110" />
           <el-table-column prop="audit_level" label="风险" width="90">
             <template #default="{ row }">
-              <el-tag :type="auditLevelType(row.audit_level)">{{ auditLevelText(row.audit_level) }}</el-tag>
+              <StatusBadge v-bind="auditLevelBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="110">
             <template #default="{ row }">
-              <el-tag :type="orderStatusType(row.status)">{{ orderStatusText(row.status) }}</el-tag>
+              <StatusBadge v-bind="orderStatusBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column prop="submitter" label="提交人" width="100" />
@@ -76,7 +76,7 @@
           <el-table-column prop="environment" label="环境" width="100" />
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'danger'">{{ row.status === 1 ? '正常' : '异常' }}</el-tag>
+              <StatusBadge v-bind="instanceStatusBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column label="操作" width="260" fixed="right">
@@ -114,7 +114,7 @@
           <el-table-column prop="affected_rows" label="影响行数" width="100" />
           <el-table-column label="状态" width="90">
             <template #default="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'danger'">{{ row.status === 1 ? '成功' : '失败' }}</el-tag>
+              <StatusBadge v-bind="logStatusBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column prop="sql_content" label="SQL" min-width="220" show-overflow-tooltip />
@@ -202,6 +202,8 @@ import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { serviceHealthStatusMeta, sqlauditAuditLevelMeta, sqlauditOrderStatusMeta } from '@/utils/status'
 
 const activeTab = ref('orders')
 
@@ -269,19 +271,32 @@ const formatTime = (v) => {
   return String(v).slice(0, 19).replace('T', ' ')
 }
 
-const orderStatusText = (v) => ({
-  0: '待审核',
-  1: '审核通过',
-  2: '审核拒绝',
-  3: '执行中',
-  4: '执行成功',
-  5: '执行失败',
-  6: '已回滚'
-}[v] || '-')
+const orderStatusText = (v) => sqlauditOrderStatusMeta(v).text
+const auditLevelText = (v) => sqlauditAuditLevelMeta(v).text
 
-const orderStatusType = (v) => ({ 0: 'warning', 1: 'success', 2: 'danger', 3: 'primary', 4: 'success', 5: 'danger', 6: 'info' }[v] || 'info')
-const auditLevelText = (v) => ({ 0: '通过', 1: '警告', 2: '错误' }[v] || '-')
-const auditLevelType = (v) => ({ 0: 'success', 1: 'warning', 2: 'danger' }[v] || 'info')
+const orderStatusBadge = (row) => sqlauditOrderStatusMeta(row, {
+  source: 'SQL工单',
+  checkAt: row?.updated_at || row?.created_at
+})
+
+const auditLevelBadge = (row) => sqlauditAuditLevelMeta(row, {
+  source: 'SQL审核',
+  checkAt: row?.updated_at || row?.created_at
+})
+
+const instanceStatusBadge = (row) => serviceHealthStatusMeta(row, {
+  source: '数据库实例探测',
+  healthyText: '正常',
+  unhealthyText: '异常',
+  checkAt: row?.updated_at || row?.created_at
+})
+
+const logStatusBadge = (row) => serviceHealthStatusMeta(row, {
+  source: 'SQL执行日志',
+  healthyText: '成功',
+  unhealthyText: '失败',
+  checkAt: row?.executed_at || row?.created_at
+})
 
 const fetchStats = async () => {
   try {

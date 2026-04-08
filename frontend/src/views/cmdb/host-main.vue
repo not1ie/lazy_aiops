@@ -45,19 +45,29 @@
       </el-table-column>
       <el-table-column prop="ip" label="IP地址" width="150" />
       <el-table-column prop="os" label="操作系统" width="150" />
-      <el-table-column prop="status" label="状态" width="100">
+      <el-table-column prop="status" label="状态" width="140">
         <template #default="{ row }">
-          <el-tag :type="statusTag(row)">
-            {{ statusText(row) }}
-          </el-tag>
+          <StatusBadge
+            :text="hostStatusMeta(row).text"
+            :type="hostStatusMeta(row).type"
+            :source="hostStatusMeta(row).source"
+            :check-at="hostStatusMeta(row).checkAt"
+            :is-stale="hostStatusMeta(row).isStale"
+            :stale-text="hostStatusMeta(row).staleText"
+            :reason="hostStatusMeta(row).reason"
+          />
         </template>
       </el-table-column>
       <el-table-column prop="last_check_at" label="最后检测" width="180">
         <template #default="{ row }">
-          {{ formatTime(row.last_check_at) }}
+          {{ formatTime(hostStatusMeta(row).checkAt || row.last_check_at) }}
         </template>
       </el-table-column>
-      <el-table-column prop="status_reason" label="状态说明" min-width="220" show-overflow-tooltip />
+      <el-table-column prop="status_reason" label="状态说明" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ hostStatusMeta(row).reason || '-' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="group.name" label="分组" width="150" />
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
@@ -154,6 +164,7 @@
 import { ref, reactive, onBeforeUnmount, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { cmdbHostStatusMeta } from '@/utils/status'
 
 const loading = ref(false)
@@ -203,13 +214,7 @@ const toTime = (value) => {
   return Number.isNaN(ts) ? null : ts
 }
 
-const statusTag = (row) => {
-  return cmdbHostStatusMeta(row, { staleMinutes: 3 }).type
-}
-
-const statusText = (row) => {
-  return cmdbHostStatusMeta(row, { staleMinutes: 3 }).text
-}
+const hostStatusMeta = (row) => cmdbHostStatusMeta(row, { staleMinutes: 3 })
 
 const formatTime = (value) => {
   const ts = toTime(value)

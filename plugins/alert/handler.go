@@ -2,11 +2,16 @@ package alert
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/workflow"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/workorder"
 	"gorm.io/gorm"
 )
 
@@ -14,6 +19,18 @@ type AlertHandler struct {
 	db         *gorm.DB
 	aggregator *Aggregator
 	notifier   func(channelID, title, content string) error
+}
+
+type createWorkOrderFromAlertRequest struct {
+	TypeCode    string `json:"type_code"`
+	Title       string `json:"title"`
+	Content     string `json:"content"`
+	Priority    int    `json:"priority"`
+	Assignee    string `json:"assignee"`
+	AssigneeID  string `json:"assignee_id"`
+	AutoApprove bool   `json:"auto_approve"`
+	AutoExecute bool   `json:"auto_execute"`
+	WorkflowID  string `json:"workflow_id"`
 }
 
 func NewAlertHandler(db *gorm.DB, aggregator *Aggregator) *AlertHandler {
@@ -139,9 +156,10 @@ func (h *AlertHandler) AckAlert(c *gin.Context) {
 
 	now := time.Now()
 	h.db.Model(&alert).Updates(map[string]interface{}{
-		"status":   1,
-		"acked_at": now,
-		"acked_by": c.GetString("username"),
+		"status":        1,
+		"acked_at":      now,
+		"acked_by":      c.GetString("username"),
+		"status_reason": "已人工确认",
 	})
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "确认成功"})
@@ -157,7 +175,193 @@ func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 	}
 
 	h.aggregator.Resolve(alert.Fingerprint)
+	_ = h.db.Model(&alert).Update("status_reason", "告警已恢复").Error
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已解决"})
+}
+
+// CreateWorkOrderFromAlert 告警转工单（可选自动触发 Runbook）
+func (h *AlertHandler) CreateWorkOrderFromAlert(c *gin.Context) {
+	id := c.Param("id")
+	var alert Alert
+	if err := h.db.First(&alert, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "告警不存在"})
+		return
+	}
+
+	if strings.TrimSpace(alert.WorkOrderID) != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    0,
+			"message": "该告警已关联工单",
+			"data": gin.H{
+				"alert_id":              alert.ID,
+				"work_order_id":         alert.WorkOrderID,
+				"workflow_id":           alert.WorkflowID,
+				"workflow_execution_id": alert.WorkflowExecutionID,
+				"linked_at":             alert.LinkedAt,
+				"status_reason":         alert.StatusReason,
+			},
+		})
+		return
+	}
+
+	if !h.db.Migrator().HasTable(&workorder.WorkOrder{}) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "工单模块未启用，无法执行告警转工单"})
+		return
+	}
+
+	var req createWorkOrderFromAlertRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if req.AutoExecute && strings.TrimSpace(req.WorkflowID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "启用自动执行时，workflow_id 不能为空"})
+		return
+	}
+
+	username := strings.TrimSpace(c.GetString("username"))
+	if username == "" {
+		username = "system"
+	}
+	userID := strings.TrimSpace(c.GetString("user_id"))
+
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = fmt.Sprintf("【告警】%s - %s", nonEmptyText(alert.RuleName, alert.Metric, alert.ID), nonEmptyText(alert.Target, "-"))
+	}
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		content = buildAlertWorkOrderContent(&alert)
+	}
+
+	formDataRaw, _ := json.Marshal(gin.H{
+		"source":      "alert_link",
+		"alert_id":    alert.ID,
+		"rule_id":     alert.RuleID,
+		"rule_name":   alert.RuleName,
+		"target":      alert.Target,
+		"metric":      alert.Metric,
+		"severity":    alert.Severity,
+		"value":       alert.Value,
+		"threshold":   alert.Threshold,
+		"fingerprint": alert.Fingerprint,
+	})
+
+	order, err := workorder.CreateOrderWithDefaults(h.db, workorder.CreateOrderInput{
+		TypeCode:     nonEmptyText(strings.TrimSpace(req.TypeCode), "incident"),
+		Title:        title,
+		Content:      content,
+		FormData:     string(formDataRaw),
+		Priority:     req.Priority,
+		Submitter:    username,
+		SubmitterID:  userID,
+		Assignee:     strings.TrimSpace(req.Assignee),
+		AssigneeID:   strings.TrimSpace(req.AssigneeID),
+		AIRisk:       strings.TrimSpace(alert.Severity),
+		AISuggestion: strings.TrimSpace(alert.AISuggestion),
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建工单失败: " + err.Error()})
+		return
+	}
+
+	now := time.Now()
+	alertUpdates := map[string]interface{}{
+		"work_order_id": order.ID,
+		"linked_at":     now,
+		"status_reason": fmt.Sprintf("已关联工单 %s", order.ID),
+	}
+	if alert.Status == 0 {
+		alertUpdates["status"] = 1
+		alertUpdates["acked_at"] = now
+		alertUpdates["acked_by"] = username
+	}
+	if err := h.db.Model(&alert).Updates(alertUpdates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "更新告警状态失败: " + err.Error()})
+		return
+	}
+	addWorkOrderSystemComment(h.db, order.ID, username, fmt.Sprintf("由告警联动创建工单：%s (%s)", nonEmptyText(alert.RuleName, alert.Metric), alert.ID))
+
+	if req.AutoApprove {
+		_ = h.db.Model(&workorder.WorkOrderStep{}).
+			Where("order_id = ? AND status = 0", order.ID).
+			Updates(map[string]interface{}{
+				"status":      1,
+				"approver":    username,
+				"approver_id": userID,
+				"comment":     "告警联动自动审批",
+				"approved_at": now,
+			}).Error
+		_ = h.db.Model(&workorder.WorkOrder{}).Where("id = ?", order.ID).Updates(map[string]interface{}{
+			"status":       2,
+			"current_step": order.TotalSteps,
+		}).Error
+		addWorkOrderSystemComment(h.db, order.ID, username, "工单已自动审批通过")
+	}
+
+	executionID := ""
+	workflowID := strings.TrimSpace(req.WorkflowID)
+	if req.AutoExecute && workflowID != "" {
+		var latest workorder.WorkOrder
+		if err := h.db.First(&latest, "id = ?", order.ID).Error; err == nil {
+			if latest.Status != 2 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"code":    400,
+					"message": "自动执行前工单必须处于“已通过”状态，请启用 auto_approve 或先完成审批",
+					"data": gin.H{
+						"work_order_id": order.ID,
+						"status":        latest.Status,
+					},
+				})
+				return
+			}
+		}
+		exec, execErr := workflow.ExecuteWorkflowByID(h.db, workflowID, map[string]interface{}{
+			"alert_id":       alert.ID,
+			"alert_target":   alert.Target,
+			"alert_metric":   alert.Metric,
+			"alert_value":    alert.Value,
+			"alert_severity": alert.Severity,
+			"workorder_id":   order.ID,
+			"rule_name":      alert.RuleName,
+		}, username)
+		if execErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    500,
+				"message": "触发 Runbook 失败: " + execErr.Error(),
+				"data": gin.H{
+					"work_order_id": order.ID,
+				},
+			})
+			return
+		}
+		executionID = exec.ID
+		_ = h.db.Model(&workorder.WorkOrder{}).Where("id = ?", order.ID).Updates(map[string]interface{}{
+			"status":      4,
+			"assignee":    username,
+			"assignee_id": userID,
+		}).Error
+		addWorkOrderSystemComment(h.db, order.ID, username, fmt.Sprintf("已联动触发 Runbook：%s（执行ID: %s）", workflowID, executionID))
+		_ = h.db.Model(&alert).Updates(map[string]interface{}{
+			"workflow_id":           workflowID,
+			"workflow_execution_id": executionID,
+			"status_reason":         fmt.Sprintf("已关联工单 %s，并触发 Runbook 执行 %s", order.ID, executionID),
+		}).Error
+	}
+
+	_ = h.db.First(&alert, "id = ?", id).Error
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "告警联动工单成功",
+		"data": gin.H{
+			"alert_id":              alert.ID,
+			"work_order_id":         alert.WorkOrderID,
+			"workflow_id":           alert.WorkflowID,
+			"workflow_execution_id": alert.WorkflowExecutionID,
+			"linked_at":             alert.LinkedAt,
+			"status_reason":         alert.StatusReason,
+		},
+	})
 }
 
 // ReceiveAlert 接收告警(Webhook)
@@ -179,16 +383,17 @@ func (h *AlertHandler) ReceiveAlert(c *gin.Context) {
 
 	labelsJSON, _ := json.Marshal(req.Labels)
 	alert := &Alert{
-		RuleID:    req.RuleID,
-		RuleName:  req.RuleName,
-		Target:    req.Target,
-		Metric:    req.Metric,
-		Value:     req.Value,
-		Threshold: req.Threshold,
-		Severity:  req.Severity,
-		Status:    0,
-		FiredAt:   time.Now(),
-		Labels:    string(labelsJSON),
+		RuleID:       req.RuleID,
+		RuleName:     req.RuleName,
+		Target:       req.Target,
+		Metric:       req.Metric,
+		Value:        req.Value,
+		Threshold:    req.Threshold,
+		Severity:     req.Severity,
+		Status:       0,
+		StatusReason: "告警触发，待处理",
+		FiredAt:      time.Now(),
+		Labels:       string(labelsJSON),
 	}
 
 	// 通过聚合器处理
@@ -209,6 +414,52 @@ func (h *AlertHandler) ReceiveAlert(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": processedAlert})
+}
+
+func addWorkOrderSystemComment(db *gorm.DB, orderID, username, content string) {
+	if db == nil || strings.TrimSpace(orderID) == "" || strings.TrimSpace(content) == "" {
+		return
+	}
+	item := workorder.WorkOrderComment{
+		OrderID:  strings.TrimSpace(orderID),
+		Username: strings.TrimSpace(username),
+		Type:     "system",
+		Content:  strings.TrimSpace(content),
+	}
+	_ = db.Create(&item).Error
+}
+
+func buildAlertWorkOrderContent(alert *Alert) string {
+	if alert == nil {
+		return "告警联动工单"
+	}
+	lines := []string{
+		fmt.Sprintf("告警规则: %s", nonEmptyText(alert.RuleName, "-")),
+		fmt.Sprintf("监控目标: %s", nonEmptyText(alert.Target, "-")),
+		fmt.Sprintf("监控指标: %s", nonEmptyText(alert.Metric, "-")),
+		fmt.Sprintf("当前值/阈值: %s / %s", nonEmptyText(alert.Value, "-"), nonEmptyText(alert.Threshold, "-")),
+		fmt.Sprintf("严重级别: %s", nonEmptyText(alert.Severity, "warning")),
+		fmt.Sprintf("触发时间: %s", alert.FiredAt.Format(time.RFC3339)),
+		"",
+		"处理建议:",
+		"1. 先确认告警真实性与影响范围",
+		"2. 按既定 SOP 执行排障与回滚预案",
+		"3. 处理完成后补充根因与复盘结论",
+	}
+	if strings.TrimSpace(alert.AISuggestion) != "" {
+		lines = append(lines, "", "AI建议:", strings.TrimSpace(alert.AISuggestion))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func nonEmptyText(values ...string) string {
+	for i := range values {
+		v := strings.TrimSpace(values[i])
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // GetStats 获取统计

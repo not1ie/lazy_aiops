@@ -51,9 +51,13 @@
       <el-table-column prop="name" label="名称" min-width="220" />
       <el-table-column label="状态" width="120">
         <template #default="scope">
-          <el-tooltip :content="scope.row.reason || scope.row.phase || ''" placement="top" :disabled="!scope.row.reason && !scope.row.phase">
-            <el-tag :type="statusType(scope.row.status)">{{ scope.row.status }}</el-tag>
-          </el-tooltip>
+          <StatusBadge
+            :text="podStatusMeta(scope.row).text"
+            :type="podStatusMeta(scope.row).type"
+            :source="podStatusMeta(scope.row).source"
+            :check-at="podStatusMeta(scope.row).checkAt"
+            :reason="podStatusMeta(scope.row).reason"
+          />
         </template>
       </el-table-column>
       <el-table-column prop="phase" label="阶段" width="110" />
@@ -143,6 +147,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import {
   buildPodStatusOptions,
   isPodStatusCritical,
@@ -251,8 +256,15 @@ const podStats = computed(() => {
   return stats
 })
 
-const statusType = (status) => {
-  return podStatusType(normalizePodStatus(status))
+const podStatusMeta = (row) => {
+  const normalized = normalizePodStatus(row?.status, row?.phase)
+  return {
+    text: normalized || row?.status || '-',
+    type: podStatusType(normalized),
+    source: 'K8s 控制面',
+    checkAt: row?.updated_at || row?.last_transition_time || row?.created_at || '',
+    reason: row?.reason || row?.phase || 'Pod 状态由 Kubernetes 控制面返回'
+  }
 }
 
 const handleClusterChange = async () => {

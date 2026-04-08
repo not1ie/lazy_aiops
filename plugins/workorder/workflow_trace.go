@@ -58,32 +58,34 @@ func startWorkflowExecutionTrace(db *gorm.DB, orderID, workflowID, executionID, 
 	}()
 }
 
-func syncWorkOrderPendingApproval(db *gorm.DB, orderID string, exec *workflow.WorkflowExecution, workflowID, operator string) {
+func syncWorkOrderPendingApproval(db *gorm.DB, orderID string, exec *workflow.WorkflowExecution, workflowID, operator string) bool {
 	if db == nil || exec == nil || strings.TrimSpace(orderID) == "" {
-		return
+		return false
 	}
 
 	var order WorkOrder
 	if err := db.First(&order, "id = ?", orderID).Error; err != nil {
-		return
+		return false
 	}
 	if order.Status == 6 {
-		return
+		return false
+	}
+	if order.Status == 1 {
+		return false
 	}
 
 	update := map[string]interface{}{
 		"completed_at": nil,
 	}
-	if order.Status != 1 {
-		update["status"] = 1
-	}
+	update["status"] = 1
 	if err := db.Model(&order).Updates(update).Error; err != nil {
-		return
+		return false
 	}
 
 	addComment(db, orderID, operator, "system",
 		fmt.Sprintf("工单已切换为“审批中”：Workflow %s (%s) 正在等待审批。请在工作流执行记录处理审批节点，处理后系统会继续追踪并回写结果。",
 			nonEmpty(exec.WorkflowName, workflowID), exec.ID))
+	return true
 }
 
 func isWorkflowTerminal(status int) bool {
@@ -232,24 +234,24 @@ func loadLatestWorkflowRuntime(db *gorm.DB, order *WorkOrder) *WorkOrderWorkflow
 	return result
 }
 
-func syncWorkOrderStatusByWorkflow(db *gorm.DB, orderID string, exec *workflow.WorkflowExecution, operator string) {
+func syncWorkOrderStatusByWorkflow(db *gorm.DB, orderID string, exec *workflow.WorkflowExecution, operator string) bool {
 	if db == nil || exec == nil || strings.TrimSpace(orderID) == "" {
-		return
+		return false
 	}
 	var order WorkOrder
 	if err := db.First(&order, "id = ?", orderID).Error; err != nil {
-		return
+		return false
 	}
 
 	// 用户主动取消后，不覆盖工单状态。
 	if order.Status == 6 {
-		return
+		return false
 	}
 
 	switch exec.Status {
 	case 1:
 		if order.Status == 5 {
-			return
+			return false
 		}
 		now := time.Now()
 		if err := db.Model(&order).Updates(map[string]interface{}{
@@ -257,22 +259,32 @@ func syncWorkOrderStatusByWorkflow(db *gorm.DB, orderID string, exec *workflow.W
 			"completed_at": now,
 		}).Error; err == nil {
 			addComment(db, orderID, operator, "system", fmt.Sprintf("Workflow 执行成功，工单已自动完成：%s (%s)。", nonEmpty(exec.WorkflowName, ""), exec.ID))
+			return true
 		}
 	case 2:
+		if order.Status == 2 && order.CompletedAt == nil {
+			return false
+		}
 		if err := db.Model(&order).Updates(map[string]interface{}{
 			"status":       2,
 			"completed_at": nil,
 		}).Error; err == nil {
 			addComment(db, orderID, operator, "system", "Workflow 执行失败，工单已回退到“已通过”，请人工处理后可重试执行。")
+			return true
 		}
 	case 3:
+		if order.Status == 2 && order.CompletedAt == nil {
+			return false
+		}
 		if err := db.Model(&order).Updates(map[string]interface{}{
 			"status":       2,
 			"completed_at": nil,
 		}).Error; err == nil {
 			addComment(db, orderID, operator, "system", "Workflow 执行已取消，工单已回退到“已通过”，可人工处理后重新执行。")
+			return true
 		}
 	}
+	return false
 }
 
 func truncateForComment(text string, max int) string {

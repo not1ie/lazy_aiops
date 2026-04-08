@@ -45,7 +45,7 @@
         <el-table-column prop="playbook_name" label="Playbook" min-width="200" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="executionStatusType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag>
+            <StatusBadge v-bind="executionStatusBadge(row)" />
           </template>
         </el-table-column>
         <el-table-column prop="started_at" label="开始时间" width="180" />
@@ -124,6 +124,7 @@ import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const playbooks = ref([])
 const inventories = ref([])
@@ -331,6 +332,14 @@ const executionStatusType = (status) => {
   if (status === 3) return 'info'
   return 'danger'
 }
+
+const executionStatusBadge = (row) => ({
+  text: executionStatusLabel(row?.status),
+  type: executionStatusType(row?.status),
+  source: 'Playbook执行',
+  checkAt: row?.finished_at || row?.started_at || row?.updated_at || '',
+  reason: row?.playbook_name ? `Playbook: ${row.playbook_name}` : '执行状态'
+})
 
 onMounted(async () => {
   await fetchPlaybooks()

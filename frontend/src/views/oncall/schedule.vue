@@ -34,7 +34,7 @@
             <el-table-column prop="timezone" label="时区" width="130" />
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
-                <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+                <StatusBadge v-bind="scheduleEnabledBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="操作" width="250" fixed="right">
@@ -93,7 +93,7 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'warning'">{{ row.status === 1 ? '正常' : '已换班' }}</el-tag>
+            <StatusBadge v-bind="shiftStatusBadge(row)" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
@@ -211,6 +211,8 @@ import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { booleanEnabledStatusMeta, oncallShiftStatusMeta } from '@/utils/status'
 
 const loading = ref(false)
 const shiftLoading = ref(false)
@@ -267,6 +269,18 @@ const swapForm = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const scheduleEnabledBadge = (row) => booleanEnabledStatusMeta(row, {
+  source: '值班排班',
+  enabledReason: '排班已启用',
+  disabledReason: '排班已停用',
+  checkAt: row?.updated_at || row?.created_at
+})
+
+const shiftStatusBadge = (row) => oncallShiftStatusMeta(row, {
+  source: '值班班次',
+  checkAt: row?.updated_at || row?.start_at
+})
 
 const formatTime = (value) => {
   if (!value) return '-'

@@ -34,9 +34,17 @@
       <el-table-column prop="asset_name" label="资产" min-width="150" />
       <el-table-column prop="account_name" label="账号" min-width="120" />
       <el-table-column prop="protocol" label="协议" width="90" />
-      <el-table-column label="状态" width="100">
+      <el-table-column label="状态" width="140">
         <template #default="{ row }">
-          <el-tag :type="statusType(row)">{{ statusText(row) }}</el-tag>
+          <StatusBadge
+            :text="sessionStatusMeta(row).text"
+            :type="sessionStatusMeta(row).type"
+            :source="sessionStatusMeta(row).source"
+            :check-at="sessionStatusMeta(row).checkAt"
+            :is-stale="sessionStatusMeta(row).isStale"
+            :stale-text="sessionStatusMeta(row).staleText"
+            :reason="sessionStatusMeta(row).reason"
+          />
         </template>
       </el-table-column>
       <el-table-column prop="command_count" label="命令数" width="90" />
@@ -220,6 +228,7 @@ import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { jumpSessionStatusMeta } from '@/utils/status'
 
 const loading = ref(false)
@@ -288,14 +297,6 @@ const sessionStatusMeta = (row) =>
     pendingTimeoutMinutes: 15,
     activeLongMinutes: 180
   })
-
-const statusType = (row) => {
-  return sessionStatusMeta(row).type
-}
-
-const statusText = (row) => {
-  return sessionStatusMeta(row).text
-}
 
 const riskType = (level) => {
   if (level === 'critical') return 'danger'

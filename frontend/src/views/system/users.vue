@@ -27,9 +27,7 @@
       </el-table-column>
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'info'">
-            {{ row.status === 1 ? '启用' : '禁用' }}
-          </el-tag>
+          <StatusBadge v-bind="userStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column label="创建时间" min-width="180">
@@ -106,6 +104,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -279,6 +278,17 @@ const removeUser = async (row) => {
 const formatTime = (val) => {
   if (!val) return '-'
   return new Date(val).toLocaleString()
+}
+
+const userStatusBadge = (row) => {
+  const enabled = Number(row?.status) === 1
+  return {
+    text: enabled ? '启用' : '禁用',
+    type: enabled ? 'success' : 'info',
+    source: '系统用户',
+    checkAt: row?.updated_at || row?.created_at || '',
+    reason: enabled ? '用户账号可登录并可分配权限' : '用户账号已禁用，禁止登录'
+  }
 }
 
 onMounted(() => {

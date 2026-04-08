@@ -28,7 +28,7 @@
               <el-table-column prop="trigger" label="触发方式" width="120" />
               <el-table-column label="状态" width="90">
                 <template #default="{ row }">
-                  <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+                  <StatusBadge v-bind="workflowEnabledBadge(row)" />
                 </template>
               </el-table-column>
               <el-table-column prop="version" label="版本" width="80" />
@@ -80,7 +80,7 @@
           <el-table-column prop="workflow_name" label="流程" min-width="180" />
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
-              <el-tag :type="executionStatusType(row.status)">{{ executionStatusText(row.status) }}</el-tag>
+              <StatusBadge v-bind="executionStatusBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column prop="trigger" label="触发" width="100" />
@@ -194,7 +194,7 @@
     <el-drawer v-model="executionDetailVisible" title="执行详情" size="55%" append-to-body @closed="handleExecutionDetailClosed">
       <el-descriptions :column="2" border v-if="executionDetail.execution">
         <el-descriptions-item label="流程">{{ executionDetail.execution.workflow_name }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ executionStatusText(executionDetail.execution.status) }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ executionStatusLabel(executionDetail.execution.status) }}</el-descriptions-item>
         <el-descriptions-item label="触发方式">{{ executionDetail.execution.trigger }}</el-descriptions-item>
         <el-descriptions-item label="触发人">{{ executionDetail.execution.trigger_by }}</el-descriptions-item>
         <el-descriptions-item label="开始时间">{{ formatTime(executionDetail.execution.started_at) }}</el-descriptions-item>
@@ -221,6 +221,8 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { booleanEnabledStatusMeta, workflowExecutionStatusMeta } from '@/utils/status'
 
 const loading = ref(false)
 const executionsLoading = ref(false)
@@ -442,24 +444,19 @@ const formatTime = (value) => {
   return date.toLocaleString()
 }
 
-const executionStatusText = (status) => {
-  const n = Number(status)
-  if (n === 0) return '运行中'
-  if (n === 1) return '成功'
-  if (n === 2) return '失败'
-  if (n === 3) return '取消'
-  if (n === 4) return '等待审批'
-  return '-'
-}
+const workflowEnabledBadge = (row) => booleanEnabledStatusMeta(row, {
+  source: '工作流配置',
+  enabledReason: '流程可被触发执行',
+  disabledReason: '流程已停用，不会触发执行',
+  checkAt: row?.updated_at || row?.created_at
+})
 
-const executionStatusType = (status) => {
-  const n = Number(status)
-  if (n === 1) return 'success'
-  if (n === 2) return 'danger'
-  if (n === 3) return 'warning'
-  if (n === 0) return 'primary'
-  return 'info'
-}
+const executionStatusBadge = (row) => workflowExecutionStatusMeta(row, {
+  source: '工作流执行',
+  checkAt: row?.finished_at || row?.started_at || row?.updated_at
+})
+
+const executionStatusLabel = (status) => workflowExecutionStatusMeta(status).text
 
 const nodeStatusText = (status) => {
   const n = Number(status)

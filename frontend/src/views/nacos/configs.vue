@@ -51,7 +51,7 @@
           <el-table-column prop="cron" label="Cron" min-width="160" />
           <el-table-column prop="enabled" label="状态" width="120">
             <template #default="{ row }">
-              <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+              <StatusBadge v-bind="scheduleStatusBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column prop="next_run_at" label="下次执行" width="180" />
@@ -116,6 +116,8 @@
 import { ref, reactive, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { booleanEnabledStatusMeta } from '@/utils/status'
 
 const activeTab = ref('configs')
 const servers = ref([])
@@ -148,6 +150,13 @@ const scheduleForm = reactive({
 })
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const scheduleStatusBadge = (row) => booleanEnabledStatusMeta(row, {
+  source: 'Nacos同步计划',
+  enabledReason: '同步计划已启用',
+  disabledReason: '同步计划已停用',
+  checkAt: row?.updated_at || row?.next_run_at
+})
 
 const assignCurrentConfig = (data = {}) => {
   Object.keys(currentConfig).forEach((key) => {

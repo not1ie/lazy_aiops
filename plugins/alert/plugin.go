@@ -88,6 +88,7 @@ func (p *AlertPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		alerts.GET("/:id", h.GetAlert)
 		alerts.POST("/:id/ack", h.AckAlert)
 		alerts.POST("/:id/resolve", h.ResolveAlert)
+		alerts.POST("/:id/create-workorder", h.CreateWorkOrderFromAlert)
 	}
 
 	// Webhook接收

@@ -63,7 +63,7 @@
         </el-table-column>
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+            <StatusBadge v-bind="executionStatusBadge(row)" />
           </template>
         </el-table-column>
         <el-table-column prop="executor" label="执行人" width="140" />
@@ -84,7 +84,7 @@
             <div class="desc">{{ currentExecution.name || '未命名任务' }}</div>
           </div>
           <div class="actions">
-            <el-tag :type="statusType(currentExecution.status)">{{ statusLabel(currentExecution.status) }}</el-tag>
+            <StatusBadge v-bind="executionStatusBadge(currentExecution)" />
           </div>
         </div>
       </template>
@@ -123,6 +123,7 @@
 import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const form = reactive({
   name: '',
@@ -303,6 +304,19 @@ const statusType = (status) => {
   if (status === 2) return 'warning'
   if (status === 4) return 'info'
   return 'danger'
+}
+
+const executionStatusBadge = (row) => {
+  const runningTooLong = Number(row?.status) === 0 && Number(row?.progress || 0) < 100
+  return {
+    text: statusLabel(row?.status),
+    type: statusType(row?.status),
+    source: '批量执行',
+    checkAt: row?.updated_at || row?.finished_at || row?.started_at || '',
+    isStale: runningTooLong,
+    staleText: runningTooLong ? '任务仍在运行，请关注执行进度' : '',
+    reason: row?.name ? `任务: ${row.name}` : '批量执行状态'
+  }
 }
 
 const progressStatus = (status) => {

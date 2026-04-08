@@ -28,7 +28,7 @@
       <el-table-column prop="sort" label="排序" width="100" />
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '启用' : '禁用' }}</el-tag>
+          <StatusBadge v-bind="postStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
@@ -73,6 +73,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -99,6 +100,17 @@ const formatTime = (value) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
   return date.toLocaleString()
+}
+
+const postStatusBadge = (row) => {
+  const enabled = Number(row?.status) === 1
+  return {
+    text: enabled ? '启用' : '禁用',
+    type: enabled ? 'success' : 'info',
+    source: '岗位配置',
+    checkAt: row?.updated_at || row?.created_at || '',
+    reason: enabled ? '岗位可被账号绑定并参与权限继承' : '岗位已停用，不再分配给用户'
+  }
 }
 
 const resetForm = () => {

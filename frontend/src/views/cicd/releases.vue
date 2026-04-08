@@ -20,7 +20,7 @@
       <el-table-column prop="environment" label="环境" width="120" />
       <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          <StatusBadge v-bind="releaseStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="release_at" label="发布时间" width="180" />
@@ -77,6 +77,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const releases = ref([])
 const pipelines = ref([])
@@ -214,6 +215,14 @@ const statusType = (status) => {
   if (status === 2) return 'info'
   return 'danger'
 }
+
+const releaseStatusBadge = (row) => ({
+  text: statusLabel(row?.status),
+  type: statusType(row?.status),
+  source: '发布中心',
+  checkAt: row?.release_at || row?.updated_at || row?.created_at || '',
+  reason: row?.environment ? `环境: ${row.environment}` : '发布状态'
+})
 
 onMounted(async () => {
   await fetchPipelines()

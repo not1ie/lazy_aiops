@@ -51,7 +51,13 @@
         </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="statusType(row)">{{ statusText(row) }}</el-tag>
+            <StatusBadge
+              :text="deploymentStatusMeta(row).text"
+              :type="deploymentStatusMeta(row).type"
+              :source="deploymentStatusMeta(row).source"
+              :check-at="deploymentStatusMeta(row).checkAt"
+              :reason="deploymentStatusMeta(row).reason"
+            />
           </template>
         </el-table-column>
         <el-table-column label="副本" width="120">
@@ -271,6 +277,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const clusters = ref([])
@@ -412,24 +419,28 @@ const stats = computed(() => {
   return val
 })
 
-const statusText = (row) => {
+const deploymentStatusMeta = (row) => {
   const replicas = Number(row.replicas || 0)
   const ready = Number(row.ready || 0)
   const available = Number(row.available || 0)
-  if (replicas === 0) return 'Scaled 0'
-  if (ready >= replicas && available >= replicas) return 'Healthy'
-  if (ready > 0 && available > 0) return 'Progressing'
-  if (ready > 0) return 'NotAvailable'
-  if (available > 0) return 'PartiallyReady'
-  return 'Degraded'
-}
-
-const statusType = (row) => {
-  const text = statusText(row)
-  if (text === 'Healthy') return 'success'
-  if (text === 'Scaled 0') return 'info'
-  if (text === 'Progressing' || text === 'NotAvailable' || text === 'PartiallyReady') return 'warning'
-  return 'warning'
+  const source = 'K8s 控制面'
+  const checkAt = row.updated_at || row.last_transition_time || row.created_at || ''
+  if (replicas === 0) {
+    return { text: 'Scaled 0', type: 'info', source, checkAt, reason: '副本数为 0，工作负载已缩容' }
+  }
+  if (ready >= replicas && available >= replicas) {
+    return { text: 'Healthy', type: 'success', source, checkAt, reason: 'Ready/Available 副本均满足期望' }
+  }
+  if (ready > 0 && available > 0) {
+    return { text: 'Progressing', type: 'warning', source, checkAt, reason: '工作负载正在滚动发布中' }
+  }
+  if (ready > 0) {
+    return { text: 'NotAvailable', type: 'warning', source, checkAt, reason: '存在 Ready 副本，但可用副本不足' }
+  }
+  if (available > 0) {
+    return { text: 'PartiallyReady', type: 'warning', source, checkAt, reason: '存在可用副本，但 Ready 状态未达标' }
+  }
+  return { text: 'Degraded', type: 'warning', source, checkAt, reason: '副本未就绪，工作负载异常' }
 }
 
 const rolloutPercent = (row) => {

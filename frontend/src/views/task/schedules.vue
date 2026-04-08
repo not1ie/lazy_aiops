@@ -20,7 +20,7 @@
         <el-table-column prop="cron" label="Cron" min-width="180" />
         <el-table-column prop="enabled" label="启用" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+            <StatusBadge v-bind="taskEnabledBadge(row)" />
           </template>
         </el-table-column>
         <el-table-column prop="last_run_at" label="上次执行" width="180" />
@@ -53,7 +53,7 @@
         <el-table-column prop="task_name" label="任务" min-width="180" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="executionStatusType(row.status)">{{ executionStatusLabel(row.status) }}</el-tag>
+            <StatusBadge v-bind="executionStatusBadge(row)" />
           </template>
         </el-table-column>
         <el-table-column prop="start_at" label="开始时间" width="180" />
@@ -105,6 +105,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const tasks = ref([])
 const executions = ref([])
@@ -301,6 +302,22 @@ const executionStatusType = (status) => {
   if (status === 3) return 'info'
   return 'danger'
 }
+
+const taskEnabledBadge = (row) => ({
+  text: row?.enabled ? '启用' : '停用',
+  type: row?.enabled ? 'success' : 'info',
+  source: '任务调度',
+  checkAt: row?.updated_at || row?.next_run_at || row?.last_run_at || '',
+  reason: row?.enabled ? '任务将按计划执行' : '任务已停用'
+})
+
+const executionStatusBadge = (row) => ({
+  text: executionStatusLabel(row?.status),
+  type: executionStatusType(row?.status),
+  source: '任务执行',
+  checkAt: row?.end_at || row?.start_at || row?.updated_at || '',
+  reason: row?.task_name ? `任务: ${row.task_name}` : '任务执行状态'
+})
 
 onMounted(async () => {
   await fetchHosts()

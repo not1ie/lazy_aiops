@@ -28,7 +28,7 @@
       <el-table-column prop="rules" label="规则" min-width="360" show-overflow-tooltip />
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+          <StatusBadge v-bind="escalationEnabledBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="description" label="说明" min-width="180" show-overflow-tooltip />
@@ -78,6 +78,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { booleanEnabledStatusMeta } from '@/utils/status'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -98,6 +100,13 @@ const form = reactive({
 })
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const escalationEnabledBadge = (row) => booleanEnabledStatusMeta(row, {
+  source: '升级策略',
+  enabledReason: '升级策略已启用',
+  disabledReason: '升级策略已停用',
+  checkAt: row?.updated_at || row?.created_at
+})
 
 const enabledCount = computed(() => escalations.value.filter(item => item.enabled).length)
 

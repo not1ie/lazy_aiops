@@ -19,7 +19,7 @@
       <el-table-column prop="namespace" label="Namespace" min-width="160" />
       <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'danger'">{{ row.status === 1 ? '正常' : '异常' }}</el-tag>
+          <StatusBadge v-bind="serverStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
@@ -67,6 +67,8 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { serviceHealthStatusMeta } from '@/utils/status'
 
 const servers = ref([])
 const loading = ref(false)
@@ -85,6 +87,13 @@ const form = reactive({
 })
 
 const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const serverStatusBadge = (row) => serviceHealthStatusMeta(row, {
+  source: 'Nacos服务探测',
+  healthyText: '正常',
+  unhealthyText: '异常',
+  checkAt: row?.updated_at || row?.last_check_at
+})
 
 const getErrorMessage = (error, fallback) => {
   if (error?.response?.data?.message) return error.response.data.message

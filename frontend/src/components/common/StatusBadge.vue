@@ -1,10 +1,14 @@
 <template>
   <el-tooltip
-    v-if="tooltipContent"
-    :content="tooltipContent"
+    v-if="tooltipLines.length"
     :placement="placement"
     effect="dark"
   >
+    <template #content>
+      <div class="status-tooltip-content">
+        <div v-for="(line, idx) in tooltipLines" :key="idx">{{ line }}</div>
+      </div>
+    </template>
     <el-tag :type="type" :size="size" :effect="effect">{{ text || '-' }}</el-tag>
   </el-tooltip>
   <el-tag v-else :type="type" :size="size" :effect="effect">{{ text || '-' }}</el-tag>
@@ -23,6 +27,22 @@ const props = defineProps({
     default: 'info'
   },
   reason: {
+    type: String,
+    default: ''
+  },
+  source: {
+    type: String,
+    default: ''
+  },
+  checkAt: {
+    type: [String, Number, Date],
+    default: ''
+  },
+  isStale: {
+    type: Boolean,
+    default: false
+  },
+  staleText: {
     type: String,
     default: ''
   },
@@ -51,11 +71,30 @@ const formatTime = (value) => {
   return new Date(ts).toLocaleString()
 }
 
-const tooltipContent = computed(() => {
-  const parts = []
-  if (props.reason && String(props.reason).trim()) parts.push(String(props.reason).trim())
-  const timeText = formatTime(props.updatedAt)
-  if (timeText) parts.push(`更新时间: ${timeText}`)
-  return parts.join(' | ')
+const tooltipLines = computed(() => {
+  const lines = []
+  const sourceText = String(props.source || '').trim()
+  if (sourceText) lines.push(`来源: ${sourceText}`)
+
+  const checkText = formatTime(props.checkAt)
+  const updateText = formatTime(props.updatedAt)
+  if (checkText) lines.push(`检测时间: ${checkText}`)
+  else if (updateText) lines.push(`更新时间: ${updateText}`)
+
+  if (props.isStale) {
+    const stale = String(props.staleText || '').trim() || '状态已过期，请重新检测'
+    lines.push(stale)
+  }
+
+  const reasonText = String(props.reason || '').trim()
+  if (reasonText) lines.push(`说明: ${reasonText}`)
+  return lines
 })
 </script>
+
+<style scoped>
+.status-tooltip-content {
+  line-height: 1.5;
+  max-width: 380px;
+}
+</style>

@@ -31,14 +31,20 @@
       </el-table-column>
       <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="hostStatusTag(row)">
-            {{ hostStatusText(row) }}
-          </el-tag>
+          <StatusBadge
+            :text="hostStatusMeta(row).text"
+            :type="hostStatusMeta(row).type"
+            :source="hostStatusMeta(row).source"
+            :check-at="hostStatusMeta(row).checkAt"
+            :is-stale="hostStatusMeta(row).isStale"
+            :stale-text="hostStatusMeta(row).staleText"
+            :reason="hostStatusMeta(row).reason"
+          />
         </template>
       </el-table-column>
       <el-table-column prop="last_check_at" label="最后检测" width="180">
         <template #default="{ row }">
-          {{ formatTime(row.last_check_at) }}
+          {{ formatTime(hostStatusMeta(row).checkAt || row.last_check_at) }}
         </template>
       </el-table-column>
       <el-table-column prop="container_count" label="容器数" width="120" align="center" />
@@ -82,7 +88,17 @@
         <div>
           <div class="drawer-title">{{ activeHost?.name || 'Docker 环境' }}</div>
           <div class="drawer-sub">
-            状态：<el-tag size="small" :type="activeHostStatusMeta.type">{{ activeHostStatusMeta.text }}</el-tag>
+            状态：
+            <StatusBadge
+              size="small"
+              :text="activeHostStatusMeta.text"
+              :type="activeHostStatusMeta.type"
+              :source="activeHostStatusMeta.source"
+              :check-at="activeHostStatusMeta.checkAt"
+              :is-stale="activeHostStatusMeta.isStale"
+              :stale-text="activeHostStatusMeta.staleText"
+              :reason="activeHostStatusMeta.reason"
+            />
             <span class="drawer-meta">容器：{{ activeHost?.container_count ?? '-' }}</span>
             <span class="drawer-meta">镜像：{{ activeHost?.image_count ?? '-' }}</span>
             <span class="drawer-meta">版本：{{ activeHost?.version || '-' }}</span>
@@ -1592,6 +1608,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import * as echarts from 'echarts'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { dockerHostStatusMeta } from '@/utils/status'
 import 'xterm/css/xterm.css'
 
@@ -1605,12 +1622,6 @@ const onlineHosts = computed(() => (tableData.value || []).filter((item) => host
 const staleHosts = computed(() => (tableData.value || []).filter((item) => hostStatusMeta(item).key === 'stale').length)
 const offlineHosts = computed(() => (tableData.value || []).filter((item) => hostStatusMeta(item).key === 'offline').length)
 const errorHosts = computed(() => (tableData.value || []).filter((item) => hostStatusMeta(item).key === 'error').length)
-const hostStatusTag = (row) => {
-  return hostStatusMeta(row).type
-}
-const hostStatusText = (row) => {
-  return hostStatusMeta(row).text
-}
 
 const manageVisible = ref(false)
 const manageTab = ref('overview')

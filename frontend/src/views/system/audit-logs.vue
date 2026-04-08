@@ -24,9 +24,7 @@
       <el-table-column prop="ip" label="IP" width="140" />
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'danger'">
-            {{ row.status === 1 ? '成功' : '失败' }}
-          </el-tag>
+          <StatusBadge v-bind="auditStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column label="时间" width="180">
@@ -42,6 +40,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const logs = ref([])
 const loading = ref(false)
@@ -71,6 +70,17 @@ const fetchLogs = async () => {
 const formatTime = (val) => {
   if (!val) return '-'
   return new Date(val).toLocaleString()
+}
+
+const auditStatusBadge = (row) => {
+  const success = Number(row?.status) === 1
+  return {
+    text: success ? '成功' : '失败',
+    type: success ? 'success' : 'danger',
+    source: '操作审计',
+    checkAt: row?.created_at || '',
+    reason: row?.detail || (success ? '操作执行成功' : '操作执行失败')
+  }
 }
 
 onMounted(fetchLogs)

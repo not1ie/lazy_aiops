@@ -22,13 +22,13 @@
             <el-table-column prop="type" label="类型" width="110" />
             <el-table-column prop="level" label="级别" width="90">
               <template #default="{ row }">
-                <el-tag :type="levelTagType(row.level)">{{ levelText(row.level) }}</el-tag>
+                <StatusBadge v-bind="levelBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="pattern" label="匹配规则" min-width="220" show-overflow-tooltip />
             <el-table-column label="启用" width="90">
               <template #default="{ row }">
-                <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '是' : '否' }}</el-tag>
+                <StatusBadge v-bind="enabledBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="操作" width="180" fixed="right">
@@ -62,7 +62,7 @@
             <el-table-column prop="type" label="类型" width="110" />
             <el-table-column prop="level" label="级别" width="90">
               <template #default="{ row }">
-                <el-tag :type="levelTagType(row.level)">{{ levelText(row.level) }}</el-tag>
+                <StatusBadge v-bind="levelBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="message" label="问题" min-width="180" show-overflow-tooltip />
@@ -120,6 +120,8 @@ import { onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { booleanEnabledStatusMeta, sqlauditAuditLevelMeta } from '@/utils/status'
 
 const loading = ref(false)
 const rules = ref([])
@@ -145,8 +147,28 @@ const analyzeResult = ref(null)
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
+const levelMeta = (row) => sqlauditAuditLevelMeta(row, {
+  source: 'SQL审核规则',
+  checkAt: row?.updated_at || row?.created_at
+})
+
 const levelText = (v) => ({ 0: 'INFO', 1: 'WARNING', 2: 'ERROR' }[v] || '-')
-const levelTagType = (v) => ({ 0: 'info', 1: 'warning', 2: 'danger' }[v] || 'info')
+const levelBadge = (row) => {
+  const meta = levelMeta(row)
+  if (meta.text === '通过') return { ...meta, text: 'INFO' }
+  if (meta.text === '警告') return { ...meta, text: 'WARNING' }
+  if (meta.text === '错误') return { ...meta, text: 'ERROR' }
+  return meta
+}
+
+const enabledBadge = (row) => booleanEnabledStatusMeta(row, {
+  source: 'SQL审核规则',
+  enabledText: '是',
+  disabledText: '否',
+  enabledReason: '规则已启用',
+  disabledReason: '规则已停用',
+  checkAt: row?.updated_at || row?.created_at
+})
 
 const fetchRules = async () => {
   loading.value = true

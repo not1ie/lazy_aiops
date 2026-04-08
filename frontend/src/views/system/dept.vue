@@ -20,7 +20,7 @@
       <el-table-column prop="sort" label="排序" width="80" />
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '启用' : '禁用' }}</el-tag>
+          <StatusBadge v-bind="deptStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="200">
@@ -78,6 +78,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const tableData = ref([])
 const visible = ref(false)
@@ -96,6 +97,16 @@ const authHeaders = () => ({
   Authorization: 'Bearer ' + localStorage.getItem('token')
 })
 const getErrorMessage = (err, fallback = '操作失败') => err?.response?.data?.message || err?.message || fallback
+const deptStatusBadge = (row) => {
+  const enabled = Number(row?.status) === 1
+  return {
+    text: enabled ? '启用' : '禁用',
+    type: enabled ? 'success' : 'info',
+    source: '组织架构',
+    checkAt: row?.updated_at || row?.created_at || '',
+    reason: enabled ? '部门可参与组织权限与流程分配' : '部门已禁用，不再参与流程流转'
+  }
+}
 
 const resetForm = () => {
   form.id = ''

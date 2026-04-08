@@ -17,7 +17,7 @@
       <el-table-column prop="provider" label="Provider" width="120" />
       <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          <StatusBadge v-bind="executionStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="trigger" label="触发方式" width="120" />
@@ -43,6 +43,7 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const executions = ref([])
 const loading = ref(false)
@@ -110,6 +111,14 @@ const statusType = (status) => {
   if (status === 3) return 'info'
   return 'danger'
 }
+
+const executionStatusBadge = (row) => ({
+  text: statusLabel(row?.status),
+  type: statusType(row?.status),
+  source: 'CI/CD执行',
+  checkAt: row?.finished_at || row?.started_at || '',
+  reason: row?.pipeline_name ? `流水线 ${row.pipeline_name}` : '流水线执行状态'
+})
 
 onMounted(fetchData)
 </script>

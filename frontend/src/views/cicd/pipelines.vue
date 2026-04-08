@@ -29,7 +29,7 @@
       </el-table-column>
       <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '启用' : '禁用' }}</el-tag>
+          <StatusBadge v-bind="pipelineStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
@@ -190,6 +190,7 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const pipelines = ref([])
 const credentialOptions = ref([])
@@ -241,6 +242,16 @@ const triggerForm = reactive({
 })
 
 const usingUnifiedCredential = computed(() => Boolean(form.credential_id))
+const pipelineStatusBadge = (row) => {
+  const enabled = Number(row?.status) === 1
+  return {
+    text: enabled ? '启用' : '禁用',
+    type: enabled ? 'success' : 'info',
+    source: '流水线配置',
+    checkAt: row?.updated_at || row?.created_at || '',
+    reason: enabled ? '流水线可触发执行' : '流水线已停用'
+  }
+}
 
 const resetForm = () => {
   Object.assign(form, {

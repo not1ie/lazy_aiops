@@ -503,7 +503,7 @@ const alertStatusText = (status) => {
 }
 
 const alertStatusBadge = (row) => {
-  const meta = monitorAlertStatusMeta(row?.status)
+  const meta = monitorAlertStatusMeta(row)
   const parts = []
   if (row?.severity) parts.push(`级别: ${severityText(row.severity)}`)
   if (row?.target) parts.push(`目标: ${row.target}`)
@@ -511,7 +511,11 @@ const alertStatusBadge = (row) => {
   return {
     text: meta.text,
     type: meta.type,
-    reason: parts.join(' | '),
+    source: meta.source,
+    checkAt: meta.checkAt,
+    reason: parts.join(' | ') || meta.reason,
+    isStale: meta.isStale,
+    staleText: meta.staleText,
     updatedAt: row?.updated_at || row?.fired_at || row?.created_at
   }
 }

@@ -23,7 +23,7 @@
       <el-table-column prop="cron" label="Cron" min-width="180" />
       <el-table-column prop="enabled" label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+          <StatusBadge v-bind="scheduleStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="next_run_at" label="下次执行" width="180" />
@@ -71,6 +71,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const schedules = ref([])
 const pipelines = ref([])
@@ -137,6 +138,14 @@ const pipelineName = (id) => {
   const target = pipelines.value.find((item) => item.id === id)
   return target ? target.name : id
 }
+
+const scheduleStatusBadge = (row) => ({
+  text: row?.enabled ? '启用' : '停用',
+  type: row?.enabled ? 'success' : 'info',
+  source: '定时发布',
+  checkAt: row?.updated_at || row?.next_run_at || row?.created_at || '',
+  reason: row?.enabled ? '计划任务将按 CRON 触发' : '计划任务已停用'
+})
 
 const openCreate = async () => {
   await fetchPipelines()

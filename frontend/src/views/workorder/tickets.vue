@@ -59,7 +59,7 @@
       </el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
+          <StatusBadge v-bind="statusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="submitter" label="提交人" width="100" />
@@ -229,8 +229,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const loading = ref(false)
 const orders = ref([])
@@ -258,6 +259,7 @@ const detailOrderId = ref('')
 const detail = ref({ order: null, steps: [], comments: [], workflow_runtime: null })
 const detailRefreshTimer = ref(null)
 const commentInput = ref('')
+const route = useRoute()
 const router = useRouter()
 
 const statusOptions = [
@@ -343,6 +345,13 @@ const statusText = (v) => ({
 }[v] || '-')
 
 const statusType = (v) => ({ 0: 'warning', 1: 'primary', 2: 'success', 3: 'danger', 4: 'primary', 5: 'success', 6: 'info' }[v] || 'info')
+const statusBadge = (row) => ({
+  text: statusText(row?.status),
+  type: statusType(row?.status),
+  source: '工单引擎',
+  checkAt: row?.updated_at || row?.created_at || '',
+  reason: row?.type_name ? `工单类型: ${row.type_name}` : '工单流转状态'
+})
 const stepStatusText = (v) => ({ 0: '待审批', 1: '通过', 2: '拒绝' }[v] || '-')
 const riskTagType = (v) => ({ high: 'danger', medium: 'warning', low: 'success' }[String(v || '').toLowerCase()] || 'info')
 const workflowStatusTagType = (v) => ({ 0: 'primary', 1: 'success', 2: 'danger', 3: 'warning', 4: 'warning' }[Number(v)] || 'info')
@@ -416,6 +425,23 @@ const fetchOrders = async () => {
     ElMessage.error(getErrorMessage(err, '获取工单失败'))
   } finally {
     loading.value = false
+  }
+}
+
+const maybeOpenDetailFromQuery = async () => {
+  const targetID = String(route.query?.workorder_id || '').trim()
+  if (!targetID) return
+  const row = orders.value.find((item) => String(item.id || '') === targetID)
+  if (row) {
+    await openDetail(row)
+    return
+  }
+  try {
+    await fetchDetail(targetID)
+    detailOrderId.value = targetID
+    detailVisible.value = true
+  } catch (_) {
+    // ignore not found
   }
 }
 
@@ -593,7 +619,10 @@ const submitComment = async () => {
   }
 }
 
-onMounted(reloadAll)
+onMounted(async () => {
+  await reloadAll()
+  await maybeOpenDetailFromQuery()
+})
 onUnmounted(() => {
   clearDetailRefreshTimer()
 })

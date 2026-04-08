@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,7 @@ import (
 type JumpHandler struct {
 	db        *gorm.DB
 	secretKey string
+	syncMu    sync.Mutex
 }
 
 type syncStat struct {

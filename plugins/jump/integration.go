@@ -239,6 +239,9 @@ func (h *JumpHandler) TestIntegrationConnection(c *gin.Context) {
 }
 
 func (h *JumpHandler) SyncFromJumpServer(c *gin.Context) {
+	h.syncMu.Lock()
+	defer h.syncMu.Unlock()
+
 	result, err := h.syncFromJumpServerAssets(true)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -261,6 +264,9 @@ func (h *JumpHandler) SyncFromJumpServer(c *gin.Context) {
 }
 
 func (h *JumpHandler) SyncJumpServerSessions(c *gin.Context) {
+	h.syncMu.Lock()
+	defer h.syncMu.Unlock()
+
 	result, err := h.syncFromJumpServerSessions(true)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -275,6 +281,68 @@ func (h *JumpHandler) SyncJumpServerSessions(c *gin.Context) {
 		"data":    result,
 		"message": fmt.Sprintf("JumpServer 会话同步完成，会话新增%d更新%d，命令新增%d更新%d", result.Sessions.Created, result.Sessions.Updated, result.Commands.Created, result.Commands.Updated),
 	})
+}
+
+func (h *JumpHandler) runAutoSyncCycle(trigger string) error {
+	if h == nil || h.db == nil {
+		return nil
+	}
+	cfg, err := h.getOrCreateJumpIntegrationConfig()
+	if err != nil {
+		return err
+	}
+	if cfg == nil || !cfg.Enabled || !cfg.AutoSync {
+		return nil
+	}
+
+	h.syncMu.Lock()
+	defer h.syncMu.Unlock()
+
+	assetResult, assetErr := h.syncFromJumpServerAssets(false)
+	sessionResult, sessionErr := h.syncFromJumpServerSessions(false)
+
+	now := time.Now()
+	buildSummary := func() string {
+		return fmt.Sprintf(
+			"trigger=%s, assets +%d/%d, sessions +%d/%d, commands +%d/%d",
+			trigger,
+			assetResult.Total.Created,
+			assetResult.Total.Updated,
+			sessionResult.Sessions.Created,
+			sessionResult.Sessions.Updated,
+			sessionResult.Commands.Created,
+			sessionResult.Commands.Updated,
+		)
+	}
+
+	status := "ok"
+	msgParts := []string{buildSummary()}
+	if assetErr != nil {
+		status = "partial"
+		msgParts = append(msgParts, "assets: "+truncateJumpText(assetErr.Error(), 260))
+	}
+	if sessionErr != nil {
+		if status == "partial" {
+			status = "failed"
+		} else {
+			status = "partial"
+		}
+		msgParts = append(msgParts, "sessions: "+truncateJumpText(sessionErr.Error(), 260))
+	}
+	if assetErr != nil && sessionErr != nil {
+		status = "failed"
+	}
+
+	_ = h.db.Model(cfg).Updates(map[string]interface{}{
+		"last_sync_at":     now,
+		"last_sync_status": status,
+		"last_sync_msg":    truncateJumpText(strings.Join(msgParts, "; "), 500),
+	}).Error
+
+	if assetErr != nil && sessionErr != nil {
+		return fmt.Errorf("JumpServer 自动同步失败: %s", truncateJumpText(strings.Join(msgParts, "; "), 300))
+	}
+	return nil
 }
 
 func (h *JumpHandler) syncFromJumpServerAssets(strict bool) (jumpServerSyncResult, error) {

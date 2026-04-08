@@ -38,15 +38,49 @@
       </el-table-column>
       <el-table-column prop="status" label="状态" width="120">
         <template #default="scope">
-          <el-tag :type="statusTag(scope.row.status)">{{ statusText(scope.row.status) }}</el-tag>
+          <StatusBadge
+            :text="alertStatusMeta(scope.row).text"
+            :type="alertStatusMeta(scope.row).type"
+            :source="alertStatusMeta(scope.row).source"
+            :check-at="alertStatusMeta(scope.row).checkAt"
+            :is-stale="alertStatusMeta(scope.row).isStale"
+            :stale-text="alertStatusMeta(scope.row).staleText"
+            :reason="alertStatusMeta(scope.row).reason"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column label="联动" min-width="210">
+        <template #default="scope">
+          <div class="linkage-wrap" v-if="scope.row.work_order_id">
+            <el-tag type="info" size="small">工单 {{ shortID(scope.row.work_order_id) }}</el-tag>
+            <el-tag v-if="scope.row.workflow_execution_id" type="success" size="small">执行 {{ shortID(scope.row.workflow_execution_id) }}</el-tag>
+          </div>
+          <span v-else>-</span>
         </template>
       </el-table-column>
       <el-table-column prop="fired_at" label="触发时间" min-width="180" />
-      <el-table-column label="操作" width="220">
+      <el-table-column label="操作" width="320">
         <template #default="scope">
           <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
           <el-button size="small" type="primary" @click="ack(scope.row)">确认</el-button>
           <el-button size="small" type="success" @click="resolve(scope.row)">恢复</el-button>
+          <el-button
+            size="small"
+            type="warning"
+            plain
+            :disabled="!!scope.row.work_order_id"
+            @click="createWorkOrder(scope.row)"
+          >
+            转工单
+          </el-button>
+          <el-button
+            v-if="scope.row.work_order_id"
+            size="small"
+            plain
+            @click="openWorkOrder(scope.row)"
+          >
+            工单
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -59,6 +93,8 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { monitorAlertStatusMeta } from '@/utils/status'
 
 const alerts = ref([])
 const status = ref('')
@@ -114,18 +150,47 @@ const openDetail = (row) => {
   router.push({ path: '/alert/events/detail', query: { id: row.id } })
 }
 
-const statusText = (s) => {
-  if (s === 0) return '未处理'
-  if (s === 1) return '已确认'
-  if (s === 2) return '已恢复'
-  return '已抑制'
+const shortID = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return '-'
+  return text.slice(0, 8)
 }
 
-const statusTag = (s) => {
-  if (s === 0) return 'danger'
-  if (s === 1) return 'warning'
-  if (s === 2) return 'success'
-  return 'info'
+const createWorkOrder = async (row) => {
+  try {
+    await ElMessageBox.confirm('确认将该告警转换为工单吗？工单将进入审批流程。', '告警联动', { type: 'warning' })
+    const priority = row.severity === 'critical' ? 1 : (row.severity === 'warning' ? 2 : 3)
+    await axios.post(
+      `/api/v1/alert/alerts/${row.id}/create-workorder`,
+      { type_code: 'incident', priority },
+      { headers: authHeaders() }
+    )
+    ElMessage.success('已生成联动工单')
+    await fetchAlerts()
+  } catch (err) {
+    if (!isCancelError(err)) {
+      ElMessage.error(getErrorMessage(err, '告警转工单失败'))
+    }
+  }
+}
+
+const openWorkOrder = (row) => {
+  if (!row?.work_order_id) return
+  router.push({ path: '/workorder/tickets', query: { workorder_id: row.work_order_id } })
+}
+
+const alertStatusMeta = (row) => {
+  const meta = monitorAlertStatusMeta(row)
+  const reason = [
+    row?.status_reason,
+    row?.message,
+    row?.target ? `目标: ${row.target}` : '',
+    row?.metric ? `指标: ${row.metric}` : ''
+  ].filter(Boolean).join(' | ')
+  return {
+    ...meta,
+    reason: reason || meta.reason
+  }
 }
 
 const severityTag = (s) => {
@@ -145,4 +210,5 @@ onMounted(fetchAlerts)
 .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .w-40 { width: 160px; }
 .w-52 { width: 220px; }
+.linkage-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
 </style>

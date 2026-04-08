@@ -31,7 +31,7 @@
       <el-table-column prop="ip" label="IP" width="150" />
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'danger'">{{ row.status === 1 ? '成功' : '失败' }}</el-tag>
+          <StatusBadge v-bind="loginStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column prop="message" label="结果" min-width="160" show-overflow-tooltip />
@@ -60,6 +60,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const loading = ref(false)
 const logs = ref([])
@@ -82,6 +83,17 @@ const formatTime = (value) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
   return date.toLocaleString()
+}
+
+const loginStatusBadge = (row) => {
+  const success = Number(row?.status) === 1
+  return {
+    text: success ? '成功' : '失败',
+    type: success ? 'success' : 'danger',
+    source: '登录审计',
+    checkAt: row?.login_at || '',
+    reason: row?.message || (success ? '登录认证成功' : '登录认证失败')
+  }
 }
 
 const fetchLogs = async () => {

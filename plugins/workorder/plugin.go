@@ -1,6 +1,11 @@
 package workorder
 
 import (
+	"log"
+	"strconv"
+	"sync"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
@@ -13,8 +18,11 @@ func init() {
 }
 
 type WorkOrderPlugin struct {
-	core *core.Core
-	cfg  map[string]interface{}
+	core         *core.Core
+	cfg          map[string]interface{}
+	statusTicker *time.Ticker
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
 }
 
 func (p *WorkOrderPlugin) Name() string        { return "workorder" }
@@ -29,10 +37,45 @@ func (p *WorkOrderPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 
 func (p *WorkOrderPlugin) Start() error {
 	p.initDefaultTypes()
+	interval := p.reconcileInterval()
+	p.statusTicker = time.NewTicker(interval)
+	p.stopCh = make(chan struct{})
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		if checked, updated, err := reconcileWorkflowLinkedOrders(p.core.DB, "system/reconcile", defaultReconcileBatchLimit); err != nil {
+			log.Printf("[WorkOrder] reconcile bootstrap failed: %v", err)
+		} else if checked > 0 || updated > 0 {
+			log.Printf("[WorkOrder] reconcile bootstrap checked=%d updated=%d", checked, updated)
+		}
+		for {
+			select {
+			case <-p.stopCh:
+				return
+			case <-p.statusTicker.C:
+				if checked, updated, err := reconcileWorkflowLinkedOrders(p.core.DB, "system/reconcile", defaultReconcileBatchLimit); err != nil {
+					log.Printf("[WorkOrder] reconcile tick failed: %v", err)
+				} else if updated > 0 {
+					log.Printf("[WorkOrder] reconcile tick checked=%d updated=%d", checked, updated)
+				}
+			}
+		}
+	}()
 	return nil
 }
 
-func (p *WorkOrderPlugin) Stop() error { return nil }
+func (p *WorkOrderPlugin) Stop() error {
+	if p.statusTicker != nil {
+		p.statusTicker.Stop()
+		p.statusTicker = nil
+	}
+	if p.stopCh != nil {
+		close(p.stopCh)
+		p.stopCh = nil
+	}
+	p.wg.Wait()
+	return nil
+}
 
 func (p *WorkOrderPlugin) Migrate() error {
 	return p.core.DB.AutoMigrate(
@@ -85,5 +128,41 @@ func (p *WorkOrderPlugin) initDefaultTypes() {
 		if count == 0 {
 			p.core.DB.Create(&t)
 		}
+	}
+}
+
+func (p *WorkOrderPlugin) reconcileInterval() time.Duration {
+	const fallback = 30 * time.Second
+	if p.cfg == nil {
+		return fallback
+	}
+	value, ok := p.cfg["workflow_reconcile_interval_seconds"]
+	if !ok {
+		return fallback
+	}
+	parse := func(raw string) time.Duration {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return fallback
+		}
+		if n < 10 {
+			n = 10
+		}
+		if n > 300 {
+			n = 300
+		}
+		return time.Duration(n) * time.Second
+	}
+	switch v := value.(type) {
+	case int:
+		return parse(strconv.Itoa(v))
+	case int64:
+		return parse(strconv.FormatInt(v, 10))
+	case float64:
+		return parse(strconv.Itoa(int(v)))
+	case string:
+		return parse(v)
+	default:
+		return fallback
 	}
 }

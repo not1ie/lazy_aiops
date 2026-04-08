@@ -9,6 +9,8 @@
         <el-button icon="Refresh" @click="fetchDetail">刷新</el-button>
         <el-button type="primary" @click="ack">确认</el-button>
         <el-button type="success" @click="resolve">恢复</el-button>
+        <el-button type="warning" plain :disabled="!!alert.work_order_id" @click="createWorkOrder">转工单</el-button>
+        <el-button v-if="alert.work_order_id" plain @click="openWorkOrder">工单</el-button>
       </div>
     </div>
 
@@ -24,6 +26,9 @@
       <el-descriptions-item label="确认人">{{ alert.acked_by || '-' }}</el-descriptions-item>
       <el-descriptions-item label="确认时间">{{ alert.acked_at || '-' }}</el-descriptions-item>
       <el-descriptions-item label="恢复时间">{{ alert.resolved_at || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="关联工单">{{ alert.work_order_id || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Runbook执行">{{ alert.workflow_execution_id || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="状态说明" :span="2">{{ alert.status_reason || '-' }}</el-descriptions-item>
     </el-descriptions>
 
     <el-divider />
@@ -40,11 +45,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
+const router = useRouter()
 const alert = ref({})
 const labelsText = ref('')
 const annotationsText = ref('')
@@ -76,6 +82,27 @@ const resolve = async () => {
   await axios.post(`/api/v1/alert/alerts/${id}/resolve`, {}, { headers: authHeaders() })
   ElMessage.success('已恢复')
   fetchDetail()
+}
+
+const createWorkOrder = async () => {
+  const id = route.query.id
+  if (!id) return
+  try {
+    await ElMessageBox.confirm('确认将该告警转换为工单吗？工单将进入审批流程。', '告警联动', { type: 'warning' })
+    const priority = alert.value.severity === 'critical' ? 1 : (alert.value.severity === 'warning' ? 2 : 3)
+    await axios.post(`/api/v1/alert/alerts/${id}/create-workorder`, { type_code: 'incident', priority }, { headers: authHeaders() })
+    ElMessage.success('已生成联动工单')
+    await fetchDetail()
+  } catch (err) {
+    if (err !== 'cancel' && err !== 'close') {
+      ElMessage.error('告警转工单失败')
+    }
+  }
+}
+
+const openWorkOrder = () => {
+  if (!alert.value?.work_order_id) return
+  router.push({ path: '/workorder/tickets', query: { workorder_id: alert.value.work_order_id } })
 }
 
 const formatJSON = (txt) => {

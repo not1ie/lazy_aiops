@@ -80,7 +80,7 @@
             </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="workorderStatusTag(row.status)">{{ workorderStatusText(row.status) }}</el-tag>
+                <StatusBadge v-bind="workorderStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="创建时间" min-width="150">
@@ -116,7 +116,7 @@
             <el-table-column prop="trigger" label="触发方式" width="100" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="executionStatusTag(row.status)">{{ executionStatusText(row.status) }}</el-tag>
+                <StatusBadge v-bind="executionStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="发起人" width="110" prop="trigger_by" />
@@ -307,7 +307,7 @@
             <el-table-column prop="trigger" label="触发方式" width="110" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="executionStatusTag(row.status)">{{ executionStatusText(row.status) }}</el-tag>
+                <StatusBadge v-bind="executionStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="trigger_by" label="发起人" width="110" />
@@ -359,7 +359,7 @@
             <el-table-column prop="environment" label="环境" width="110" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="releaseStatusTag(row.status)">{{ releaseStatusText(row.status) }}</el-tag>
+                <StatusBadge v-bind="releaseStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="发布时间" min-width="170">
@@ -386,7 +386,7 @@
             </el-table-column>
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag :type="workorderStatusTag(row.status)">{{ workorderStatusText(row.status) }}</el-tag>
+                <StatusBadge v-bind="workorderStatusBadge(row)" />
               </template>
             </el-table-column>
             <el-table-column label="创建时间" min-width="170">
@@ -424,6 +424,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import BatchActionBar from '@/components/hub/BatchActionBar.vue'
 import QuickGroupTags from '@/components/hub/QuickGroupTags.vue'
 import BatchResultDrawer from '@/components/hub/BatchResultDrawer.vue'
@@ -862,6 +863,19 @@ const workorderStatusTag = (value) => {
   return ''
 }
 
+const workorderStatusBadge = (row) => {
+  const stale = isOrderApprovalTimeout(row)
+  return {
+    text: workorderStatusText(row?.status),
+    type: workorderStatusTag(row?.status),
+    source: '交付工单',
+    checkAt: row?.updated_at || row?.created_at || '',
+    isStale: stale,
+    staleText: stale ? '审批等待超过 30 分钟' : '',
+    reason: row?.type_name ? `类型: ${row.type_name}` : '工单流转状态'
+  }
+}
+
 const executionStatusText = (value) => {
   const v = Number(value)
   if (v === 0) return '运行中'
@@ -877,6 +891,19 @@ const executionStatusTag = (value) => {
   if (v === 0) return 'warning'
   if (v === 3) return 'info'
   return 'danger'
+}
+
+const executionStatusBadge = (row) => {
+  const longRunning = isExecutionLongRunning(row)
+  return {
+    text: executionStatusText(row?.status),
+    type: executionStatusTag(row?.status),
+    source: '流水线执行',
+    checkAt: row?.finished_at || row?.started_at || '',
+    isStale: longRunning,
+    staleText: longRunning ? '执行持续超过 30 分钟' : '',
+    reason: row?.pipeline_name ? `流水线: ${row.pipeline_name}` : '执行状态'
+  }
 }
 
 const releaseStatusText = (value) => {
@@ -895,6 +922,14 @@ const releaseStatusTag = (value) => {
   if (v === 2) return 'info'
   return 'danger'
 }
+
+const releaseStatusBadge = (row) => ({
+  text: releaseStatusText(row?.status),
+  type: releaseStatusTag(row?.status),
+  source: '发布中心',
+  checkAt: row?.released_at || row?.updated_at || row?.created_at || '',
+  reason: row?.environment ? `环境: ${row.environment}` : '发布状态'
+})
 
 const formatTime = (value) => {
   if (!value) return '-'

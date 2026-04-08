@@ -18,7 +18,7 @@
       <el-table-column prop="local_path" label="本地路径" min-width="220" show-overflow-tooltip />
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
-          <el-tag :type="repoStatusType(row.status)">{{ repoStatusText(row.status) }}</el-tag>
+          <StatusBadge v-bind="repoStatusBadge(row)" />
         </template>
       </el-table-column>
       <el-table-column label="最后同步" width="130">
@@ -64,7 +64,7 @@
         <el-descriptions-item label="URL">{{ detailRow?.url || '-' }}</el-descriptions-item>
         <el-descriptions-item label="分支">{{ detailRow?.branch || '-' }}</el-descriptions-item>
         <el-descriptions-item label="本地路径">{{ detailRow?.local_path || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ repoStatusText(detailRow?.status) }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ repoStatusLabel(detailRow?.status) }}</el-descriptions-item>
         <el-descriptions-item label="最后同步">{{ formatTime(detailRow?.last_sync_at) }}</el-descriptions-item>
         <el-descriptions-item label="描述">{{ detailRow?.description || '-' }}</el-descriptions-item>
       </el-descriptions>
@@ -80,6 +80,8 @@ import { onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { gitRepoStatusMeta } from '@/utils/status'
 
 const repos = ref([])
 const loading = ref(false)
@@ -97,17 +99,12 @@ const form = ref({
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
-const repoStatusText = (status) => {
-  if (status === 1) return '同步中'
-  if (status === 2) return '异常'
-  return '正常'
-}
+const repoStatusBadge = (row) => gitRepoStatusMeta(row, {
+  source: 'GitOps同步',
+  checkAt: row?.last_sync_at || row?.updated_at
+})
 
-const repoStatusType = (status) => {
-  if (status === 1) return 'warning'
-  if (status === 2) return 'danger'
-  return 'success'
-}
+const repoStatusLabel = (status) => gitRepoStatusMeta(status).text
 
 const formatTime = (v) => {
   if (!v) return '-'

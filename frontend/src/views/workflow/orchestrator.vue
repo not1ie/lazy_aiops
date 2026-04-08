@@ -40,7 +40,7 @@
           <el-table-column prop="workflow_name" label="目标 Runbook" min-width="180" show-overflow-tooltip />
           <el-table-column label="状态" width="90">
             <template #default="{ row }">
-              <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+              <StatusBadge v-bind="ruleEnabledBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column label="触发/失败" width="110">
@@ -84,7 +84,7 @@
           <el-table-column prop="summary" label="摘要" min-width="260" show-overflow-tooltip />
           <el-table-column label="状态" width="120">
             <template #default="{ row }">
-              <el-tag :type="eventStatusType(row.status)">{{ row.status || '-' }}</el-tag>
+              <StatusBadge v-bind="eventStatusBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column label="规则命中" width="100">
@@ -115,7 +115,7 @@
           <el-table-column prop="workflow_name" label="Runbook" min-width="180" show-overflow-tooltip />
           <el-table-column prop="status" label="状态" width="100">
             <template #default="{ row }">
-              <el-tag :type="dispatchStatusType(row.status)">{{ row.status || '-' }}</el-tag>
+              <StatusBadge v-bind="dispatchStatusBadge(row)" />
             </template>
           </el-table-column>
           <el-table-column prop="trigger_by" label="触发来源" width="140" />
@@ -261,6 +261,8 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { booleanEnabledStatusMeta, workflowDispatchStatusMeta, workflowEventStatusMeta } from '@/utils/status'
 
 const activeTab = ref('rules')
 
@@ -338,20 +340,22 @@ const formatTime = (value) => {
   return d.toLocaleString()
 }
 
-const eventStatusType = (status) => {
-  if (status === 'dispatched') return 'success'
-  if (status === 'partial') return 'warning'
-  if (status === 'failed') return 'danger'
-  if (status === 'ignored') return 'info'
-  return 'primary'
-}
+const ruleEnabledBadge = (row) => booleanEnabledStatusMeta(row, {
+  source: '编排规则',
+  enabledReason: '规则已启用',
+  disabledReason: '规则已停用',
+  checkAt: row?.updated_at || row?.last_triggered_at
+})
 
-const dispatchStatusType = (status) => {
-  if (status === 'success') return 'success'
-  if (status === 'failed') return 'danger'
-  if (status === 'skipped') return 'warning'
-  return 'info'
-}
+const eventStatusBadge = (row) => workflowEventStatusMeta(row, {
+  source: '编排事件',
+  checkAt: row?.updated_at || row?.received_at
+})
+
+const dispatchStatusBadge = (row) => workflowDispatchStatusMeta(row, {
+  source: '编排分发',
+  checkAt: row?.finished_at || row?.started_at
+})
 
 const parseJSONObject = (raw, fallback = {}) => {
   const content = String(raw || '').trim()
