@@ -649,7 +649,7 @@ const workspacePresets = [
     key: 'asset-ops',
     label: '资产管理视图',
     category: 'asset',
-    paths: ['/asset/overview', '/host', '/terminal']
+    paths: ['/host', '/terminal', '/cmdb/group']
   },
   {
     key: 'k8s-oncall',
@@ -1592,7 +1592,6 @@ const moduleQuickLinks = [
     key: 'asset',
     prefixes: ['/asset', '/host', '/cmdb', '/firewall', '/jump', '/terminal'],
     links: [
-      { label: '资产总览', path: '/asset/overview', permAny: ['cmdb'] },
       { label: '主机管理', path: '/host', permAny: ['cmdb'] },
       { label: '主机分组', path: '/cmdb/group', permAny: ['cmdb'] },
       { label: '凭据管理', path: '/cmdb/credential', permAny: ['cmdb'] },

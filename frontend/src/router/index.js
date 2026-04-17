@@ -31,7 +31,7 @@ const routes = [
       },
       {
         path: 'cmdb',
-        redirect: '/asset/overview'
+        redirect: '/host'
       },
       {
         path: 'k8s',
@@ -61,9 +61,7 @@ const routes = [
       // CMDB / Asset
       {
         path: 'asset/overview',
-        name: 'AssetOverview',
-        component: () => import('@/views/hub/asset.vue'),
-        meta: { title: '资产总览', icon: 'DataBoard', perm: 'cmdb' }
+        redirect: '/host'
       },
       {
         path: 'asset/ops',

@@ -7,17 +7,6 @@
       </div>
     </div>
 
-    <div class="hub-tabs-wrap">
-      <el-tabs v-model="activeTab" @tab-click="handleTabClick">
-        <el-tab-pane
-          v-for="tab in visibleTabs"
-          :key="tab.key"
-          :name="tab.key"
-          :label="tab.label"
-        />
-      </el-tabs>
-    </div>
-
     <div class="hub-panel">
       <component :is="activeComponent" />
     </div>
@@ -141,13 +130,6 @@ watch(
   { immediate: true }
 )
 
-const handleTabClick = (pane) => {
-  const tab = String(pane?.paneName || '').trim()
-  if (!tab) return
-  activeTab.value = tab
-  updateRouteTab(tab)
-}
-
 const activeComponent = computed(() => {
   const tab = visibleTabs.value.find((item) => item.key === activeTab.value)
   return tab?.component || null
@@ -172,10 +154,6 @@ const activeComponent = computed(() => {
 .hub-header p {
   margin: 8px 0 0;
   color: var(--el-text-color-secondary);
-}
-
-.hub-tabs-wrap {
-  margin-bottom: 8px;
 }
 
 .hub-panel {

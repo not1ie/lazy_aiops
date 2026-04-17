@@ -546,7 +546,7 @@ const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('toke
 const go = (path) => router.push(path)
 const workbenchTabs = [
   { label: '资产作战台', path: '/asset/ops' },
-  { label: '资产总览', path: '/asset/overview' },
+  { label: '主机管理', path: '/host' },
   { label: '容器总览', path: '/k8s/overview' },
   { label: '域名中心', path: '/domain/center' }
 ]

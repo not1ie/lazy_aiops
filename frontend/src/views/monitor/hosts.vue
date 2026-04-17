@@ -143,10 +143,12 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, onBeforeUnmount, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 
+const route = useRoute()
 const loading = ref(false)
 const chartLoading = ref(false)
 const keyword = ref('')
@@ -764,8 +766,17 @@ watch([companyFilter, envFilter], () => {
 })
 
 onMounted(() => {
+  const seedKeyword = String(route.query?.keyword || '').trim()
+  const seedInstance = String(route.query?.instance || '').trim()
+  if (seedKeyword) keyword.value = seedKeyword
+  if (seedInstance) instanceFilter.value = seedInstance
   fetchLayouts()
-  refreshAll()
+  refreshAll().then(() => {
+    if (!instanceFilter.value && keyword.value) {
+      const found = rows.value.find((item) => String(item.instance || '').toLowerCase().includes(keyword.value.toLowerCase()))
+      if (found?.instance) instanceFilter.value = found.instance
+    }
+  })
   window.addEventListener('resize', onResize)
 })
 

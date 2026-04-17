@@ -443,6 +443,9 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 
 	uname, unameErr, _ := client.Execute("uname -a")
 	osrel, osErr, _ := client.Execute("cat /etc/os-release")
+	topCPUOut, topCPUErr, _ := client.Execute("ps -eo pid,comm,%cpu,%mem --sort=-%cpu | sed -n '1,8p'")
+	topMemOut, topMemErr, _ := client.Execute("ps -eo pid,comm,%cpu,%mem --sort=-%mem | sed -n '1,8p'")
+	tcpOut, tcpErr, _ := client.Execute(`sh -c 'if command -v ss >/dev/null 2>&1; then ss -tunap | sed -n "1,120p"; elif command -v netstat >/dev/null 2>&1; then netstat -tunap 2>/dev/null | sed -n "1,120p"; else echo "ss/netstat not found"; fi'`)
 
 	// 若成功拿到系统信息，则回写 OS
 	if strings.TrimSpace(osrel) != "" {
@@ -470,6 +473,20 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 	result := gin.H{
 		"uname":      gin.H{"out": uname, "err": unameErr},
 		"os_release": gin.H{"out": osrel, "err": osErr},
+		"processes": gin.H{
+			"top_cpu": parseProcessRows(topCPUOut),
+			"top_mem": parseProcessRows(topMemOut),
+			"errors": gin.H{
+				"top_cpu": strings.TrimSpace(topCPUErr),
+				"top_mem": strings.TrimSpace(topMemErr),
+			},
+		},
+	}
+	tcpRows, tcpSummary := parseTCPRows(tcpOut)
+	result["tcp_connections"] = tcpRows
+	result["tcp_summary"] = tcpSummary
+	result["tcp_probe"] = gin.H{
+		"error": strings.TrimSpace(tcpErr),
 	}
 
 	now := time.Now()
@@ -500,6 +517,113 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 	_ = h.db.Model(&Host{}).Where("id = ?", host.ID).Updates(updates).Error
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
+func parseProcessRows(raw string) []gin.H {
+	lines := strings.Split(raw, "\n")
+	rows := make([]gin.H, 0, 8)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "pid") || strings.Contains(lower, "%cpu") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		rows = append(rows, gin.H{
+			"pid":     fields[0],
+			"command": fields[1],
+			"cpu":     fields[2],
+			"memory":  fields[3],
+		})
+		if len(rows) >= 6 {
+			break
+		}
+	}
+	return rows
+}
+
+func parseTCPRows(raw string) ([]gin.H, gin.H) {
+	lines := strings.Split(raw, "\n")
+	rows := make([]gin.H, 0, 80)
+	stateCounter := map[string]int{}
+	formatSS := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "netid ") {
+			formatSS = true
+			continue
+		}
+		if strings.HasPrefix(lower, "proto ") || strings.HasPrefix(lower, "active internet") {
+			formatSS = false
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+
+		proto := fields[0]
+		state := ""
+		localAddr := ""
+		remoteAddr := ""
+		process := ""
+
+		if formatSS {
+			if len(fields) < 6 {
+				continue
+			}
+			state = fields[1]
+			localAddr = fields[4]
+			remoteAddr = fields[5]
+			if len(fields) > 6 {
+				process = strings.Join(fields[6:], " ")
+			}
+		} else {
+			if len(fields) < 6 {
+				continue
+			}
+			localAddr = fields[3]
+			remoteAddr = fields[4]
+			state = fields[5]
+			if len(fields) > 6 {
+				process = strings.Join(fields[6:], " ")
+			}
+		}
+
+		if !strings.HasPrefix(strings.ToLower(proto), "tcp") {
+			continue
+		}
+		normalized := strings.ToLower(strings.TrimSpace(state))
+		stateCounter[normalized]++
+		rows = append(rows, gin.H{
+			"proto":   proto,
+			"state":   state,
+			"local":   localAddr,
+			"remote":  remoteAddr,
+			"process": process,
+		})
+		if len(rows) >= 80 {
+			break
+		}
+	}
+
+	summary := gin.H{
+		"total":       len(rows),
+		"established": stateCounter["established"] + stateCounter["estab"],
+		"listen":      stateCounter["listen"],
+		"time_wait":   stateCounter["time-wait"] + stateCounter["time_wait"],
+	}
+	return rows, summary
 }
 
 // Get 获取主机详情
