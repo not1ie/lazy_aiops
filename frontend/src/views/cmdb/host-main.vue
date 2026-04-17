@@ -5,6 +5,10 @@
         <span class="font-bold">CMDB 主机管理</span>
         <div class="header-actions">
           <el-button type="primary" icon="Plus" @click="handleAdd">添加主机</el-button>
+          <el-button type="primary" plain icon="Connection" :disabled="selectedRows.length !== 1" @click="openConnectionEditor">
+            连接信息
+          </el-button>
+          <el-button plain icon="FolderOpened" @click="openGroupManager">分组管理</el-button>
           <el-button icon="Upload" @click="openImport">批量导入</el-button>
           <el-button icon="Download" @click="exportCSV">导出</el-button>
           <el-button type="warning" plain icon="Edit" :disabled="selectedRows.length === 0" @click="openBatchStatus">
@@ -25,7 +29,10 @@
           <template #header>
             <div class="group-card-header">
               <span>资产分组</span>
-              <el-button link type="primary" @click="clearGroupFilter">重置</el-button>
+              <div class="group-card-header-actions">
+                <el-button link type="primary" @click="openGroupManager">管理</el-button>
+                <el-button link type="primary" @click="clearGroupFilter">重置</el-button>
+              </div>
             </div>
           </template>
           <el-input
@@ -127,22 +134,22 @@
             <el-table-column prop="os" label="操作系统" min-width="160" show-overflow-tooltip />
             <el-table-column label="CPU" width="96" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :type="metricTagType(hostMetric(row).cpu)">
-                  {{ formatPercent(hostMetric(row).cpu, row.cpu) }}
+                <el-tag size="small" :effect="hasMetricValue(row, 'cpu') ? 'light' : 'plain'" :type="metricTagType(metricValue(row, 'cpu'))">
+                  {{ metricText(row, 'cpu') }}
                 </el-tag>
               </template>
             </el-table-column>
             <el-table-column label="内存" width="96" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :type="metricTagType(hostMetric(row).memory)">
-                  {{ formatPercent(hostMetric(row).memory, row.memory) }}
+                <el-tag size="small" :effect="hasMetricValue(row, 'memory') ? 'light' : 'plain'" :type="metricTagType(metricValue(row, 'memory'))">
+                  {{ metricText(row, 'memory') }}
                 </el-tag>
               </template>
             </el-table-column>
             <el-table-column label="磁盘" width="96" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :type="metricTagType(hostMetric(row).disk)">
-                  {{ formatPercent(hostMetric(row).disk, row.disk) }}
+                <el-tag size="small" :effect="hasMetricValue(row, 'disk') ? 'light' : 'plain'" :type="metricTagType(metricValue(row, 'disk'))">
+                  {{ metricText(row, 'disk') }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -172,9 +179,10 @@
             <el-table-column prop="group.name" label="分组" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">{{ row?.group?.name || '-' }}</template>
             </el-table-column>
-            <el-table-column label="操作" min-width="560" show-overflow-tooltip>
+            <el-table-column label="操作" width="430" fixed="right" show-overflow-tooltip>
               <template #default="{ row }">
                 <div class="op-row">
+                  <el-button size="small" type="primary" plain icon="Connection" @click="handleEdit(row)">连接</el-button>
                   <el-button size="small" plain icon="View" @click="openDetail(row)">详情</el-button>
                   <el-button size="small" type="success" plain icon="DataAnalysis" @click="openInspect(row, 'process')">进程</el-button>
                   <el-button size="small" type="info" plain icon="Connection" @click="openInspect(row, 'tcp')">TCP</el-button>
@@ -223,15 +231,15 @@
       <div class="detail-metrics">
         <div class="metric-card">
           <span class="metric-label">CPU</span>
-          <strong>{{ formatPercent(hostMetric(detailHost).cpu, detailHost?.cpu) }}</strong>
+          <strong>{{ metricText(detailHost, 'cpu') }}</strong>
         </div>
         <div class="metric-card">
           <span class="metric-label">内存</span>
-          <strong>{{ formatPercent(hostMetric(detailHost).memory, detailHost?.memory) }}</strong>
+          <strong>{{ metricText(detailHost, 'memory') }}</strong>
         </div>
         <div class="metric-card">
           <span class="metric-label">磁盘</span>
-          <strong>{{ formatPercent(hostMetric(detailHost).disk, detailHost?.disk) }}</strong>
+          <strong>{{ metricText(detailHost, 'disk') }}</strong>
         </div>
         <div class="metric-card">
           <span class="metric-label">最后检测</span>
@@ -645,6 +653,19 @@ const formatPercent = (metricValue, fallback = '') => {
   return '-'
 }
 
+const metricValue = (row, key) => {
+  const metricNum = toNumber(hostMetric(row)?.[key])
+  return Number.isFinite(metricNum) ? metricNum : NaN
+}
+
+const hasMetricValue = (row, key) => Number.isFinite(metricValue(row, key))
+
+const metricText = (row, key) => {
+  const value = metricValue(row, key)
+  if (!Number.isFinite(value)) return '--'
+  return `${value.toFixed(1)}%`
+}
+
 const metricTagType = (value) => {
   const num = toNumber(value)
   if (!Number.isFinite(num)) return 'info'
@@ -757,6 +778,18 @@ const clearGroupFilter = () => {
   nextTick(() => {
     groupTreeRef.value?.setCurrentKey('all')
   })
+}
+
+const openGroupManager = () => {
+  router.push({ path: '/host', query: { tab: 'group' } })
+}
+
+const openConnectionEditor = () => {
+  if (selectedRows.value.length !== 1) {
+    ElMessage.warning('请选择 1 台主机后再编辑连接信息')
+    return
+  }
+  handleEdit(selectedRows.value[0])
 }
 
 const fetchData = async () => {
@@ -1499,6 +1532,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   font-weight: 600;
+}
+
+.group-card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .group-search { margin-bottom: 10px; }

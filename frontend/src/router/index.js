@@ -108,7 +108,7 @@ const routes = [
       {
         path: 'firewall',
         name: 'Firewall',
-        component: () => import('@/views/firewall/index.vue'),
+        redirect: '/host?tab=network',
         meta: { title: '防火墙管理', icon: 'Lock', perm: 'firewall' }
       },
 

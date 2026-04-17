@@ -3,7 +3,7 @@
     <div class="hub-header">
       <div>
         <h2>资产管理中心</h2>
-        <p>主机、分组、凭据、数据库、云资源、网络设备、防火墙与堡垒机资产统一入口。</p>
+        <p>主机、凭据、数据库、云资源、网络与防火墙、堡垒机资产统一入口。</p>
       </div>
     </div>
 
@@ -53,15 +53,9 @@ const panels = [
   },
   {
     key: 'network',
-    label: '网络设备',
+    label: '网络与防火墙',
     permAny: ['cmdb'],
     component: defineAsyncComponent(() => import('@/views/cmdb/network-device.vue'))
-  },
-  {
-    key: 'firewall',
-    label: '防火墙管理',
-    permAny: ['cmdb', 'firewall'],
-    component: defineAsyncComponent(() => import('@/views/firewall/index.vue'))
   },
   {
     key: 'jump-assets',
@@ -99,7 +93,8 @@ const syncTabFromRoute = () => {
     return
   }
   const queryTab = String(route.query?.tab || '').trim()
-  const matched = available.find((item) => item.key === queryTab)
+  const normalizedTab = queryTab === 'firewall' ? 'network' : queryTab
+  const matched = available.find((item) => item.key === normalizedTab)
   activeTab.value = matched ? matched.key : available[0].key
 }
 

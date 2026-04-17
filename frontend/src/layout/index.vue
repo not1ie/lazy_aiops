@@ -1592,15 +1592,13 @@ const moduleQuickLinks = [
     key: 'asset',
     prefixes: ['/asset', '/host', '/cmdb', '/firewall', '/jump', '/terminal'],
     links: [
-      { label: '主机管理', path: '/host', permAny: ['cmdb'] },
-      { label: '主机分组', path: '/cmdb/group', permAny: ['cmdb'] },
-      { label: '凭据管理', path: '/cmdb/credential', permAny: ['cmdb'] },
-      { label: '数据库资产', path: '/cmdb/database', permAny: ['cmdb'] },
-      { label: '云资源', path: '/cmdb/cloud', permAny: ['cmdb'] },
-      { label: '网络设备', path: '/cmdb/network-devices', permAny: ['cmdb'] },
-      { label: '防火墙管理', path: '/firewall', permAny: ['cmdb', 'firewall'] },
+      { label: '主机管理', path: '/host?tab=host', permAny: ['cmdb'] },
+      { label: '连接凭据', path: '/host?tab=credential', permAny: ['cmdb'] },
+      { label: '数据库资产', path: '/host?tab=database', permAny: ['cmdb'] },
+      { label: '云资源', path: '/host?tab=cloud', permAny: ['cmdb'] },
+      { label: '网络与防火墙', path: '/host?tab=network', permAny: ['cmdb', 'firewall'] },
       { label: 'WebTerminal', path: '/terminal', permAny: ['terminal'] },
-      { label: '堡垒机资产', path: '/jump/assets', permAny: ['jump:asset'] },
+      { label: '堡垒机资产', path: '/host?tab=jump-assets', permAny: ['jump:asset'] },
       { label: '授权策略', path: '/jump/policies', permAny: ['jump:policy'] },
       { label: '命令风控', path: '/jump/command-rules', permAny: ['jump:rule'] },
       { label: '会话审计', path: '/jump/sessions', permAny: ['jump:session'] }
@@ -1905,8 +1903,15 @@ const onModuleLinkDragEnd = () => {
 }
 
 const isContextLinkActive = (path) => {
-  if (route.path === path) return true
-  return route.path.startsWith(path + '/')
+  if (!path) return false
+  const resolved = router.resolve(path)
+  if (!resolved?.path) return false
+  if (route.path !== resolved.path) return false
+  const targetQuery = resolved.query || {}
+  const currentQuery = route.query || {}
+  const keys = Object.keys(targetQuery)
+  if (!keys.length) return true
+  return keys.every((key) => String(currentQuery[key] ?? '') === String(targetQuery[key] ?? ''))
 }
 
 const fetchUserInfo = async () => {
