@@ -3187,7 +3187,7 @@ const runBacklogAction = async (key) => {
       const hostIds = backlogSource.offlineHostIds.slice(0, 3)
       const networkIds = backlogSource.offlineNetworkDeviceIds.slice(0, 3)
       await ElMessageBox.confirm(
-        `将同步防火墙资产，并巡检离线主机(${hostIds.length})/网络设备(${networkIds.length})，确认执行吗？`,
+        `将导入历史防火墙资产，并巡检离线主机(${hostIds.length})/网络设备(${networkIds.length})，确认执行吗？`,
         '资产一键处置',
         { type: 'warning' }
       )

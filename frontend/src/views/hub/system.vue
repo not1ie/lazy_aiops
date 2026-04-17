@@ -13,28 +13,14 @@
     </div>
 
     <div class="hub-tabs-wrap">
-      <div class="hub-tab-group">
-        <div class="hub-tab-group__label">核心流程</div>
-        <el-tabs :model-value="activeTab" @tab-click="handleSystemTabClick">
-          <el-tab-pane
-            v-for="tab in primaryVisibleTabs"
-            :key="`primary-${tab.key}`"
-            :name="tab.key"
-            :label="tab.label"
-          />
-        </el-tabs>
-      </div>
-      <div class="hub-tab-group">
-        <div class="hub-tab-group__label">扩展能力</div>
-        <el-tabs :model-value="activeTab" @tab-click="handleSystemTabClick">
-          <el-tab-pane
-            v-for="tab in secondaryVisibleTabs"
-            :key="`secondary-${tab.key}`"
-            :name="tab.key"
-            :label="tab.label"
-          />
-        </el-tabs>
-      </div>
+      <el-tabs :model-value="activeTab" @tab-click="handleSystemTabClick">
+        <el-tab-pane
+          v-for="tab in visibleTabs"
+          :key="tab.key"
+          :name="tab.key"
+          :label="tab.label"
+        />
+      </el-tabs>
     </div>
 
     <el-row :gutter="12" class="mt-12">
@@ -205,13 +191,6 @@ const hasAnyPerm = (codes = []) => {
 }
 
 const visibleTabs = computed(() => tabs.filter((tab) => hasAnyPerm(tab.permAny)))
-const primaryTabKeys = new Set(['users', 'roles', 'menus', 'dept', 'posts'])
-const primaryVisibleTabs = computed(() =>
-  visibleTabs.value.filter((tab) => primaryTabKeys.has(tab.key))
-)
-const secondaryVisibleTabs = computed(() =>
-  visibleTabs.value.filter((tab) => !primaryTabKeys.has(tab.key))
-)
 const activeTab = ref('')
 const renderKey = ref(0)
 const capabilityLoading = ref(false)
@@ -570,22 +549,6 @@ watch(
 
 .hub-tabs-wrap {
   margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.hub-tab-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.hub-tab-group__label {
-  flex: 0 0 64px;
-  font-size: 12px;
-  color: var(--muted-text);
-  line-height: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__header) {

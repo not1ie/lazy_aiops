@@ -1,12 +1,5 @@
 <template>
   <el-card class="asset-host-hub">
-    <div class="hub-header">
-      <div>
-        <h2>资产管理中心</h2>
-        <p>主机、凭据、数据库、云资源、网络与防火墙、堡垒机资产统一入口。</p>
-      </div>
-    </div>
-
     <div class="hub-panel">
       <component :is="activeComponent" />
     </div>
@@ -26,12 +19,6 @@ const panels = [
     label: '主机管理',
     permAny: ['cmdb'],
     component: defineAsyncComponent(() => import('@/views/cmdb/host-main.vue'))
-  },
-  {
-    key: 'group',
-    label: '主机分组',
-    permAny: ['cmdb'],
-    component: defineAsyncComponent(() => import('@/views/cmdb/group.vue'))
   },
   {
     key: 'credential',
@@ -93,7 +80,11 @@ const syncTabFromRoute = () => {
     return
   }
   const queryTab = String(route.query?.tab || '').trim()
-  const normalizedTab = queryTab === 'firewall' ? 'network' : queryTab
+  const normalizedTabMap = {
+    firewall: 'network',
+    group: 'host'
+  }
+  const normalizedTab = normalizedTabMap[queryTab] || queryTab
   const matched = available.find((item) => item.key === normalizedTab)
   activeTab.value = matched ? matched.key : available[0].key
 }
@@ -134,21 +125,6 @@ const activeComponent = computed(() => {
 <style scoped>
 .asset-host-hub {
   border-radius: 16px;
-}
-
-.hub-header {
-  margin-bottom: 8px;
-}
-
-.hub-header h2 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 700;
-}
-
-.hub-header p {
-  margin: 8px 0 0;
-  color: var(--el-text-color-secondary);
 }
 
 .hub-panel {

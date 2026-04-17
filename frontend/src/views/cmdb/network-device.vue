@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>网络设备 CMDB</h2>
-        <p class="page-desc">统一纳管交换机与防火墙资产，支持连通性测试与防火墙数据同步。</p>
+        <p class="page-desc">统一纳管交换机与防火墙资产，防火墙已作为设备类型纳入同一张资产表。</p>
       </div>
       <div class="page-actions">
         <el-input v-model="keyword" clearable placeholder="搜索名称/IP/型号" style="width: 240px" @keyup.enter="fetchData" />
@@ -13,7 +13,7 @@
         </el-select>
         <el-button type="primary" icon="Plus" @click="openDialog()">新增设备</el-button>
         <el-button icon="Refresh" @click="fetchData">刷新</el-button>
-        <el-button icon="Connection" :loading="syncing" @click="syncFromFirewall">同步防火墙</el-button>
+        <el-button icon="Connection" :loading="syncing" @click="syncFromFirewall">导入历史防火墙</el-button>
       </div>
     </div>
 
@@ -374,13 +374,13 @@ const syncFromFirewall = async () => {
     const res = await axios.post('/api/v1/cmdb/network-devices/sync/firewalls', {}, { headers: authHeaders() })
     if (res.data?.code === 0) {
       const d = res.data.data || {}
-      ElMessage.success(`同步完成：新增 ${d.created || 0}，更新 ${d.updated || 0}，跳过 ${d.skipped || 0}`)
+      ElMessage.success(`历史防火墙导入完成：新增 ${d.created || 0}，更新 ${d.updated || 0}，跳过 ${d.skipped || 0}`)
       await fetchData()
     } else {
-      ElMessage.error(res.data?.message || '同步失败')
+      ElMessage.error(res.data?.message || '导入失败')
     }
   } catch (err) {
-    ElMessage.error(getErrorMessage(err, '同步失败'))
+    ElMessage.error(getErrorMessage(err, '导入失败'))
   } finally {
     syncing.value = false
   }

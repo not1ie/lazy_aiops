@@ -11,28 +11,14 @@
     </div>
 
     <div class="hub-tabs-wrap">
-      <div class="hub-tab-group">
-        <div class="hub-tab-group__label">核心流程</div>
-        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
-          <el-tab-pane
-            v-for="tab in primaryWorkbenchTabs"
-            :key="`primary-${tab.path}`"
-            :name="tab.path"
-            :label="tab.label"
-          />
-        </el-tabs>
-      </div>
-      <div class="hub-tab-group">
-        <div class="hub-tab-group__label">扩展能力</div>
-        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
-          <el-tab-pane
-            v-for="tab in secondaryWorkbenchTabs"
-            :key="`secondary-${tab.path}`"
-            :name="tab.path"
-            :label="tab.label"
-          />
-        </el-tabs>
-      </div>
+      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+        <el-tab-pane
+          v-for="tab in workbenchTabs"
+          :key="tab.path"
+          :name="tab.path"
+          :label="tab.label"
+        />
+      </el-tabs>
     </div>
 
     <el-row :gutter="12" class="summary-row">
@@ -453,43 +439,26 @@ const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('toke
 const go = (path) => router.push(path)
 const workbenchTabs = [
   { label: '监控告警中心', path: '/monitor/center' },
-  { label: '域名监控中心', path: '/domain/center' },
   { label: '告警事件', path: '/alert/events' },
   { label: '告警规则', path: '/alert/rules' },
   { label: '告警静默', path: '/alert/silences' },
   { label: '告警聚合', path: '/alert/aggregation' },
   { label: '告警复盘', path: '/alert/history' },
+  { label: '域名监控中心', path: '/domain/center' },
+  { label: '域名与证书', path: '/domain/ssl' },
   { label: '通知渠道', path: '/notify/channels' },
   { label: '通知组', path: '/notify/groups' },
   { label: '通知模板', path: '/notify/templates' },
-  { label: '域名与证书', path: '/domain/ssl' },
   { label: '监控概览', path: '/monitor/overview' },
   { label: '主机监控', path: '/monitor/hosts' },
-  { label: '指标采集', path: '/monitor/metrics' },
   { label: '容器监控', path: '/monitor/containers' },
   { label: 'Pod监控', path: '/monitor/pods' },
   { label: 'Agent心跳', path: '/monitor/agents' },
+  { label: '指标采集', path: '/monitor/metrics' },
   { label: '服务拓扑', path: '/topology' },
   { label: '成本概览', path: '/cost/overview' },
   { label: '预算告警', path: '/cost/budget' }
 ]
-const primaryWorkbenchPaths = new Set([
-  '/monitor/center',
-  '/alert/events',
-  '/alert/rules',
-  '/alert/silences',
-  '/alert/aggregation',
-  '/notify/channels',
-  '/notify/groups',
-  '/domain/center',
-  '/domain/ssl'
-])
-const primaryWorkbenchTabs = computed(() =>
-  workbenchTabs.filter((tab) => primaryWorkbenchPaths.has(tab.path))
-)
-const secondaryWorkbenchTabs = computed(() =>
-  workbenchTabs.filter((tab) => !primaryWorkbenchPaths.has(tab.path))
-)
 const activeWorkbenchTab = ref('/monitor/center')
 const handleWorkbenchTabClick = (pane) => {
   const path = String(pane?.paneName || '').trim()
@@ -1061,22 +1030,6 @@ onUnmounted(() => {
 .page-actions { display: flex; gap: 8px; }
 .hub-tabs-wrap {
   margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.hub-tab-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.hub-tab-group__label {
-  flex: 0 0 64px;
-  font-size: 12px;
-  color: var(--muted-text);
-  line-height: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__header) {

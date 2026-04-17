@@ -6,7 +6,7 @@
         <p class="page-desc">聚合 CMDB、网络设备、防火墙、堡垒机会话与风控事件，按运维处置流程联动。</p>
       </div>
       <div class="page-actions">
-        <el-button :loading="syncingNetworkFromFirewall" icon="RefreshRight" @click="syncNetworkDevicesFromFirewalls">同步防火墙资产</el-button>
+        <el-button :loading="syncingNetworkFromFirewall" icon="RefreshRight" @click="syncNetworkDevicesFromFirewalls">导入历史防火墙资产</el-button>
         <el-button :loading="loading" icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
     </div>

@@ -11,28 +11,14 @@
     </div>
 
     <div class="hub-tabs-wrap">
-      <div class="hub-tab-group">
-        <div class="hub-tab-group__label">核心流程</div>
-        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
-          <el-tab-pane
-            v-for="tab in primaryWorkbenchTabs"
-            :key="`primary-${tab.path}`"
-            :name="tab.path"
-            :label="tab.label"
-          />
-        </el-tabs>
-      </div>
-      <div class="hub-tab-group">
-        <div class="hub-tab-group__label">扩展能力</div>
-        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
-          <el-tab-pane
-            v-for="tab in secondaryWorkbenchTabs"
-            :key="`secondary-${tab.path}`"
-            :name="tab.path"
-            :label="tab.label"
-          />
-        </el-tabs>
-      </div>
+      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+        <el-tab-pane
+          v-for="tab in workbenchTabs"
+          :key="tab.path"
+          :name="tab.path"
+          :label="tab.label"
+        />
+      </el-tabs>
     </div>
 
     <el-row :gutter="12" class="summary-row">
@@ -503,14 +489,14 @@ const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('toke
 const go = (path) => router.push(path)
 const workbenchTabs = [
   { label: '交付中心', path: '/delivery/center' },
-  { label: '编排中心', path: '/workflow/orchestrator' },
   { label: '工作流编排', path: '/workflow/designer' },
-  { label: '任务调度', path: '/task/schedules' },
+  { label: '编排中心', path: '/workflow/orchestrator' },
   { label: '流水线管理', path: '/cicd/pipelines' },
   { label: '执行记录', path: '/cicd/executions' },
-  { label: '定时发布', path: '/cicd/schedules' },
   { label: '发布管理', path: '/cicd/releases' },
   { label: '工单管理', path: '/workorder/tickets' },
+  { label: '任务调度', path: '/task/schedules' },
+  { label: '定时发布', path: '/cicd/schedules' },
   { label: '工单类型', path: '/workorder/types' },
   { label: 'SQL工单', path: '/sqlaudit/requests' },
   { label: 'SQL审核规则', path: '/sqlaudit/rules' },
@@ -525,23 +511,6 @@ const workbenchTabs = [
   { label: 'Nacos服务器', path: '/nacos/servers' },
   { label: '配置管理', path: '/nacos/configs' }
 ]
-const primaryWorkbenchPaths = new Set([
-  '/delivery/center',
-  '/workflow/orchestrator',
-  '/workflow/designer',
-  '/task/schedules',
-  '/cicd/pipelines',
-  '/cicd/executions',
-  '/cicd/schedules',
-  '/cicd/releases',
-  '/workorder/tickets'
-])
-const primaryWorkbenchTabs = computed(() =>
-  workbenchTabs.filter((tab) => primaryWorkbenchPaths.has(tab.path))
-)
-const secondaryWorkbenchTabs = computed(() =>
-  workbenchTabs.filter((tab) => !primaryWorkbenchPaths.has(tab.path))
-)
 const activeWorkbenchTab = ref('/delivery/center')
 const handleWorkbenchTabClick = (pane) => {
   const path = String(pane?.paneName || '').trim()
@@ -1348,22 +1317,6 @@ onUnmounted(() => {
 .page-actions { display: flex; gap: 8px; }
 .hub-tabs-wrap {
   margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.hub-tab-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.hub-tab-group__label {
-  flex: 0 0 64px;
-  font-size: 12px;
-  color: var(--muted-text);
-  line-height: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__header) {

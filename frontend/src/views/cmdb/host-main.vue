@@ -8,7 +8,7 @@
           <el-button type="primary" plain icon="Connection" :disabled="selectedRows.length !== 1" @click="openConnectionEditor">
             连接信息
           </el-button>
-          <el-button plain icon="FolderOpened" @click="openGroupManager">分组管理</el-button>
+          <el-button plain icon="FolderOpened" @click="openGroupManager">分组维护</el-button>
           <el-button icon="Upload" @click="openImport">批量导入</el-button>
           <el-button icon="Download" @click="exportCSV">导出</el-button>
           <el-button type="warning" plain icon="Edit" :disabled="selectedRows.length === 0" @click="openBatchStatus">
@@ -30,7 +30,7 @@
             <div class="group-card-header">
               <span>资产分组</span>
               <div class="group-card-header-actions">
-                <el-button link type="primary" @click="openGroupManager">管理</el-button>
+                <el-button link type="primary" @click="openGroupManager">维护</el-button>
                 <el-button link type="primary" @click="clearGroupFilter">重置</el-button>
               </div>
             </div>
@@ -179,17 +179,26 @@
             <el-table-column prop="group.name" label="分组" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">{{ row?.group?.name || '-' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="430" fixed="right" show-overflow-tooltip>
+            <el-table-column label="操作" width="320" fixed="right">
               <template #default="{ row }">
                 <div class="op-row">
-                  <el-button size="small" type="primary" plain icon="Connection" @click="handleEdit(row)">连接</el-button>
                   <el-button size="small" plain icon="View" @click="openDetail(row)">详情</el-button>
-                  <el-button size="small" type="success" plain icon="DataAnalysis" @click="openInspect(row, 'process')">进程</el-button>
-                  <el-button size="small" type="info" plain icon="Connection" @click="openInspect(row, 'tcp')">TCP</el-button>
-                  <el-button size="small" plain icon="Histogram" @click="openMonitor(row)">监控</el-button>
                   <el-button size="small" type="warning" plain icon="FirstAidKit" @click="handleTest(row)">检测</el-button>
                   <el-button size="small" type="primary" plain icon="Edit" @click="handleEdit(row)">编辑</el-button>
-                  <el-button size="small" type="danger" plain icon="Delete" @click="handleDelete(row)">删除</el-button>
+                  <el-dropdown trigger="click" @command="(command) => handleRowCommand(row, command)">
+                    <el-button size="small" plain>
+                      更多
+                      <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="process">进程</el-dropdown-item>
+                        <el-dropdown-item command="tcp">TCP</el-dropdown-item>
+                        <el-dropdown-item command="monitor">监控</el-dropdown-item>
+                        <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
                 </div>
               </template>
             </el-table-column>
@@ -290,6 +299,42 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submitForm" :loading="submitting">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="groupManageVisible" title="分组维护" width="820px">
+      <div class="group-manage-toolbar">
+        <el-button type="primary" icon="Plus" @click="openCreateGroup">新增分组</el-button>
+        <el-button icon="Refresh" @click="fetchGroups">刷新</el-button>
+      </div>
+      <el-table :fit="true" :data="groups" stripe max-height="420" empty-text="暂无分组">
+        <el-table-column prop="name" label="分组名称" min-width="180" />
+        <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="parent_id" label="父级ID" min-width="160" />
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" plain @click="openEditGroup(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain @click="handleGroupDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <el-dialog append-to-body v-model="groupEditorVisible" :title="groupEditorEdit ? '编辑分组' : '新增分组'" width="480px">
+      <el-form :model="groupForm" label-width="90px">
+        <el-form-item label="分组名称" required>
+          <el-input v-model="groupForm.name" placeholder="如：生产环境" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="groupForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="父级ID">
+          <el-input v-model="groupForm.parent_id" placeholder="可选" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="groupEditorVisible = false">取消</el-button>
+        <el-button type="primary" :loading="groupSubmitting" @click="saveGroup">保存</el-button>
       </template>
     </el-dialog>
 
@@ -480,6 +525,11 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
+const groupManageVisible = ref(false)
+const groupEditorVisible = ref(false)
+const groupEditorEdit = ref(false)
+const groupSubmitting = ref(false)
+const currentGroupId = ref('')
 
 const testVisible = ref(false)
 const testLoading = ref(false)
@@ -543,6 +593,12 @@ const form = reactive({
   username: '',
   password: '',
   group_name: ''
+})
+
+const groupForm = reactive({
+  name: '',
+  description: '',
+  parent_id: ''
 })
 
 const providerConfig = {
@@ -780,8 +836,31 @@ const clearGroupFilter = () => {
   })
 }
 
-const openGroupManager = () => {
-  router.push({ path: '/host', query: { tab: 'group' } })
+const resetGroupForm = () => {
+  groupForm.name = ''
+  groupForm.description = ''
+  groupForm.parent_id = ''
+}
+
+const openGroupManager = async () => {
+  groupManageVisible.value = true
+  await fetchGroups()
+}
+
+const openCreateGroup = () => {
+  currentGroupId.value = ''
+  groupEditorEdit.value = false
+  resetGroupForm()
+  groupEditorVisible.value = true
+}
+
+const openEditGroup = (row) => {
+  currentGroupId.value = row.id
+  groupEditorEdit.value = true
+  groupForm.name = row.name || ''
+  groupForm.description = row.description || ''
+  groupForm.parent_id = row.parent_id || ''
+  groupEditorVisible.value = true
 }
 
 const openConnectionEditor = () => {
@@ -790,6 +869,57 @@ const openConnectionEditor = () => {
     return
   }
   handleEdit(selectedRows.value[0])
+}
+
+const saveGroup = async () => {
+  if (!groupForm.name.trim()) {
+    ElMessage.warning('请填写分组名称')
+    return
+  }
+  groupSubmitting.value = true
+  try {
+    const url = groupEditorEdit.value ? `/api/v1/cmdb/groups/${currentGroupId.value}` : '/api/v1/cmdb/groups'
+    const method = groupEditorEdit.value ? 'put' : 'post'
+    const res = await axios({
+      url,
+      method,
+      headers: authHeaders(),
+      data: {
+        name: groupForm.name.trim(),
+        description: groupForm.description,
+        parent_id: groupForm.parent_id
+      }
+    })
+    if (res.data?.code === 0) {
+      ElMessage.success(groupEditorEdit.value ? '分组更新成功' : '分组创建成功')
+      groupEditorVisible.value = false
+      await Promise.all([fetchGroups(), fetchData()])
+    } else {
+      ElMessage.error(res.data?.message || '分组保存失败')
+    }
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '分组保存失败'))
+  } finally {
+    groupSubmitting.value = false
+  }
+}
+
+const handleGroupDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除分组“${row.name}”吗？`, '提示', {
+      type: 'warning'
+    })
+    await axios.delete(`/api/v1/cmdb/groups/${row.id}`, { headers: authHeaders() })
+    if (String(activeGroupId.value || '') === String(row.id)) {
+      clearGroupFilter()
+    }
+    ElMessage.success('分组删除成功')
+    await Promise.all([fetchGroups(), fetchData()])
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error(getErrorMessage(e, '分组删除失败'))
+    }
+  }
 }
 
 const fetchData = async () => {
@@ -1222,6 +1352,24 @@ const openMonitor = (row) => {
   })
 }
 
+const handleRowCommand = (row, command) => {
+  if (command === 'process') {
+    openInspect(row, 'process')
+    return
+  }
+  if (command === 'tcp') {
+    openInspect(row, 'tcp')
+    return
+  }
+  if (command === 'monitor') {
+    openMonitor(row)
+    return
+  }
+  if (command === 'delete') {
+    handleDelete(row)
+  }
+}
+
 const buildSelector = (base, instance) => {
   const baseText = String(base || '').trim()
   if (!instance) return baseText
@@ -1594,8 +1742,16 @@ onBeforeUnmount(() => {
 
 .op-row {
   display: flex;
-  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+}
+
+.group-manage-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .detail-toolbar {
