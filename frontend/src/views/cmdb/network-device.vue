@@ -25,7 +25,7 @@
     </el-row>
 
     <div class="table-scroll">
-      <el-table :fit="true" :data="filteredData" v-loading="loading" stripe style="width: 100%; min-width: 1220px">
+      <el-table :fit="true" :data="filteredData" v-loading="loading" stripe style="width: 100%; min-width: 1760px">
         <el-table-column prop="name" label="设备名" min-width="180" />
         <el-table-column label="类型" width="110">
           <template #default="{ row }">
@@ -47,7 +47,7 @@
         <el-table-column label="最后检查" width="180">
           <template #default="{ row }">{{ formatTime(row.last_check_at) }}</template>
         </el-table-column>
-        <el-table-column prop="status_reason" label="状态说明" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="status_reason" label="状态说明" width="240" show-overflow-tooltip />
         <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" plain @click="openDialog(row)">编辑</el-button>

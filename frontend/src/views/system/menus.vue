@@ -13,7 +13,8 @@
       </div>
     </template>
 
-    <el-table :fit="true" :data="permissions" v-loading="loading" stripe>
+    <div class="table-scroll">
+      <el-table :fit="true" :data="permissions" v-loading="loading" stripe style="width: 100%; min-width: 1020px">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="code" label="编码" min-width="200" />
       <el-table-column prop="type" label="类型" width="120">
@@ -39,7 +40,8 @@
           </el-space>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
   </el-card>
 
   <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑权限' : '新增权限'" width="520px">
@@ -188,5 +190,6 @@ onMounted(fetchPermissions)
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; font-size: 12px; margin-top: 4px; }
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.table-scroll { overflow-x: auto; }
 .w-100 { width: 100%; }
 </style>

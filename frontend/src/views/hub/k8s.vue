@@ -19,14 +19,28 @@
     </div>
 
     <div class="hub-tabs-wrap">
-      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
-        <el-tab-pane
-          v-for="tab in workbenchTabs"
-          :key="tab.path"
-          :name="tab.path"
-          :label="tab.label"
-        />
-      </el-tabs>
+      <div class="hub-tab-group">
+        <div class="hub-tab-group__label">核心流程</div>
+        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+          <el-tab-pane
+            v-for="tab in primaryWorkbenchTabs"
+            :key="`primary-${tab.path}`"
+            :name="tab.path"
+            :label="tab.label"
+          />
+        </el-tabs>
+      </div>
+      <div class="hub-tab-group">
+        <div class="hub-tab-group__label">扩展能力</div>
+        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+          <el-tab-pane
+            v-for="tab in secondaryWorkbenchTabs"
+            :key="`secondary-${tab.path}`"
+            :name="tab.path"
+            :label="tab.label"
+          />
+        </el-tabs>
+      </div>
       <div class="hub-tabs-extra">
         <el-tag type="warning" effect="light">待处置 {{ pendingBacklog }}</el-tag>
         <el-tag type="danger" effect="light">异常工作负载 {{ stats.degradedWorkloads }}</el-tag>
@@ -491,6 +505,21 @@ const workbenchTabs = [
   { label: 'K8s WebShell', path: '/k8s/terminal' },
   { label: 'Docker管理', path: '/docker' }
 ]
+const primaryWorkbenchPaths = new Set([
+  '/k8s/overview',
+  '/k8s/workloads',
+  '/k8s/deployments',
+  '/k8s/pods',
+  '/k8s/services',
+  '/k8s/nodes',
+  '/k8s/events'
+])
+const primaryWorkbenchTabs = computed(() =>
+  workbenchTabs.filter((tab) => primaryWorkbenchPaths.has(tab.path))
+)
+const secondaryWorkbenchTabs = computed(() =>
+  workbenchTabs.filter((tab) => !primaryWorkbenchPaths.has(tab.path))
+)
 const activeWorkbenchTab = ref('/k8s/overview')
 const handleWorkbenchTabClick = (pane) => {
   const path = String(pane?.paneName || '').trim()
@@ -959,6 +988,22 @@ onUnmounted(() => {
 .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .hub-tabs-wrap {
   margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hub-tab-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hub-tab-group__label {
+  flex: 0 0 64px;
+  font-size: 12px;
+  color: var(--muted-text);
+  line-height: 1;
 }
 
 .hub-tabs-extra {
@@ -971,6 +1016,10 @@ onUnmounted(() => {
 
 .hub-tabs-wrap :deep(.el-tabs__header) {
   margin-bottom: 0;
+}
+
+.hub-tabs-wrap :deep(.el-tabs) {
+  flex: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__item) {
@@ -1085,6 +1134,16 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1100px) {
+  .hub-tab-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .hub-tab-group__label {
+    flex: none;
+  }
+
   .page-actions {
     width: 100%;
   }

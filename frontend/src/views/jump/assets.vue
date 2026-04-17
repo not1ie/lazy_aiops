@@ -31,38 +31,40 @@
       <el-button @click="syncJumpServer">同步JumpServer</el-button>
     </div>
 
-    <el-table :fit="true" :data="assets" v-loading="loading" stripe>
-      <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="asset_type" label="类型" width="100" />
-      <el-table-column prop="protocol" label="协议" width="110" />
-      <el-table-column label="地址" min-width="200">
-        <template #default="{ row }">{{ row.address || '-' }}:{{ row.port || '-' }}</template>
-      </el-table-column>
-      <el-table-column prop="cluster" label="集群" min-width="120" />
-      <el-table-column prop="source" label="来源" width="130" />
-      <el-table-column label="运行状态" width="110">
-        <template #default="{ row }">
-          <StatusBadge
-            :text="assetRuntimeByID[row.id]?.text || '未知'"
-            :type="assetRuntimeByID[row.id]?.type || 'info'"
-            :reason="assetRuntimeByID[row.id]?.reason || ''"
-            :updated-at="row.updated_at"
-            size="small"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column label="状态说明" min-width="180" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ assetRuntimeByID[row.id]?.reason || '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="190" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" type="danger" plain @click="removeAsset(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div class="table-scroll">
+      <el-table :fit="true" :data="assets" v-loading="loading" stripe style="width: 100%; min-width: 1420px">
+        <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="asset_type" label="类型" width="100" />
+        <el-table-column prop="protocol" label="协议" width="110" />
+        <el-table-column label="地址" min-width="220">
+          <template #default="{ row }">{{ row.address || '-' }}:{{ row.port || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="cluster" label="集群" min-width="130" />
+        <el-table-column prop="source" label="来源" width="140" />
+        <el-table-column label="运行状态" width="110">
+          <template #default="{ row }">
+            <StatusBadge
+              :text="assetRuntimeByID[row.id]?.text || '未知'"
+              :type="assetRuntimeByID[row.id]?.type || 'info'"
+              :reason="assetRuntimeByID[row.id]?.reason || ''"
+              :updated-at="row.updated_at"
+              size="small"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="状态说明" width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ assetRuntimeByID[row.id]?.reason || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="190" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="danger" plain @click="removeAsset(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </el-card>
 
   <el-dialog append-to-body v-model="dialogVisible" :title="editing ? '编辑资产' : '新增资产'" width="720px">
@@ -648,6 +650,7 @@ onUnmounted(() => {
 .desc { color: #909399; margin-top: 4px; }
 .actions { display: flex; gap: 8px; }
 .toolbar { margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+.table-scroll { overflow-x: auto; }
 .filter-item { width: 220px; }
 .inline-fields { display: grid; gap: 8px; width: 100%; grid-template-columns: 1fr 1fr; }
 .integration-sync { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #606266; }

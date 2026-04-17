@@ -22,7 +22,8 @@
       </div>
     </div>
 
-    <el-table :fit="true" :data="posts" v-loading="loading" stripe>
+    <div class="table-scroll">
+      <el-table :fit="true" :data="posts" v-loading="loading" stripe style="width: 100%; min-width: 1020px">
       <el-table-column prop="name" label="岗位名称" min-width="180" />
       <el-table-column prop="code" label="岗位编码" min-width="180" />
       <el-table-column prop="sort" label="排序" width="100" />
@@ -41,7 +42,8 @@
           <el-button size="small" type="danger" plain @click="removePost(row)">删除</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
 
     <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑岗位' : '新增岗位'" width="500px">
       <el-form :model="form" label-width="88px">
@@ -217,4 +219,5 @@ onMounted(fetchPosts)
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .page-desc { color: #909399; margin: 4px 0 0; }
 .page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.table-scroll { overflow-x: auto; }
 </style>

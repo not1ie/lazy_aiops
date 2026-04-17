@@ -20,7 +20,7 @@
     </template>
 
     <div class="table-scroll">
-      <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%; min-width: 980px">
+      <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%; min-width: 1320px">
       <el-table-column prop="name" label="名称" width="180">
         <template #default="{ row }">
           <div class="flex items-center gap-2">
@@ -49,9 +49,9 @@
       </el-table-column>
       <el-table-column prop="container_count" label="容器数" width="120" align="center" />
       <el-table-column prop="image_count" label="镜像数" width="120" align="center" />
-      <el-table-column prop="version" label="版本" />
-      <el-table-column prop="last_error" label="错误信息" min-width="220" show-overflow-tooltip />
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column prop="version" label="版本" width="120" />
+      <el-table-column prop="last_error" label="错误信息" width="260" show-overflow-tooltip />
+      <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
           <el-space size="8">
             <el-button size="small" type="primary" plain icon="Monitor" @click="handleManage(row)">管理</el-button>
@@ -5592,6 +5592,9 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.table-scroll {
+  overflow-x: auto;
 }
 .w-100 { width: 100%; }
 .text-xs { font-size: 12px; line-height: 1.3; }

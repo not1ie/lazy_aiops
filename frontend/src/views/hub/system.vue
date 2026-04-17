@@ -13,14 +13,28 @@
     </div>
 
     <div class="hub-tabs-wrap">
-      <el-tabs v-model="activeTab" @tab-click="handleSystemTabClick">
-        <el-tab-pane
-          v-for="tab in visibleTabs"
-          :key="tab.key"
-          :name="tab.key"
-          :label="tab.label"
-        />
-      </el-tabs>
+      <div class="hub-tab-group">
+        <div class="hub-tab-group__label">核心流程</div>
+        <el-tabs :model-value="activeTab" @tab-click="handleSystemTabClick">
+          <el-tab-pane
+            v-for="tab in primaryVisibleTabs"
+            :key="`primary-${tab.key}`"
+            :name="tab.key"
+            :label="tab.label"
+          />
+        </el-tabs>
+      </div>
+      <div class="hub-tab-group">
+        <div class="hub-tab-group__label">扩展能力</div>
+        <el-tabs :model-value="activeTab" @tab-click="handleSystemTabClick">
+          <el-tab-pane
+            v-for="tab in secondaryVisibleTabs"
+            :key="`secondary-${tab.key}`"
+            :name="tab.key"
+            :label="tab.label"
+          />
+        </el-tabs>
+      </div>
     </div>
 
     <el-row :gutter="12" class="mt-12">
@@ -36,7 +50,8 @@
               </div>
             </div>
           </template>
-          <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="300" empty-text="暂无模块能力数据">
+          <div class="capability-table-scroll">
+            <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="300" empty-text="暂无模块能力数据" style="width: 100%; min-width: 1120px">
             <el-table-column prop="label" label="能力模块" min-width="140" />
             <el-table-column label="链路" width="90">
               <template #default="{ row }">
@@ -76,12 +91,13 @@
               </template>
             </el-table-column>
             <el-table-column prop="suggestion" label="建议" min-width="170" show-overflow-tooltip />
-            <el-table-column label="操作" width="90" fixed="right">
+            <el-table-column label="操作" width="90">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openCapability(row.tab)">进入</el-button>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="8">
@@ -189,6 +205,13 @@ const hasAnyPerm = (codes = []) => {
 }
 
 const visibleTabs = computed(() => tabs.filter((tab) => hasAnyPerm(tab.permAny)))
+const primaryTabKeys = new Set(['users', 'roles', 'menus', 'dept', 'posts'])
+const primaryVisibleTabs = computed(() =>
+  visibleTabs.value.filter((tab) => primaryTabKeys.has(tab.key))
+)
+const secondaryVisibleTabs = computed(() =>
+  visibleTabs.value.filter((tab) => !primaryTabKeys.has(tab.key))
+)
 const activeTab = ref('')
 const renderKey = ref(0)
 const capabilityLoading = ref(false)
@@ -547,10 +570,30 @@ watch(
 
 .hub-tabs-wrap {
   margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hub-tab-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hub-tab-group__label {
+  flex: 0 0 64px;
+  font-size: 12px;
+  color: var(--muted-text);
+  line-height: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__header) {
   margin-bottom: 0;
+}
+
+.hub-tabs-wrap :deep(.el-tabs) {
+  flex: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__item) {
@@ -602,6 +645,10 @@ watch(
   color: var(--muted-text);
 }
 
+.capability-table-scroll {
+  overflow-x: auto;
+}
+
 .system-hub-panel :deep(.page-card) {
   border: none;
   box-shadow: none;
@@ -611,5 +658,17 @@ watch(
 .system-hub-panel :deep(.el-card) {
   box-shadow: none;
   border: none;
+}
+
+@media (max-width: 1100px) {
+  .hub-tab-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .hub-tab-group__label {
+    flex: none;
+  }
 }
 </style>

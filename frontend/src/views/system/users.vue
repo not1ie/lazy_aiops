@@ -14,7 +14,8 @@
       </div>
     </template>
 
-    <el-table :fit="true" :data="users" v-loading="loading" stripe>
+    <div class="table-scroll">
+      <el-table :fit="true" :data="users" v-loading="loading" stripe style="width: 100%; min-width: 1360px">
       <el-table-column prop="username" label="用户名" min-width="140" />
       <el-table-column prop="nickname" label="昵称" min-width="120" />
       <el-table-column prop="email" label="邮箱" min-width="180" />
@@ -52,7 +53,8 @@
           </el-space>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
   </el-card>
 
   <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑用户' : '新增用户'" width="520px">
@@ -303,6 +305,7 @@ onMounted(() => {
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; font-size: 12px; margin-top: 4px; }
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.table-scroll { overflow-x: auto; }
 .w-220 { width: 220px; }
 .w-100 { width: 100%; }
 </style>

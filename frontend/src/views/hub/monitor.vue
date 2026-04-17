@@ -11,14 +11,28 @@
     </div>
 
     <div class="hub-tabs-wrap">
-      <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
-        <el-tab-pane
-          v-for="tab in workbenchTabs"
-          :key="tab.path"
-          :name="tab.path"
-          :label="tab.label"
-        />
-      </el-tabs>
+      <div class="hub-tab-group">
+        <div class="hub-tab-group__label">核心流程</div>
+        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+          <el-tab-pane
+            v-for="tab in primaryWorkbenchTabs"
+            :key="`primary-${tab.path}`"
+            :name="tab.path"
+            :label="tab.label"
+          />
+        </el-tabs>
+      </div>
+      <div class="hub-tab-group">
+        <div class="hub-tab-group__label">扩展能力</div>
+        <el-tabs :model-value="activeWorkbenchTab" @tab-click="handleWorkbenchTabClick">
+          <el-tab-pane
+            v-for="tab in secondaryWorkbenchTabs"
+            :key="`secondary-${tab.path}`"
+            :name="tab.path"
+            :label="tab.label"
+          />
+        </el-tabs>
+      </div>
     </div>
 
     <el-row :gutter="12" class="summary-row">
@@ -128,7 +142,8 @@
               </div>
             </div>
           </template>
-          <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="320" empty-text="暂无模块能力数据">
+          <div class="capability-table-scroll">
+            <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="320" empty-text="暂无模块能力数据" style="width: 100%; min-width: 1120px">
             <el-table-column prop="label" label="能力模块" min-width="140" />
             <el-table-column label="链路" width="90">
               <template #default="{ row }">
@@ -168,12 +183,13 @@
               </template>
             </el-table-column>
             <el-table-column prop="suggestion" label="建议" min-width="170" show-overflow-tooltip />
-            <el-table-column label="操作" width="90" fixed="right">
+            <el-table-column label="操作" width="90">
               <template #default="{ row }">
                 <el-button link type="primary" @click="go(row.path)">进入</el-button>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="8">
@@ -457,6 +473,23 @@ const workbenchTabs = [
   { label: '成本概览', path: '/cost/overview' },
   { label: '预算告警', path: '/cost/budget' }
 ]
+const primaryWorkbenchPaths = new Set([
+  '/monitor/center',
+  '/alert/events',
+  '/alert/rules',
+  '/alert/silences',
+  '/alert/aggregation',
+  '/notify/channels',
+  '/notify/groups',
+  '/domain/center',
+  '/domain/ssl'
+])
+const primaryWorkbenchTabs = computed(() =>
+  workbenchTabs.filter((tab) => primaryWorkbenchPaths.has(tab.path))
+)
+const secondaryWorkbenchTabs = computed(() =>
+  workbenchTabs.filter((tab) => !primaryWorkbenchPaths.has(tab.path))
+)
 const activeWorkbenchTab = ref('/monitor/center')
 const handleWorkbenchTabClick = (pane) => {
   const path = String(pane?.paneName || '').trim()
@@ -1028,10 +1061,30 @@ onUnmounted(() => {
 .page-actions { display: flex; gap: 8px; }
 .hub-tabs-wrap {
   margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hub-tab-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hub-tab-group__label {
+  flex: 0 0 64px;
+  font-size: 12px;
+  color: var(--muted-text);
+  line-height: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__header) {
   margin-bottom: 0;
+}
+
+.hub-tabs-wrap :deep(.el-tabs) {
+  flex: 1;
 }
 
 .hub-tabs-wrap :deep(.el-tabs__item) {
@@ -1104,6 +1157,10 @@ onUnmounted(() => {
   color: var(--muted-text);
 }
 
+.capability-table-scroll {
+  overflow-x: auto;
+}
+
 .integration-card {
   margin-top: 12px;
 }
@@ -1137,6 +1194,16 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1100px) {
+  .hub-tab-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .hub-tab-group__label {
+    flex: none;
+  }
+
   .integration-header {
     align-items: flex-start;
     flex-direction: column;

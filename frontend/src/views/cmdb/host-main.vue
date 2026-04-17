@@ -33,7 +33,7 @@
     </div>
 
     <div class="table-scroll">
-      <el-table :fit="true" :data="tableData" v-loading="loading" style="width: 100%; min-width: 1120px" @selection-change="selectedRows = $event">
+      <el-table class="host-table" :fit="true" :data="tableData" v-loading="loading" style="width: 100%; min-width: 1500px" @selection-change="selectedRows = $event">
       <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="主机名" width="180">
         <template #default="{ row }">
@@ -63,12 +63,12 @@
           {{ formatTime(hostStatusMeta(row).checkAt || row.last_check_at) }}
         </template>
       </el-table-column>
-      <el-table-column prop="status_reason" label="状态说明" min-width="220" show-overflow-tooltip>
+      <el-table-column prop="status_reason" label="状态说明" width="260" show-overflow-tooltip>
         <template #default="{ row }">
           {{ hostStatusMeta(row).reason || '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="group.name" label="分组" width="150" />
+      <el-table-column prop="group.name" label="分组" width="140" fixed="right" show-overflow-tooltip />
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
           <el-button size="small" type="warning" plain icon="FirstAidKit" @click="handleTest(row)">测试</el-button>

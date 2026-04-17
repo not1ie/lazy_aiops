@@ -13,7 +13,8 @@
       </div>
     </template>
 
-    <el-table :fit="true" :data="roles" v-loading="loading" stripe>
+    <div class="table-scroll">
+      <el-table :fit="true" :data="roles" v-loading="loading" stripe style="width: 100%; min-width: 980px">
       <el-table-column prop="name" label="角色名称" min-width="160" />
       <el-table-column prop="code" label="角色编码" min-width="160" />
       <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
@@ -36,7 +37,8 @@
           </el-space>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </div>
   </el-card>
 
   <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="520px">
@@ -220,4 +222,5 @@ onMounted(fetchRoles)
 .title { font-size: 18px; font-weight: 600; }
 .desc { color: #909399; font-size: 12px; margin-top: 4px; }
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.table-scroll { overflow-x: auto; }
 </style>

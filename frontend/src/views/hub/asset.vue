@@ -102,7 +102,8 @@
               </div>
             </div>
           </template>
-          <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="320" empty-text="暂无模块能力数据">
+          <div class="capability-table-scroll">
+            <el-table :fit="true" :data="moduleCapabilityRows" size="small" max-height="320" empty-text="暂无模块能力数据" style="width: 100%; min-width: 1120px">
             <el-table-column prop="label" label="能力模块" min-width="140" />
             <el-table-column label="链路" width="90">
               <template #default="{ row }">
@@ -142,12 +143,13 @@
               </template>
             </el-table-column>
             <el-table-column prop="suggestion" label="建议" min-width="170" show-overflow-tooltip />
-            <el-table-column label="操作" width="90" fixed="right">
+            <el-table-column label="操作" width="90">
               <template #default="{ row }">
                 <el-button link type="primary" @click="go(row.path)">进入</el-button>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="8">
@@ -1162,6 +1164,10 @@ onBeforeUnmount(() => {
   margin-top: 2px;
   font-size: 11px;
   color: var(--muted-text);
+}
+
+.capability-table-scroll {
+  overflow-x: auto;
 }
 
 .integration-card {
