@@ -484,6 +484,10 @@
           </el-table>
         </el-card>
       </el-tab-pane>
+
+      <el-tab-pane label="AI Ops闭环" name="ops">
+        <AIOpsLoopPanel />
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog append-to-body v-model="configDialogVisible" :title="configEditing ? '编辑模型配置' : '新增模型配置'" width="700px" @closed="handleConfigDialogClosed">
@@ -555,6 +559,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
+import AIOpsLoopPanel from '@/components/ai/AIOpsLoopPanel.vue'
 
 const activeTab = ref('chat')
 const chatting = ref(false)
