@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lazyautoops/lazy-auto-ops/plugins/knowledge"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/workorder"
 	"gorm.io/gorm"
 )
@@ -391,6 +392,86 @@ func (s *AIService) BuildTimeline(query *AIOpsTimelineQuery) (map[string]interfa
 	return result, nil
 }
 
+func (s *AIService) ListIncidents(status string, limit int) ([]AIOpsIncident, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows := make([]AIOpsIncident, 0, limit)
+	query := s.db.Model(&AIOpsIncident{}).Order("updated_at desc").Limit(limit)
+	status = strings.TrimSpace(strings.ToLower(status))
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *AIService) GetIncidentDetail(incidentID string) (*AIOpsIncidentDetail, error) {
+	incident, err := s.getIncident(incidentID)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]AIOpsTimelineEvent, 0, 64)
+	if err := s.db.Where("incident_id = ?", incidentID).Order("created_at asc").Find(&events).Error; err != nil {
+		return nil, err
+	}
+	return &AIOpsIncidentDetail{
+		Incident: incident,
+		Events:   events,
+	}, nil
+}
+
+func (s *AIService) GenerateRunbookFromIncident(req *AIOpsRunbookGenerateRequest, operator string) (*knowledge.Document, error) {
+	if req == nil || strings.TrimSpace(req.IncidentID) == "" {
+		return nil, fmt.Errorf("incident_id 不能为空")
+	}
+	incident, err := s.getIncident(strings.TrimSpace(req.IncidentID))
+	if err != nil {
+		return nil, err
+	}
+	detail, err := s.GetIncidentDetail(incident.IncidentID)
+	if err != nil {
+		return nil, err
+	}
+
+	plan := AIExecutionPlan{}
+	_ = json.Unmarshal([]byte(incident.PlanJSON), &plan)
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = "runbook-" + strings.ToLower(strings.ReplaceAll(incident.IncidentID, " ", "-"))
+	}
+	category := strings.TrimSpace(req.Category)
+	if category == "" {
+		category = "runbook"
+	}
+
+	var versionCount int64
+	_ = s.db.Model(&knowledge.Document{}).
+		Where("category = ? AND title LIKE ?", category, title+"%").
+		Count(&versionCount).Error
+	finalTitle := fmt.Sprintf("%s-v%d", title, versionCount+1)
+
+	content := buildIncidentRunbookMarkdown(incident, detail.Events, &plan)
+	tags := strings.TrimSpace(req.Tags)
+	if tags == "" {
+		tags = "aiops,incident,runbook"
+	}
+
+	doc := &knowledge.Document{
+		Title:     finalTitle,
+		Content:   content,
+		Tags:      tags,
+		Category:  category,
+		CreatedBy: strings.TrimSpace(operator),
+	}
+	if err := s.db.Create(doc).Error; err != nil {
+		return nil, err
+	}
+	return doc, nil
+}
+
 func (s *AIService) getOrCreateIncident(incidentID string, req *AIOpsDiagnoseRequest, now time.Time) (*AIOpsIncident, error) {
 	var incident AIOpsIncident
 	err := s.db.Where("incident_id = ?", incidentID).First(&incident).Error
@@ -663,4 +744,106 @@ func truncateText(value string, maxLen int) string {
 		return value
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+func buildIncidentRunbookMarkdown(incident *AIOpsIncident, events []AIOpsTimelineEvent, plan *AIExecutionPlan) string {
+	title := "AI Ops Runbook"
+	if incident != nil && strings.TrimSpace(incident.Title) != "" {
+		title = incident.Title
+	}
+	incidentID := "-"
+	if incident != nil {
+		incidentID = incident.IncidentID
+	}
+
+	lines := []string{
+		fmt.Sprintf("# %s", title),
+		"",
+		"## Incident",
+		fmt.Sprintf("- id: %s", incidentID),
+		fmt.Sprintf("- status: %s", func() string {
+			if incident == nil {
+				return "-"
+			}
+			return incident.Status
+		}()),
+		fmt.Sprintf("- risk_level: %s", func() string {
+			if incident == nil {
+				return "-"
+			}
+			return nonEmptyContext(incident.RiskLevel, "-")
+		}()),
+		fmt.Sprintf("- mttd_seconds: %d", func() int64 {
+			if incident == nil {
+				return 0
+			}
+			return incident.MTTDSeconds
+		}()),
+		fmt.Sprintf("- mttr_seconds: %d", func() int64 {
+			if incident == nil {
+				return 0
+			}
+			return incident.MTTRSeconds
+		}()),
+		"",
+		"## Trigger Patterns",
+		fmt.Sprintf("- %s", func() string {
+			if incident == nil {
+				return "待补充"
+			}
+			return nonEmptyContext(strings.TrimSpace(incident.Query), "待补充")
+		}()),
+		"",
+		"## Diagnosis Steps",
+	}
+
+	diagnosis := make([]string, 0, 12)
+	for _, ev := range events {
+		if ev.Stage == "precheck" || ev.Stage == "tool_call" || ev.Stage == "llm_response" {
+			diagnosis = append(diagnosis, fmt.Sprintf("- [%s] %s", ev.Stage, nonEmptyContext(ev.Detail, "-")))
+		}
+	}
+	if len(diagnosis) == 0 {
+		diagnosis = append(diagnosis, "- 待补充排障步骤")
+	}
+	lines = append(lines, diagnosis...)
+	lines = append(lines, "", "## Remediation Steps")
+
+	if plan != nil && len(plan.Steps) > 0 {
+		for idx, step := range plan.Steps {
+			lines = append(lines, fmt.Sprintf("%d. %s", idx+1, nonEmptyContext(step.Title, step.Action)))
+			lines = append(lines, fmt.Sprintf("   - action: %s", nonEmptyContext(step.Action, "-")))
+			lines = append(lines, fmt.Sprintf("   - risk: %s", nonEmptyContext(step.Risk, "-")))
+			if strings.TrimSpace(step.CommandHint) != "" {
+				lines = append(lines, fmt.Sprintf("   - command: `%s`", strings.TrimSpace(step.CommandHint)))
+			}
+		}
+	} else {
+		lines = append(lines, "- 待补充修复动作")
+	}
+
+	lines = append(lines, "", "## Verify Steps")
+	if plan != nil && len(plan.ValidationSteps) > 0 {
+		for _, item := range plan.ValidationSteps {
+			lines = append(lines, "- "+nonEmptyContext(item, "-"))
+		}
+	} else {
+		lines = append(lines, "- 检查错误率、延迟、资源使用率是否恢复")
+	}
+
+	lines = append(lines, "", "## Rollback Steps")
+	if plan != nil && len(plan.RollbackSteps) > 0 {
+		for _, item := range plan.RollbackSteps {
+			lines = append(lines, "- "+nonEmptyContext(item, "-"))
+		}
+	} else {
+		lines = append(lines, "- 回滚至上一稳定版本并验证核心指标")
+	}
+
+	lines = append(lines, "", "## Timeline")
+	for _, ev := range events {
+		lines = append(lines, fmt.Sprintf("- %s [%s/%s] %s", ev.CreatedAt.Format("2006-01-02 15:04:05"), ev.Stage, ev.Status, nonEmptyContext(ev.Detail, "-")))
+	}
+
+	return strings.Join(lines, "\n")
 }

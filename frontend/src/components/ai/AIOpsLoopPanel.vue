@@ -145,6 +145,70 @@
             <el-descriptions-item label="MTTR">{{ opsState.mttr_seconds ?? '-' }}s</el-descriptions-item>
           </el-descriptions>
         </el-card>
+
+        <el-card shadow="never" class="ops-card mt-12">
+          <template #header>
+            <div class="ops-head">
+              <div>
+                <div class="ops-title">4) Incident 历史与 Runbook</div>
+                <div class="ops-sub">选择历史事件回放并一键沉淀为知识库 Runbook</div>
+              </div>
+              <div class="ops-actions">
+                <el-select v-model="incidentQuery.status" style="width: 130px" clearable placeholder="全部状态">
+                  <el-option label="diagnosing" value="diagnosing" />
+                  <el-option label="diagnosed" value="diagnosed" />
+                  <el-option label="approved" value="approved" />
+                  <el-option label="executing" value="executing" />
+                  <el-option label="resolved" value="resolved" />
+                  <el-option label="rolled_back" value="rolled_back" />
+                  <el-option label="rejected" value="rejected" />
+                </el-select>
+                <el-input-number v-model="incidentQuery.limit" :min="10" :max="200" :step="10" size="small" />
+                <el-button :loading="loading.incidents" @click="loadIncidents">刷新</el-button>
+              </div>
+            </div>
+          </template>
+
+          <el-table
+            :data="incidentRows"
+            :fit="true"
+            size="small"
+            stripe
+            height="240"
+            @row-click="pickIncident"
+          >
+            <el-table-column prop="incident_id" label="Incident" min-width="160" />
+            <el-table-column prop="status" label="状态" width="110" />
+            <el-table-column prop="risk_level" label="风险" width="90" />
+            <el-table-column label="更新时间" width="170">
+              <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
+            </el-table-column>
+          </el-table>
+
+          <el-form label-width="96px" class="mt-12">
+            <el-form-item label="Runbook 标题">
+              <el-input v-model="runbookForm.title" placeholder="例如：payment-timeout" />
+            </el-form-item>
+            <el-form-item label="分类/标签">
+              <el-input v-model="runbookForm.category" style="max-width: 180px" />
+              <el-input v-model="runbookForm.tags" class="ml-8" placeholder="aiops,incident,runbook" />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" plain :loading="loading.runbook" :disabled="!opsState.incident_id" @click="generateRunbook">
+                从当前 Incident 生成 Runbook
+              </el-button>
+            </el-form-item>
+          </el-form>
+
+          <el-alert
+            v-if="runbookCreated"
+            type="success"
+            show-icon
+            :closable="false"
+            :title="`已生成 Runbook: ${runbookCreated.title}`"
+            :description="`id=${runbookCreated.id}, category=${runbookCreated.category}, tags=${runbookCreated.tags}`"
+          />
+        </el-card>
       </el-col>
     </el-row>
 
@@ -152,7 +216,7 @@
       <template #header>
         <div class="ops-head">
           <div>
-            <div class="ops-title">4) 故障时间轴</div>
+            <div class="ops-title">5) 故障时间轴</div>
             <div class="ops-sub">支持 rich / mermaid / json；可用于复盘与文档沉淀</div>
           </div>
           <div class="ops-actions">
@@ -193,7 +257,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/utils/error'
@@ -205,7 +269,9 @@ const loading = reactive({
   preflight: false,
   approve: false,
   execute: false,
-  timeline: false
+  timeline: false,
+  incidents: false,
+  runbook: false
 })
 
 const diagnoseForm = reactive({
@@ -235,6 +301,11 @@ const timelineForm = reactive({
   compare_files: ''
 })
 
+const incidentQuery = reactive({
+  status: '',
+  limit: 50
+})
+
 const opsState = reactive({
   incident_id: '',
   status: '',
@@ -247,6 +318,13 @@ const opsState = reactive({
 const preflightResult = ref(null)
 const timelineEvents = ref([])
 const timelineText = ref('')
+const incidentRows = ref([])
+const runbookCreated = ref(null)
+const runbookForm = reactive({
+  title: '',
+  tags: 'aiops,incident,runbook',
+  category: 'runbook'
+})
 
 const riskScoreClass = computed(() => {
   const score = Number(preflightResult.value?.risk_score || 0)
@@ -293,10 +371,14 @@ const runDiagnose = async () => {
       opsState.mttd_seconds = data.mttd_seconds ?? null
       opsState.mttr_seconds = data.mttr_seconds ?? null
       diagnoseForm.incident_id = opsState.incident_id
+      if (!runbookForm.title) {
+        runbookForm.title = `incident-${opsState.incident_id.toLowerCase()}`
+      }
       if (data.reply) {
         ElMessage.success('诊断完成，已生成建议与计划')
       }
       await loadTimeline()
+      await loadIncidents()
     }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '诊断失败'))
@@ -366,6 +448,7 @@ const submitExecute = async () => {
       opsState.mttr_seconds = item.mttr_seconds ?? opsState.mttr_seconds
       ElMessage.success('阶段结果已回写')
       await loadTimeline()
+      await loadIncidents()
     }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '回写失败'))
@@ -404,6 +487,82 @@ const loadTimeline = async () => {
     loading.timeline = false
   }
 }
+
+const loadIncidents = async () => {
+  loading.incidents = true
+  try {
+    const res = await axios.get('/api/v1/ai/ops/incidents', {
+      headers: authHeaders(),
+      params: {
+        status: incidentQuery.status || undefined,
+        limit: incidentQuery.limit
+      }
+    })
+    if (res.data?.code === 0) {
+      incidentRows.value = Array.isArray(res.data.data) ? res.data.data : []
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Incident 历史失败'))
+  } finally {
+    loading.incidents = false
+  }
+}
+
+const pickIncident = async (row) => {
+  const incidentId = String(row?.incident_id || '').trim()
+  if (!incidentId) return
+  loading.timeline = true
+  try {
+    const res = await axios.get(`/api/v1/ai/ops/incidents/${encodeURIComponent(incidentId)}`, {
+      headers: authHeaders()
+    })
+    if (res.data?.code === 0) {
+      const detail = res.data.data || {}
+      const incident = detail.incident || {}
+      opsState.incident_id = incident.incident_id || incidentId
+      opsState.status = incident.status || ''
+      opsState.root_cause_at = incident.root_cause_at || ''
+      opsState.first_fix_action_at = incident.first_fix_action_at || ''
+      opsState.mttd_seconds = incident.mttd_seconds ?? null
+      opsState.mttr_seconds = incident.mttr_seconds ?? null
+      diagnoseForm.incident_id = opsState.incident_id
+      timelineEvents.value = Array.isArray(detail.events) ? detail.events : []
+      timelineText.value = JSON.stringify({ incident: incidentId, events: timelineEvents.value }, null, 2)
+      if (!runbookForm.title) {
+        runbookForm.title = `incident-${opsState.incident_id.toLowerCase()}`
+      }
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '加载 Incident 详情失败'))
+  } finally {
+    loading.timeline = false
+  }
+}
+
+const generateRunbook = async () => {
+  if (!incidentIdRequired()) return
+  loading.runbook = true
+  try {
+    const res = await axios.post('/api/v1/ai/ops/runbook/generate', {
+      incident_id: opsState.incident_id.trim(),
+      title: runbookForm.title.trim(),
+      tags: runbookForm.tags.trim(),
+      category: runbookForm.category.trim()
+    }, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      runbookCreated.value = res.data.data || null
+      ElMessage.success('Runbook 已生成并写入知识库')
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '生成 Runbook 失败'))
+  } finally {
+    loading.runbook = false
+  }
+}
+
+onMounted(async () => {
+  await loadIncidents()
+})
 </script>
 
 <style scoped>

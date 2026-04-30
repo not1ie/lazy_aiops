@@ -2,6 +2,7 @@ package ai
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -99,4 +100,52 @@ func (h *AIHandler) TimelineOps(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": result})
+}
+
+// ListIncidentsOps 查看 incident 历史
+func (h *AIHandler) ListIncidentsOps(c *gin.Context) {
+	status := strings.TrimSpace(c.Query("status"))
+	limit := 50
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if num, err := strconv.Atoi(raw); err == nil {
+			limit = num
+		}
+	}
+	rows, err := h.service.ListIncidents(status, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": rows})
+}
+
+// GetIncidentOps 查看 incident 详情
+func (h *AIHandler) GetIncidentOps(c *gin.Context) {
+	incidentID := strings.TrimSpace(c.Param("id"))
+	if incidentID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "incident id 不能为空"})
+		return
+	}
+	detail, err := h.service.GetIncidentDetail(incidentID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": detail})
+}
+
+// GenerateRunbookOps 从 incident 生成 runbook 文档
+func (h *AIHandler) GenerateRunbookOps(c *gin.Context) {
+	var req AIOpsRunbookGenerateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	operator := strings.TrimSpace(c.GetString("username"))
+	doc, err := h.service.GenerateRunbookFromIncident(&req, operator)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": doc})
 }

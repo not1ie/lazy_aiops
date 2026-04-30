@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"github.com/lazyautoops/lazy-auto-ops/pkg/plugin"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/knowledge"
 )
 
 func init() {
@@ -49,6 +50,7 @@ func (p *AIPlugin) Migrate() error {
 		&AIProviderConfig{},
 		&AIOpsIncident{},
 		&AIOpsTimelineEvent{},
+		&knowledge.Document{},
 	)
 }
 
@@ -91,4 +93,7 @@ func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/ops/approve", h.ApproveOps)
 	g.POST("/ops/execute", h.ExecuteOps)
 	g.POST("/ops/timeline", h.TimelineOps)
+	g.GET("/ops/incidents", h.ListIncidentsOps)
+	g.GET("/ops/incidents/:id", h.GetIncidentOps)
+	g.POST("/ops/runbook/generate", h.GenerateRunbookOps)
 }

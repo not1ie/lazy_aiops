@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/knowledge"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -16,7 +17,7 @@ func newTestAIService(t *testing.T) *AIService {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&AIOpsIncident{}, &AIOpsTimelineEvent{}); err != nil {
+	if err := db.AutoMigrate(&AIOpsIncident{}, &AIOpsTimelineEvent{}, &knowledge.Document{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	c := &core.Core{
@@ -87,6 +88,38 @@ func TestBuildTimelineMermaid(t *testing.T) {
 	}
 	if timeline == "" || !contains(timeline, "sequenceDiagram") {
 		t.Fatalf("unexpected timeline: %s", timeline)
+	}
+}
+
+func TestGenerateRunbookFromIncident(t *testing.T) {
+	svc := newTestAIService(t)
+	incident := &AIOpsIncident{
+		IncidentID:       "CHG-RUNBOOK-1",
+		Title:            "payment timeout",
+		Query:            "支付超时",
+		Status:           "resolved",
+		PlanJSON:         `{"need_approval":true,"risk_level":"medium","steps":[{"title":"重启","action":"restart deploy","risk":"短时抖动","command_hint":"kubectl rollout restart deploy/payment -n payment"}],"validation_steps":["检查 P99 延迟"],"rollback_steps":["回滚 deployment"]}`,
+		RootCauseSummary: "连接池耗尽",
+	}
+	if err := svc.db.Create(incident).Error; err != nil {
+		t.Fatalf("create incident: %v", err)
+	}
+	if err := svc.db.Create(&AIOpsTimelineEvent{IncidentID: incident.IncidentID, Stage: "tool_call", Status: "success", Detail: "fetch metrics"}).Error; err != nil {
+		t.Fatalf("create event: %v", err)
+	}
+
+	doc, err := svc.GenerateRunbookFromIncident(&AIOpsRunbookGenerateRequest{
+		IncidentID: incident.IncidentID,
+		Title:      "swarm-oom",
+	}, "tester")
+	if err != nil {
+		t.Fatalf("generate runbook: %v", err)
+	}
+	if doc.ID == 0 {
+		t.Fatalf("expected persisted document")
+	}
+	if !strings.Contains(doc.Content, "## Remediation Steps") {
+		t.Fatalf("unexpected content: %s", doc.Content)
 	}
 }
 

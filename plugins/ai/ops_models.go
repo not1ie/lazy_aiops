@@ -97,3 +97,15 @@ type AIOpsTimelineQuery struct {
 	Format       string   `json:"format"` // rich/mermaid/json
 	CompareFiles []string `json:"compare_files"`
 }
+
+type AIOpsIncidentDetail struct {
+	Incident *AIOpsIncident       `json:"incident"`
+	Events   []AIOpsTimelineEvent `json:"events"`
+}
+
+type AIOpsRunbookGenerateRequest struct {
+	IncidentID string `json:"incident_id" binding:"required"`
+	Title      string `json:"title"`
+	Tags       string `json:"tags"`
+	Category   string `json:"category"`
+}
