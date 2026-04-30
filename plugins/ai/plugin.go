@@ -42,7 +42,14 @@ func (p *AIPlugin) Start() error {
 func (p *AIPlugin) Stop() error { return nil }
 
 func (p *AIPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&ChatSession{}, &ChatMessage{}, &LogAnalysis{}, &AIProviderConfig{})
+	return p.core.DB.AutoMigrate(
+		&ChatSession{},
+		&ChatMessage{},
+		&LogAnalysis{},
+		&AIProviderConfig{},
+		&AIOpsIncident{},
+		&AIOpsTimelineEvent{},
+	)
 }
 
 func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
@@ -77,4 +84,11 @@ func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	// 建议
 	g.POST("/suggest/fix", h.SuggestFix)
 	g.POST("/suggest/optimize", h.SuggestOptimize)
+
+	// AI Ops 闭环
+	g.POST("/ops/diagnose", h.DiagnoseOps)
+	g.POST("/ops/preflight", h.PreflightOps)
+	g.POST("/ops/approve", h.ApproveOps)
+	g.POST("/ops/execute", h.ExecuteOps)
+	g.POST("/ops/timeline", h.TimelineOps)
 }

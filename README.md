@@ -80,6 +80,52 @@ Lazy Auto Ops 是一个插件化运维平台，提供资产管理、监控告警
 - AI 运维助手：上下文问答与 Runbook 模板辅助
 - 知识库：文档沉淀、检索与问答
 - 智能分析：告警/日志场景下的辅助分析能力
+- AI Ops 闭环：`diagnose -> preflight -> approve -> execute -> timeline`
+
+#### AI Ops 闭环 API（新增）
+
+所有接口都在 `Authorization: Bearer <token>` 下调用：
+
+```bash
+# 1) 故障诊断（自动产出执行计划）
+POST /api/v1/ai/ops/diagnose
+{
+  "query": "支付服务响应变慢，帮我定位原因",
+  "context": "env=prod namespace=payment",
+  "context_hint": {"path":"/k8s/pods","title":"K8s Pods"}
+}
+
+# 2) 变更前风险评分
+POST /api/v1/ai/ops/preflight
+{
+  "command": "kubectl rollout restart deploy/payment",
+  "context": "prod"
+}
+
+# 3) 审批（通过后自动创建工单）
+POST /api/v1/ai/ops/approve
+{
+  "incident_id": "CHG-20260430-101500",
+  "approved": true,
+  "comment": "同意执行"
+}
+
+# 4) 回写执行阶段（apply/verify/rollback）
+POST /api/v1/ai/ops/execute
+{
+  "incident_id": "CHG-20260430-101500",
+  "stage": "verify",
+  "success": true,
+  "result": "latency 已恢复"
+}
+
+# 5) 输出时间轴（rich/mermaid/json）
+POST /api/v1/ai/ops/timeline
+{
+  "incident_id": "CHG-20260430-101500",
+  "format": "mermaid"
+}
+```
 
 ## 模块清单（当前代码）
 

@@ -150,6 +150,10 @@ func (s *AIService) doRequest(messages []map[string]string) (string, int, error)
 	}
 	s.mu.RUnlock()
 
+	if provider == "gemini" || strings.Contains(strings.ToLower(baseURL), "generativelanguage.googleapis.com") {
+		return s.doGeminiRequest(messages, provider, apiKey, baseURL, model, authType, timeoutSecond, extraHeaders)
+	}
+
 	if authType == "bearer" && apiKey == "" && provider != "ollama" {
 		return "AI服务未配置 api_key。", 0, nil
 	}
@@ -240,4 +244,109 @@ func (s *AIService) doRequest(messages []map[string]string) (string, int, error)
 	}
 
 	return result.Choices[0].Message.Content, result.Usage.TotalTokens, nil
+}
+
+func (s *AIService) doGeminiRequest(messages []map[string]string, provider, apiKey, baseURL, model, authType string, timeoutSecond int, extraHeaders map[string]string) (string, int, error) {
+	if strings.TrimSpace(model) == "" {
+		model = "gemini-2.5-flash"
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = "https://generativelanguage.googleapis.com/v1beta"
+	}
+	if timeoutSecond <= 0 {
+		timeoutSecond = 60
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return "", 0, fmt.Errorf("gemini API key 未配置")
+	}
+
+	var textBuilder strings.Builder
+	for _, msg := range messages {
+		role := strings.ToUpper(strings.TrimSpace(msg["role"]))
+		if role == "" {
+			role = "USER"
+		}
+		textBuilder.WriteString("[" + role + "]\n")
+		textBuilder.WriteString(strings.TrimSpace(msg["content"]))
+		textBuilder.WriteString("\n\n")
+	}
+	reqBody := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"role": "user",
+				"parts": []map[string]string{
+					{"text": strings.TrimSpace(textBuilder.String())},
+				},
+			},
+		},
+	}
+	jsonData, _ := json.Marshal(reqBody)
+
+	endpoint := strings.TrimSpace(baseURL)
+	if !strings.Contains(endpoint, ":generateContent") {
+		endpoint = strings.TrimRight(endpoint, "/")
+		modelPath := strings.TrimSpace(model)
+		if !strings.HasPrefix(modelPath, "models/") {
+			modelPath = "models/" + modelPath
+		}
+		endpoint = endpoint + "/" + modelPath + ":generateContent"
+	}
+
+	req, _ := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	if authType == "x-api-key" {
+		req.Header.Set("x-goog-api-key", apiKey)
+	}
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	q := req.URL.Query()
+	if q.Get("key") == "" {
+		q.Set("key", apiKey)
+		req.URL.RawQuery = q.Encode()
+	}
+
+	client := &http.Client{Timeout: time.Duration(timeoutSecond) * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+		UsageMetadata struct {
+			TotalTokenCount int `json:"totalTokenCount"`
+		} `json:"usageMetadata"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", 0, err
+	}
+	if result.Error.Message != "" {
+		return "", 0, fmt.Errorf("gemini API error: %s", result.Error.Message)
+	}
+	if len(result.Candidates) == 0 {
+		return "", 0, fmt.Errorf("gemini no response")
+	}
+	parts := result.Candidates[0].Content.Parts
+	out := make([]string, 0, len(parts))
+	for _, item := range parts {
+		if strings.TrimSpace(item.Text) != "" {
+			out = append(out, strings.TrimSpace(item.Text))
+		}
+	}
+	if len(out) == 0 {
+		return "", 0, fmt.Errorf("gemini empty response")
+	}
+	return strings.Join(out, "\n"), result.UsageMetadata.TotalTokenCount, nil
 }
