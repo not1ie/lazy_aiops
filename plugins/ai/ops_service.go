@@ -259,25 +259,66 @@ func (s *AIService) PreflightRisk(req *AIOpsPreflightRequest) (*AIOpsPreflightRe
 	if command == "" && plan == "" {
 		return nil, fmt.Errorf("command 或 plan_json 至少提供一个")
 	}
+	now := time.Now()
+	windowStart, windowEnd := parseMaintenanceWindow(os.Getenv("LAO_MAINTENANCE_WINDOW"))
+	inMaintenanceWindow := isTimeWithinWindow(now, windowStart, windowEnd)
+	maintenanceWindowLabel := fmt.Sprintf("%s-%s", windowStart, windowEnd)
+	windowStatusLabel := "当前在维护窗口内"
+	if !inMaintenanceWindow {
+		windowStatusLabel = "当前不在维护窗口内"
+	}
+	last7d := now.Add(-7 * 24 * time.Hour)
 
 	var successCnt, totalCnt int64
-	s.db.Model(&AIOpsTimelineEvent{}).Where("stage = ?", "verify").Count(&totalCnt)
-	s.db.Model(&AIOpsTimelineEvent{}).Where("stage = ? AND status = ?", "verify", "success").Count(&successCnt)
+	s.db.Model(&AIOpsTimelineEvent{}).Where("stage = ? AND created_at >= ?", "verify", last7d).Count(&totalCnt)
+	s.db.Model(&AIOpsTimelineEvent{}).Where("stage = ? AND status = ? AND created_at >= ?", "verify", "success", last7d).Count(&successCnt)
 	successRate := 0.0
 	if totalCnt > 0 {
 		successRate = float64(successCnt) / float64(totalCnt)
 	}
+	var recentIncidentCnt, unresolvedIncidentCnt int64
+	s.db.Model(&AIOpsIncident{}).Where("created_at >= ?", last7d).Count(&recentIncidentCnt)
+	s.db.Model(&AIOpsIncident{}).
+		Where("created_at >= ? AND status NOT IN ?", last7d, []string{"resolved", "rolled_back"}).
+		Count(&unresolvedIncidentCnt)
 
 	baseScore := 25
-	riskFactors := make([]AIOpsRiskFactor, 0, 5)
+	riskFactors := make([]AIOpsRiskFactor, 0, 8)
 	if context == "prod" {
 		baseScore += 20
 		riskFactors = append(riskFactors, AIOpsRiskFactor{Factor: "生产环境", Weight: 0.22, Detail: "目标上下文为 prod"})
+		if !inMaintenanceWindow {
+			baseScore += 12
+			riskFactors = append(riskFactors, AIOpsRiskFactor{
+				Factor: "非维护窗口执行",
+				Weight: 0.12,
+				Detail: fmt.Sprintf("维护窗口 %s，%s", maintenanceWindowLabel, windowStatusLabel),
+			})
+		}
 	}
 	rawText := strings.ToLower(command + "\n" + plan)
 	if containsAny(rawText, []string{"delete", "drop", "truncate", "scale", "restart", "rollback", "patch", "kill"}) {
 		baseScore += 30
 		riskFactors = append(riskFactors, AIOpsRiskFactor{Factor: "包含高风险动作", Weight: 0.35, Detail: "命令涉及重启/删除/回滚/扩缩容"})
+	}
+	if unresolvedIncidentCnt > 0 {
+		riskRaise := int(unresolvedIncidentCnt * 4)
+		if riskRaise > 20 {
+			riskRaise = 20
+		}
+		baseScore += riskRaise
+		riskFactors = append(riskFactors, AIOpsRiskFactor{
+			Factor: "近 7 天未闭环事件偏多",
+			Weight: 0.2,
+			Detail: fmt.Sprintf("近7天 incident=%d, 未闭环=%d", recentIncidentCnt, unresolvedIncidentCnt),
+		})
+	} else if recentIncidentCnt == 0 {
+		baseScore -= 5
+		riskFactors = append(riskFactors, AIOpsRiskFactor{
+			Factor: "近期环境稳定",
+			Weight: -0.05,
+			Detail: "近7天未出现历史 incident",
+		})
 	}
 	if successRate > 0 {
 		if successRate < 0.6 {
@@ -309,9 +350,13 @@ context=%s
 command=%s
 plan=%s
 history_success_rate=%.2f
+maintenance_window=%s
+window_status=%s
+recent_incidents_7d=%d
+unresolved_incidents_7d=%d
 输出格式:
 {"blast_radius":"...","recommended_time":"...","safer_alternative":"..."}`,
-					context, nonEmptyContext(command, "-"), nonEmptyContext(plan, "-"), successRate),
+					context, nonEmptyContext(command, "-"), nonEmptyContext(plan, "-"), successRate, maintenanceWindowLabel, windowStatusLabel, recentIncidentCnt, unresolvedIncidentCnt),
 			},
 		},
 	)
@@ -332,7 +377,7 @@ history_success_rate=%.2f
 		BlastRadius:       strings.TrimSpace(extra["blast_radius"]),
 		RecommendedTime:   strings.TrimSpace(extra["recommended_time"]),
 		SaferAlternative:  strings.TrimSpace(extra["safer_alternative"]),
-		MaintenanceWindow: "建议配置 maintenance_window，默认按低峰策略",
+		MaintenanceWindow: fmt.Sprintf("%s (%s)", maintenanceWindowLabel, windowStatusLabel),
 		EscalateApproval:  baseScore >= 70,
 	}, nil
 }
@@ -880,6 +925,81 @@ func extractRunbookSummary(content string) string {
 		return truncateText(line, 120)
 	}
 	return truncateText(content, 120)
+}
+
+func parseMaintenanceWindow(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "22:00", "06:00"
+	}
+	parts := strings.Split(raw, "-")
+	if len(parts) != 2 {
+		return "22:00", "06:00"
+	}
+	start := normalizeHHMM(parts[0], "22:00")
+	end := normalizeHHMM(parts[1], "06:00")
+	return start, end
+}
+
+func normalizeHHMM(raw, fallback string) string {
+	raw = strings.TrimSpace(raw)
+	segs := strings.Split(raw, ":")
+	if len(segs) != 2 {
+		return fallback
+	}
+	hour, err1 := atoiSafe(segs[0])
+	minute, err2 := atoiSafe(segs[1])
+	if err1 != nil || err2 != nil {
+		return fallback
+	}
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return fallback
+	}
+	return fmt.Sprintf("%02d:%02d", hour, minute)
+}
+
+func isTimeWithinWindow(current time.Time, startHHMM, endHHMM string) bool {
+	startMin := hhmmToMinutes(startHHMM)
+	endMin := hhmmToMinutes(endHHMM)
+	nowMin := current.Hour()*60 + current.Minute()
+	if startMin == endMin {
+		return true
+	}
+	if startMin < endMin {
+		return nowMin >= startMin && nowMin < endMin
+	}
+	return nowMin >= startMin || nowMin < endMin
+}
+
+func hhmmToMinutes(hhmm string) int {
+	segs := strings.Split(strings.TrimSpace(hhmm), ":")
+	if len(segs) != 2 {
+		return 0
+	}
+	hour, err1 := atoiSafe(segs[0])
+	minute, err2 := atoiSafe(segs[1])
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return 0
+	}
+	return hour*60 + minute
+}
+
+func atoiSafe(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("empty")
+	}
+	value := 0
+	for _, ch := range raw {
+		if ch < '0' || ch > '9' {
+			return 0, fmt.Errorf("non-digit")
+		}
+		value = value*10 + int(ch-'0')
+	}
+	return value, nil
 }
 
 func buildIncidentRunbookMarkdown(incident *AIOpsIncident, events []AIOpsTimelineEvent, plan *AIExecutionPlan) string {

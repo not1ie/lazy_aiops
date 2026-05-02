@@ -80,6 +80,7 @@
               </div>
             </div>
             <div class="risk-text">影响范围：{{ preflightResult.blast_radius || '-' }}</div>
+            <div class="risk-text">维护窗口：{{ preflightResult.maintenance_window || '-' }}</div>
             <div class="risk-text">建议窗口：{{ preflightResult.recommended_time || '-' }}</div>
             <div class="risk-text">更安全替代：{{ preflightResult.safer_alternative || '-' }}</div>
           </div>

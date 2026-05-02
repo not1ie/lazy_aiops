@@ -158,6 +158,21 @@ func TestFindRelatedRunbooks(t *testing.T) {
 	}
 }
 
+func TestMaintenanceWindowHelpers(t *testing.T) {
+	start, end := parseMaintenanceWindow("23:30-05:45")
+	if start != "23:30" || end != "05:45" {
+		t.Fatalf("unexpected window: %s-%s", start, end)
+	}
+	current := time.Date(2026, 4, 30, 1, 20, 0, 0, time.Local)
+	if !isTimeWithinWindow(current, "23:30", "05:45") {
+		t.Fatalf("expected inside maintenance window")
+	}
+	current = time.Date(2026, 4, 30, 10, 0, 0, 0, time.Local)
+	if isTimeWithinWindow(current, "23:30", "05:45") {
+		t.Fatalf("expected outside maintenance window")
+	}
+}
+
 func ptrTime(v time.Time) *time.Time { return &v }
 
 func contains(raw, sub string) bool {
