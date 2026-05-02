@@ -123,6 +123,41 @@ func TestGenerateRunbookFromIncident(t *testing.T) {
 	}
 }
 
+func TestFindRelatedRunbooks(t *testing.T) {
+	svc := newTestAIService(t)
+	docs := []knowledge.Document{
+		{
+			Title:     "payment-timeout-v1",
+			Content:   "## Diagnosis Steps\n- check payment p99 latency\n## Remediation\n- restart deploy/payment",
+			Tags:      "runbook,payment,timeout",
+			Category:  "runbook",
+			CreatedBy: "tester",
+		},
+		{
+			Title:     "swarm-replica-fail-v2",
+			Content:   "## Diagnosis\n- inspect docker service ps\n## Remediation\n- docker service update --force",
+			Tags:      "runbook,swarm,replica",
+			Category:  "runbook",
+			CreatedBy: "tester",
+		},
+	}
+	for i := range docs {
+		if err := svc.db.Create(&docs[i]).Error; err != nil {
+			t.Fatalf("create doc[%d]: %v", i, err)
+		}
+	}
+	got := svc.findRelatedRunbooks("payment timeout in prod", "namespace=payment", 3)
+	if len(got) == 0 {
+		t.Fatalf("expected related runbooks")
+	}
+	if got[0].ID == 0 || got[0].Title == "" {
+		t.Fatalf("invalid suggestion: %+v", got[0])
+	}
+	if !strings.Contains(strings.ToLower(got[0].Title), "payment") {
+		t.Fatalf("unexpected top result: %s", got[0].Title)
+	}
+}
+
 func ptrTime(v time.Time) *time.Time { return &v }
 
 func contains(raw, sub string) bool {

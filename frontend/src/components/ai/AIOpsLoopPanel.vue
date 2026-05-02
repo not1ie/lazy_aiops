@@ -150,6 +150,39 @@
           <template #header>
             <div class="ops-head">
               <div>
+                <div class="ops-title">AI 诊断结论</div>
+                <div class="ops-sub">本轮推理摘要与复用建议</div>
+              </div>
+            </div>
+          </template>
+          <el-input
+            v-model="opsState.reply"
+            type="textarea"
+            :rows="7"
+            resize="none"
+            readonly
+            placeholder="诊断后这里会显示结论"
+          />
+          <div class="mt-12">
+            <div class="ops-sub" style="margin-bottom: 8px;">相关 Runbook</div>
+            <el-empty v-if="relatedRunbooks.length === 0" description="暂无命中，先完成一次闭环会更容易命中历史经验" :image-size="56" />
+            <el-table v-else :fit="true" :data="relatedRunbooks" size="small" stripe>
+              <el-table-column prop="title" label="Runbook" min-width="180" />
+              <el-table-column prop="score" label="匹配分" width="90" />
+              <el-table-column label="命中词" min-width="130">
+                <template #default="{ row }">
+                  {{ Array.isArray(row.matched_terms) ? row.matched_terms.join(', ') : '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip />
+            </el-table>
+          </div>
+        </el-card>
+
+        <el-card shadow="never" class="ops-card mt-12">
+          <template #header>
+            <div class="ops-head">
+              <div>
                 <div class="ops-title">4) Incident 历史与 Runbook</div>
                 <div class="ops-sub">选择历史事件回放并一键沉淀为知识库 Runbook</div>
               </div>
@@ -309,6 +342,7 @@ const incidentQuery = reactive({
 const opsState = reactive({
   incident_id: '',
   status: '',
+  reply: '',
   root_cause_at: '',
   first_fix_action_at: '',
   mttd_seconds: null,
@@ -318,6 +352,7 @@ const opsState = reactive({
 const preflightResult = ref(null)
 const timelineEvents = ref([])
 const timelineText = ref('')
+const relatedRunbooks = ref([])
 const incidentRows = ref([])
 const runbookCreated = ref(null)
 const runbookForm = reactive({
@@ -366,10 +401,12 @@ const runDiagnose = async () => {
       const data = res.data.data || {}
       opsState.incident_id = data.incident_id || ''
       opsState.status = data.status || ''
+      opsState.reply = data.reply || ''
       opsState.root_cause_at = data.root_cause_at || ''
       opsState.first_fix_action_at = data.first_fix_action_at || ''
       opsState.mttd_seconds = data.mttd_seconds ?? null
       opsState.mttr_seconds = data.mttr_seconds ?? null
+      relatedRunbooks.value = Array.isArray(data.related_runbooks) ? data.related_runbooks : []
       diagnoseForm.incident_id = opsState.incident_id
       if (!runbookForm.title) {
         runbookForm.title = `incident-${opsState.incident_id.toLowerCase()}`
@@ -521,12 +558,14 @@ const pickIncident = async (row) => {
       const incident = detail.incident || {}
       opsState.incident_id = incident.incident_id || incidentId
       opsState.status = incident.status || ''
+      opsState.reply = incident.root_cause_summary || ''
       opsState.root_cause_at = incident.root_cause_at || ''
       opsState.first_fix_action_at = incident.first_fix_action_at || ''
       opsState.mttd_seconds = incident.mttd_seconds ?? null
       opsState.mttr_seconds = incident.mttr_seconds ?? null
       diagnoseForm.incident_id = opsState.incident_id
       timelineEvents.value = Array.isArray(detail.events) ? detail.events : []
+      relatedRunbooks.value = []
       timelineText.value = JSON.stringify({ incident: incidentId, events: timelineEvents.value }, null, 2)
       if (!runbookForm.title) {
         runbookForm.title = `incident-${opsState.incident_id.toLowerCase()}`

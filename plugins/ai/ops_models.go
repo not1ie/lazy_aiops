@@ -44,16 +44,17 @@ type AIOpsDiagnoseRequest struct {
 }
 
 type AIOpsDiagnoseResponse struct {
-	IncidentID     string           `json:"incident_id"`
-	Status         string           `json:"status"`
-	Reply          string           `json:"reply"`
-	ContextPack    *AIContextPack   `json:"context_pack,omitempty"`
-	ToolCalls      []AIToolTrace    `json:"tool_calls,omitempty"`
-	ExecutionPlan  *AIExecutionPlan `json:"execution_plan,omitempty"`
-	RootCauseAt    *time.Time       `json:"root_cause_at,omitempty"`
-	FirstFixAction *time.Time       `json:"first_fix_action_at,omitempty"`
-	MTTDSeconds    int64            `json:"mttd_seconds"`
-	MTTRSeconds    int64            `json:"mttr_seconds"`
+	IncidentID      string                   `json:"incident_id"`
+	Status          string                   `json:"status"`
+	Reply           string                   `json:"reply"`
+	ContextPack     *AIContextPack           `json:"context_pack,omitempty"`
+	ToolCalls       []AIToolTrace            `json:"tool_calls,omitempty"`
+	ExecutionPlan   *AIExecutionPlan         `json:"execution_plan,omitempty"`
+	RelatedRunbooks []AIOpsRunbookSuggestion `json:"related_runbooks,omitempty"`
+	RootCauseAt     *time.Time               `json:"root_cause_at,omitempty"`
+	FirstFixAction  *time.Time               `json:"first_fix_action_at,omitempty"`
+	MTTDSeconds     int64                    `json:"mttd_seconds"`
+	MTTRSeconds     int64                    `json:"mttr_seconds"`
 }
 
 type AIOpsApproveRequest struct {
@@ -108,4 +109,15 @@ type AIOpsRunbookGenerateRequest struct {
 	Title      string `json:"title"`
 	Tags       string `json:"tags"`
 	Category   string `json:"category"`
+}
+
+type AIOpsRunbookSuggestion struct {
+	ID           uint      `json:"id"`
+	Title        string    `json:"title"`
+	Tags         string    `json:"tags"`
+	Category     string    `json:"category"`
+	Score        int       `json:"score"`
+	MatchedTerms []string  `json:"matched_terms,omitempty"`
+	Summary      string    `json:"summary"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }

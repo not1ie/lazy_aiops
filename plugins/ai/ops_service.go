@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -125,18 +126,20 @@ func (s *AIService) DiagnoseIncident(req *AIOpsDiagnoseRequest, userID string) (
 	if err := s.db.Save(incident).Error; err != nil {
 		return nil, err
 	}
+	relatedRunbooks := s.findRelatedRunbooks(req.Query, req.Context, 5)
 
 	return &AIOpsDiagnoseResponse{
-		IncidentID:     incidentID,
-		Status:         incident.Status,
-		Reply:          reply,
-		ContextPack:    pack,
-		ToolCalls:      traces,
-		ExecutionPlan:  plan,
-		RootCauseAt:    incident.RootCauseAt,
-		FirstFixAction: incident.FirstFixActionAt,
-		MTTDSeconds:    incident.MTTDSeconds,
-		MTTRSeconds:    incident.MTTRSeconds,
+		IncidentID:      incidentID,
+		Status:          incident.Status,
+		Reply:           reply,
+		ContextPack:     pack,
+		ToolCalls:       traces,
+		ExecutionPlan:   plan,
+		RelatedRunbooks: relatedRunbooks,
+		RootCauseAt:     incident.RootCauseAt,
+		FirstFixAction:  incident.FirstFixActionAt,
+		MTTDSeconds:     incident.MTTDSeconds,
+		MTTRSeconds:     incident.MTTRSeconds,
 	}, nil
 }
 
@@ -744,6 +747,139 @@ func truncateText(value string, maxLen int) string {
 		return value
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+func (s *AIService) findRelatedRunbooks(queryText, contextText string, limit int) []AIOpsRunbookSuggestion {
+	if limit <= 0 {
+		limit = 5
+	}
+	docs := make([]knowledge.Document, 0, 128)
+	if err := s.db.Where("category = ?", "runbook").Order("updated_at desc").Limit(200).Find(&docs).Error; err != nil {
+		return nil
+	}
+	if len(docs) == 0 {
+		return nil
+	}
+	searchTerms := buildRunbookSearchTerms(queryText, contextText)
+	if len(searchTerms) == 0 {
+		return nil
+	}
+	type scoredDoc struct {
+		Doc          knowledge.Document
+		Score        int
+		MatchedTerms []string
+	}
+	scored := make([]scoredDoc, 0, len(docs))
+	for _, doc := range docs {
+		title := strings.ToLower(doc.Title)
+		tags := strings.ToLower(doc.Tags)
+		content := strings.ToLower(doc.Content)
+		score := 0
+		matchedTerms := make([]string, 0, 6)
+		for _, term := range searchTerms {
+			termLower := strings.ToLower(term)
+			matched := false
+			if termLower != "" && strings.Contains(title, termLower) {
+				score += 4
+				matched = true
+			}
+			if termLower != "" && strings.Contains(tags, termLower) {
+				score += 3
+				matched = true
+			}
+			if termLower != "" && strings.Contains(content, termLower) {
+				score += 1
+				matched = true
+			}
+			if matched {
+				matchedTerms = append(matchedTerms, term)
+			}
+		}
+		if score > 0 {
+			scored = append(scored, scoredDoc{
+				Doc:          doc,
+				Score:        score,
+				MatchedTerms: matchedTerms,
+			})
+		}
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].Score == scored[j].Score {
+			return scored[i].Doc.UpdatedAt.After(scored[j].Doc.UpdatedAt)
+		}
+		return scored[i].Score > scored[j].Score
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	out := make([]AIOpsRunbookSuggestion, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, AIOpsRunbookSuggestion{
+			ID:           item.Doc.ID,
+			Title:        item.Doc.Title,
+			Tags:         item.Doc.Tags,
+			Category:     item.Doc.Category,
+			Score:        item.Score,
+			MatchedTerms: item.MatchedTerms,
+			Summary:      extractRunbookSummary(item.Doc.Content),
+			UpdatedAt:    item.Doc.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func buildRunbookSearchTerms(queryText, contextText string) []string {
+	combined := strings.TrimSpace(queryText + " " + contextText)
+	if combined == "" {
+		return nil
+	}
+	normalized := regexp.MustCompile(`[\n\r\t,;|]+`).ReplaceAllString(combined, " ")
+	parts := strings.Fields(normalized)
+	seen := map[string]bool{}
+	out := make([]string, 0, 10)
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.ToLower(part))
+		if part == "" || seen[part] {
+			continue
+		}
+		if len([]rune(part)) < 2 {
+			continue
+		}
+		if strings.ContainsAny(part, `"'()[]{}<>`) {
+			part = strings.Trim(part, `"'()[]{}<>`)
+		}
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+		if len(out) >= 10 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		base := truncateText(strings.ToLower(strings.TrimSpace(queryText)), 20)
+		if base != "" {
+			out = append(out, base)
+		}
+	}
+	return out
+}
+
+func extractRunbookSummary(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "-"
+	}
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		return truncateText(line, 120)
+	}
+	return truncateText(content, 120)
 }
 
 func buildIncidentRunbookMarkdown(incident *AIOpsIncident, events []AIOpsTimelineEvent, plan *AIExecutionPlan) string {
