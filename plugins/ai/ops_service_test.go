@@ -173,6 +173,42 @@ func TestMaintenanceWindowHelpers(t *testing.T) {
 	}
 }
 
+func TestFindRelatedKnowledge(t *testing.T) {
+	svc := newTestAIService(t)
+	docs := []knowledge.Document{
+		{
+			Title:     "payment-timeout-postmortem-2026-04",
+			Content:   "根因: DB 连接池耗尽。修复: 扩容并限制并发。",
+			Tags:      "payment,timeout,postmortem",
+			Category:  "post-mortem",
+			CreatedBy: "tester",
+		},
+		{
+			Title:     "swarm-failover-guide",
+			Content:   "处理步骤: 检查 manager 节点 quorum 与 task 状态",
+			Tags:      "swarm,guide,failover",
+			Category:  "guide",
+			CreatedBy: "tester",
+		},
+	}
+	for i := range docs {
+		if err := svc.db.Create(&docs[i]).Error; err != nil {
+			t.Fatalf("create doc[%d]: %v", i, err)
+		}
+	}
+	got := svc.findRelatedKnowledge("payment timeout p99 升高", "service=payment", 5)
+	if len(got) == 0 {
+		t.Fatalf("expected related knowledge")
+	}
+	if !strings.Contains(strings.ToLower(got[0].Title), "payment") {
+		t.Fatalf("unexpected top suggestion: %s", got[0].Title)
+	}
+	ctx := buildKnowledgePromptContext(got)
+	if !strings.Contains(ctx, "历史知识库命中结果") {
+		t.Fatalf("knowledge context not built: %s", ctx)
+	}
+}
+
 func ptrTime(v time.Time) *time.Time { return &v }
 
 func contains(raw, sub string) bool {

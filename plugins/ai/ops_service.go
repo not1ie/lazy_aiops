@@ -68,6 +68,9 @@ func (s *AIService) DiagnoseIncident(req *AIOpsDiagnoseRequest, userID string) (
 		status := normalizeEventStatus(trace.Status)
 		s.logTimeline(incidentID, "tool_call", status, fmt.Sprintf("%s: %s", trace.Name, trace.Summary), 0, trace, "system")
 	}
+	relatedRunbooks := s.findRelatedRunbooks(req.Query, req.Context, 5)
+	relatedKnowledge := s.findRelatedKnowledge(req.Query, req.Context, 5)
+	knowledgeContext := buildKnowledgePromptContext(relatedKnowledge)
 
 	replyStart := time.Now()
 	reply, _, err := s.core.AI.CallLLM(lazySREEnginePrompt, []map[string]string{
@@ -90,6 +93,9 @@ func (s *AIService) DiagnoseIncident(req *AIOpsDiagnoseRequest, userID string) (
 				"",
 				"工具证据:",
 				nonEmptyContext(toolContext, "无"),
+				"",
+				"历史知识参考:",
+				nonEmptyContext(knowledgeContext, "无"),
 			}, "\n"),
 		},
 	})
@@ -117,29 +123,31 @@ func (s *AIService) DiagnoseIncident(req *AIOpsDiagnoseRequest, userID string) (
 	}
 	incident.PlanJSON = mustMarshalString(plan)
 	incident.EvidenceJSON = mustMarshalString(map[string]interface{}{
-		"context_pack": pack,
-		"tool_calls":   traces,
-		"reply":        reply,
-		"query":        req.Query,
-		"context":      req.Context,
+		"context_pack":      pack,
+		"tool_calls":        traces,
+		"reply":             reply,
+		"query":             req.Query,
+		"context":           req.Context,
+		"related_runbooks":  relatedRunbooks,
+		"related_knowledge": relatedKnowledge,
 	})
 	if err := s.db.Save(incident).Error; err != nil {
 		return nil, err
 	}
-	relatedRunbooks := s.findRelatedRunbooks(req.Query, req.Context, 5)
 
 	return &AIOpsDiagnoseResponse{
-		IncidentID:      incidentID,
-		Status:          incident.Status,
-		Reply:           reply,
-		ContextPack:     pack,
-		ToolCalls:       traces,
-		ExecutionPlan:   plan,
-		RelatedRunbooks: relatedRunbooks,
-		RootCauseAt:     incident.RootCauseAt,
-		FirstFixAction:  incident.FirstFixActionAt,
-		MTTDSeconds:     incident.MTTDSeconds,
-		MTTRSeconds:     incident.MTTRSeconds,
+		IncidentID:       incidentID,
+		Status:           incident.Status,
+		Reply:            reply,
+		ContextPack:      pack,
+		ToolCalls:        traces,
+		ExecutionPlan:    plan,
+		RelatedRunbooks:  relatedRunbooks,
+		RelatedKnowledge: relatedKnowledge,
+		RootCauseAt:      incident.RootCauseAt,
+		FirstFixAction:   incident.FirstFixActionAt,
+		MTTDSeconds:      incident.MTTDSeconds,
+		MTTRSeconds:      incident.MTTRSeconds,
 	}, nil
 }
 
@@ -871,6 +879,119 @@ func (s *AIService) findRelatedRunbooks(queryText, contextText string, limit int
 		})
 	}
 	return out
+}
+
+func (s *AIService) findRelatedKnowledge(queryText, contextText string, limit int) []AIOpsKnowledgeSuggestion {
+	if limit <= 0 {
+		limit = 5
+	}
+	docs := make([]knowledge.Document, 0, 256)
+	if err := s.db.
+		Where("category IN ?", []string{"runbook", "guide", "post-mortem"}).
+		Order("updated_at desc").
+		Limit(300).
+		Find(&docs).Error; err != nil {
+		return nil
+	}
+	if len(docs) == 0 {
+		return nil
+	}
+	searchTerms := buildRunbookSearchTerms(queryText, contextText)
+	if len(searchTerms) == 0 {
+		return nil
+	}
+	type scoredDoc struct {
+		Doc          knowledge.Document
+		Score        int
+		MatchedTerms []string
+	}
+	scored := make([]scoredDoc, 0, len(docs))
+	for _, doc := range docs {
+		title := strings.ToLower(doc.Title)
+		tags := strings.ToLower(doc.Tags)
+		content := strings.ToLower(doc.Content)
+		category := strings.ToLower(strings.TrimSpace(doc.Category))
+		score := 0
+		matchedTerms := make([]string, 0, 6)
+		for _, term := range searchTerms {
+			termLower := strings.ToLower(term)
+			matched := false
+			if termLower != "" && strings.Contains(title, termLower) {
+				score += 5
+				matched = true
+			}
+			if termLower != "" && strings.Contains(tags, termLower) {
+				score += 3
+				matched = true
+			}
+			if termLower != "" && strings.Contains(content, termLower) {
+				score += 1
+				matched = true
+			}
+			if matched {
+				matchedTerms = append(matchedTerms, term)
+			}
+		}
+		switch category {
+		case "post-mortem":
+			score += 1
+		case "guide":
+			score += 1
+		}
+		if score > 0 {
+			scored = append(scored, scoredDoc{
+				Doc:          doc,
+				Score:        score,
+				MatchedTerms: matchedTerms,
+			})
+		}
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].Score == scored[j].Score {
+			return scored[i].Doc.UpdatedAt.After(scored[j].Doc.UpdatedAt)
+		}
+		return scored[i].Score > scored[j].Score
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	out := make([]AIOpsKnowledgeSuggestion, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, AIOpsKnowledgeSuggestion{
+			ID:           item.Doc.ID,
+			Title:        item.Doc.Title,
+			Category:     item.Doc.Category,
+			Tags:         item.Doc.Tags,
+			Score:        item.Score,
+			MatchedTerms: item.MatchedTerms,
+			Summary:      extractRunbookSummary(item.Doc.Content),
+			UpdatedAt:    item.Doc.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func buildKnowledgePromptContext(items []AIOpsKnowledgeSuggestion) string {
+	if len(items) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(items)+1)
+	lines = append(lines, "以下是历史知识库命中结果，优先参考并结合当前证据判断：")
+	for idx, item := range items {
+		lines = append(lines, fmt.Sprintf(
+			"%d) [%s] %s | tags=%s | score=%d | summary=%s",
+			idx+1,
+			nonEmptyContext(item.Category, "-"),
+			nonEmptyContext(item.Title, "-"),
+			nonEmptyContext(item.Tags, "-"),
+			item.Score,
+			nonEmptyContext(item.Summary, "-"),
+		))
+		if idx >= 3 {
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func buildRunbookSearchTerms(queryText, contextText string) []string {

@@ -178,6 +178,21 @@
               <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip />
             </el-table>
           </div>
+          <div class="mt-12">
+            <div class="ops-sub" style="margin-bottom: 8px;">相关知识库（Guide / Post-mortem）</div>
+            <el-empty v-if="relatedKnowledge.length === 0" description="暂无命中，建议在知识库补充复盘文档与操作手册" :image-size="56" />
+            <el-table v-else :fit="true" :data="relatedKnowledge" size="small" stripe>
+              <el-table-column prop="title" label="知识项" min-width="180" />
+              <el-table-column prop="category" label="分类" width="120" />
+              <el-table-column prop="score" label="匹配分" width="90" />
+              <el-table-column label="命中词" min-width="140">
+                <template #default="{ row }">
+                  {{ Array.isArray(row.matched_terms) ? row.matched_terms.join(', ') : '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip />
+            </el-table>
+          </div>
         </el-card>
 
         <el-card shadow="never" class="ops-card mt-12">
@@ -354,6 +369,7 @@ const preflightResult = ref(null)
 const timelineEvents = ref([])
 const timelineText = ref('')
 const relatedRunbooks = ref([])
+const relatedKnowledge = ref([])
 const incidentRows = ref([])
 const runbookCreated = ref(null)
 const runbookForm = reactive({
@@ -408,6 +424,7 @@ const runDiagnose = async () => {
       opsState.mttd_seconds = data.mttd_seconds ?? null
       opsState.mttr_seconds = data.mttr_seconds ?? null
       relatedRunbooks.value = Array.isArray(data.related_runbooks) ? data.related_runbooks : []
+      relatedKnowledge.value = Array.isArray(data.related_knowledge) ? data.related_knowledge : []
       diagnoseForm.incident_id = opsState.incident_id
       if (!runbookForm.title) {
         runbookForm.title = `incident-${opsState.incident_id.toLowerCase()}`
@@ -567,6 +584,7 @@ const pickIncident = async (row) => {
       diagnoseForm.incident_id = opsState.incident_id
       timelineEvents.value = Array.isArray(detail.events) ? detail.events : []
       relatedRunbooks.value = []
+      relatedKnowledge.value = []
       timelineText.value = JSON.stringify({ incident: incidentId, events: timelineEvents.value }, null, 2)
       if (!runbookForm.title) {
         runbookForm.title = `incident-${opsState.incident_id.toLowerCase()}`
