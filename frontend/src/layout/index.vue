@@ -27,6 +27,11 @@
             <span>AI 智能助手</span>
           </el-menu-item>
 
+          <el-menu-item v-if="can('ai')" index="/ai/ops">
+            <el-icon><WarningFilled /></el-icon>
+            <span>AIOps 诊断</span>
+          </el-menu-item>
+
           <el-menu-item v-if="can('ai')" index="/ai-skills">
             <el-icon><SetUp /></el-icon>
             <span>AI 技能管理</span>

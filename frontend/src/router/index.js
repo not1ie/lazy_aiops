@@ -76,8 +76,9 @@ const routes = [
       { path: 'cmdb/network-devices', name: 'CMDBNetworkDevices', component: () => import('@/views/cmdb/network-device.vue'), meta: { title: '网络设备', hidden: true, perm: 'cmdb' } },
       { path: 'firewall', name: 'Firewall', redirect: '/host?tab=network', meta: { title: '防火墙管理', hidden: true, perm: 'firewall' } },
 
-      // --- AI 技能 ---
+      // --- AI 技能 & AIOps ---
       { path: 'ai-skills', name: 'AISkills', component: () => import('@/views/hub/ai-skills.vue'), meta: { title: 'AI技能管理', hidden: true, perm: 'ai' } },
+      { path: 'ai/ops', name: 'AIOps', component: () => import('@/views/ai/ops.vue'), meta: { title: 'AIOps 故障诊断', hidden: true, perm: 'ai' } },
       { path: 'registries', name: 'Registries', component: () => import('@/views/hub/registries.vue'), meta: { title: '镜像仓库', hidden: true, perm: 'cicd' } },
 
       // --- 容器/K8s ---
