@@ -188,6 +188,22 @@
           </div>
         </el-card>
 
+        <!-- Deployment Health -->
+        <el-card class="side-card deploy-health-card" shadow="never">
+          <h3>Deploy Health</h3>
+          <div v-if="lastExecutions.length === 0" class="empty-hint">No recent deployments</div>
+          <div v-else class="deploy-list">
+            <div v-for="ex in lastExecutions" :key="ex.id" class="deploy-item">
+              <span class="deploy-dot" :class="ex._dotClass"></span>
+              <div class="deploy-info">
+                <div class="deploy-name">{{ ex.pipeline_name || ex.name || 'Pipeline' }}</div>
+                <div class="deploy-meta">{{ fmtTimeAgo(ex.created_at) }}</div>
+              </div>
+              <el-tag size="small" :type="ex._tagType">{{ ex.status || ex._status }}</el-tag>
+            </div>
+          </div>
+        </el-card>
+
         <!-- Module Status -->
         <el-card class="side-card module-status-card" shadow="never" v-if="moduleEntries.length > 0">
           <h3>Plugin Status</h3>
@@ -265,6 +281,24 @@ const moduleEntries = computed(() => {
     status: String(status || '').toLowerCase()
   }))
 })
+
+const lastExecutions = computed(() => {
+  return (snapshots.cicd_executions || []).slice(0, 5).map(e => ({
+    ...e,
+    _status: e.status || 'unknown',
+    _tagType: e.status === 'success' ? 'success' : e.status === 'failed' ? 'danger' : e.status === 'running' ? 'warning' : 'info',
+    _dotClass: e.status === 'success' ? 'bg-green' : e.status === 'failed' ? 'bg-red' : e.status === 'running' ? 'bg-blue' : 'bg-gray'
+  }))
+})
+
+const fmtTimeAgo = (val) => {
+  if (!val) return '-'
+  const diff = Math.floor((Date.now() - new Date(val).getTime()) / 1000)
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m 前`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h 前`
+  return `${Math.floor(diff / 86400)}d 前`
+}
 
 const pendingWorkorders = computed(() => {
   const wos = snapshots.workorders || []
@@ -550,6 +584,15 @@ onUnmounted(() => {
 .bg-orange { background: #f59e0b; }
 .bg-gray { background: #9ca3af; }
 .flat-tag { background: rgba(0,0,0,0.04) !important; border: none !important; border-radius: 6px !important; font-weight: 700 !important; }
+
+.deploy-health-card { margin-bottom: 16px; }
+.deploy-health-card h3 { font-size: 14px; font-weight: 700; margin: 0 0 12px 0; }
+.deploy-list { display: flex; flex-direction: column; gap: 2px; }
+.deploy-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.deploy-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.deploy-info { flex: 1; min-width: 0; }
+.deploy-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deploy-meta { font-size: 11px; color: var(--el-text-color-secondary); }
 
 .module-status-card { margin-bottom: 16px; }
 .module-status-card h3 { font-size: 14px; font-weight: 700; margin: 0 0 12px 0; }
