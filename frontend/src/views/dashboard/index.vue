@@ -136,15 +136,22 @@
             </div>
           </el-card>
 
-          <!-- Real changes from CICD + workorder activity -->
+          <!-- Top Issues: most alerted + recent AIOps -->
           <el-card class="sub-card" shadow="never">
-            <div class="card-title-row"><h3>Recent Activity</h3><a href="#" class="view-all" @click.prevent="go('/delivery')">View</a></div>
-            <div v-if="recentActivities.length === 0" class="empty-hint">No recent activity</div>
-            <div class="change-item" v-for="act in recentActivities" :key="act._id">
-              <div class="chg-dot" :class="act._dotClass"></div>
-              <div class="chg-info">
-                <div class="chg-desc">{{ act._desc }}</div>
-                <div class="chg-meta">{{ act._source }} &bull; {{ fmtTime(act._time) }}</div>
+            <div class="card-title-row"><h3>Top Issues</h3><a href="#" class="view-all" @click.prevent="go('/ai/ops')">AIOps</a></div>
+            <div v-if="topTargets.length === 0 && recentAIOps.length === 0" class="empty-hint">No issues detected</div>
+            <div class="issue-item" v-for="t in topTargets" :key="t.target" @click="go('/monitor')">
+              <span class="issue-rank" :class="'rank-' + t.severity">{{ t.count }}</span>
+              <div class="issue-info">
+                <div class="issue-target">{{ t.target }}</div>
+                <div class="issue-meta">{{ t.count }} alerts</div>
+              </div>
+            </div>
+            <div class="issue-item" v-for="inc in recentAIOps" :key="inc.incident_id" @click="go('/ai/ops')">
+              <span class="issue-rank" :class="'rank-' + (inc.risk_level || 'medium')">{{ inc.status }}</span>
+              <div class="issue-info">
+                <div class="issue-target">{{ inc.title || inc.query?.slice(0, 40) }}</div>
+                <div class="issue-meta">AIOps &bull; {{ fmtTimeAgo(inc.created_at) }}</div>
               </div>
             </div>
           </el-card>
@@ -300,6 +307,36 @@ const fmtTimeAgo = (val) => {
   return `${Math.floor(diff / 86400)}d 前`
 }
 
+const topTargets = computed(() => {
+  const alerts = snapshots.alerts || []
+  const counts = {}
+  alerts.forEach(a => {
+    const target = a.target || 'unknown'
+    counts[target] = (counts[target] || 0) + 1
+  })
+  return Object.entries(counts)
+    .map(([target, count]) => {
+      const maxSeverity = alerts.filter(a => a.target === target).reduce((max, a) => {
+        if (a.severity === 'critical') return 'critical'
+        if (a.severity === 'warning' && max !== 'critical') return 'warning'
+        return max
+      }, 'info')
+      return { target, count, severity: maxSeverity }
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+})
+
+const recentAIOps = ref([])
+
+const fetchAIOps = async () => {
+  try {
+    const headers = { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    const res = await axios.get('/api/v1/ai/ops/incidents', { headers }).catch(() => ({ data: {} }))
+    recentAIOps.value = (res.data?.data || []).slice(0, 3)
+  } catch (e) { /* silent */ }
+}
+
 const pendingWorkorders = computed(() => {
   const wos = snapshots.workorders || []
   return wos.filter(w => w.status === 'pending' || w.status === 'open').length
@@ -312,31 +349,6 @@ const recentAlerts = computed(() => {
     _severityType: a.severity === 'critical' ? 'danger' : a.severity === 'warning' ? 'warning' : 'info',
     _iconColor: a.severity === 'critical' ? 'text-red' : a.severity === 'warning' ? 'text-orange' : 'text-blue'
   }))
-})
-
-const recentActivities = computed(() => {
-  const items = []
-  // CI/CD executions
-  ;(snapshots.cicd_executions || []).slice(0, 5).forEach(e => {
-    items.push({
-      _id: 'cicd-' + (e.id || Math.random()),
-      _desc: `${e.pipeline_name || 'Pipeline'}: ${e.status || 'unknown'}`,
-      _source: 'CI/CD',
-      _time: e.finished_at || e.created_at,
-      _dotClass: e.status === 'success' ? 'bg-green' : e.status === 'failed' ? 'bg-red' : 'bg-blue'
-    })
-  })
-  // Workorders
-  ;(snapshots.workorders || []).slice(0, 3).forEach(w => {
-    items.push({
-      _id: 'wo-' + (w.id || Math.random()),
-      _desc: `${w.type || 'Workorder'}: ${w.title || w.id}`,
-      _source: 'Workorder',
-      _time: w.updated_at || w.created_at,
-      _dotClass: 'bg-purple'
-    })
-  })
-  return items.sort((a, b) => new Date(b._time || 0) - new Date(a._time || 0)).slice(0, 6)
 })
 
 const topActionHint = computed(() => {
@@ -467,6 +479,7 @@ const fetchData = async () => {
   } finally {
     loading.value = false
   }
+  fetchAIOps()
 }
 
 const updateAge = () => {
@@ -529,6 +542,17 @@ onUnmounted(() => {
 .chart-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--el-text-color-secondary); margin-top: 10px; }
 
 .sub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.issue-item { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--glass-outline); cursor: pointer; }
+.issue-item:last-child { border-bottom: none; }
+.issue-rank { width: 36px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0; text-transform: uppercase; }
+.issue-rank.rank-critical { background: #ef4444; }
+.issue-rank.rank-warning { background: #f59e0b; }
+.issue-rank.rank-info, .issue-rank.rank-medium { background: #6b7280; }
+.issue-rank.rank-low { background: #10b981; }
+.issue-info { flex: 1; min-width: 0; }
+.issue-target { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.issue-meta { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 2px; }
+
 .empty-hint { padding: 24px 0; text-align: center; color: var(--el-text-color-secondary); font-size: 13px; }
 .incident-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--glass-outline); cursor: pointer; }
 .incident-item:last-child { border-bottom: none; }
