@@ -70,7 +70,6 @@
     <div class="right-panel">
       <header class="header motion-down">
         <div class="header-left">
-          <div class="header-eyebrow">Enterprise</div>
           <el-breadcrumb separator="/">
             <el-breadcrumb-item :to="{ path: '/' }">控制台</el-breadcrumb-item>
             <el-breadcrumb-item v-if="route.meta.title">{{ route.meta.title }}</el-breadcrumb-item>
@@ -78,19 +77,13 @@
         </div>
 
         <div class="header-right">
-          <div class="search-trigger" @click="globalSearchVisible = true">
-            <el-icon><Search /></el-icon>
-            <span class="search-placeholder">搜索...</span>
-            <kbd class="search-kbd">⌘K</kbd>
-          </div>
+          <el-button class="search-btn" circle @click="globalSearchVisible = true">
+            <el-icon :size="16"><Search /></el-icon>
+          </el-button>
 
           <el-dropdown trigger="click" @command="handleUserCommand">
             <div class="user-chip">
               <el-avatar :size="28" icon="UserFilled" />
-              <div class="user-meta">
-                <strong>{{ username }}</strong>
-                <span>{{ roleCode }}</span>
-              </div>
               <el-icon><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
@@ -322,10 +315,10 @@ const submitChangePassword = async () => {
 }
 
 .logo {
-  padding: 28px 24px 20px;
+  padding: 20px 20px 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .logo-icon {
@@ -365,70 +358,56 @@ const submitChangePassword = async () => {
 }
 
 .header {
-  height: 52px !important;
-  margin: 16px 16px 0 16px;
-  padding: 0 20px;
+  height: 48px;
+  margin: 12px 16px 0 16px;
+  padding: 0 12px 0 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--surface-shadow), inset 0 1px 1px var(--glass-border);
   border: 1px solid var(--glass-outline);
+  flex-shrink: 0;
 }
 
-.header-eyebrow {
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  background: var(--apple-blue);
-  padding: 4px 8px;
-  border-radius: 8px;
-}
-
-.search-trigger {
+.header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.04);
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  transition: all 0.15s;
-  min-width: 200px;
 }
-.search-trigger:hover { background: rgba(0, 0, 0, 0.06); color: var(--el-text-color-regular); }
-.search-placeholder { flex: 1; }
-.search-kbd {
-  font-family: monospace;
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--el-border-color);
-  background: var(--el-fill-color);
+
+.search-btn {
   color: var(--el-text-color-secondary);
+  box-shadow: none;
+  background: transparent;
+  border: none;
+}
+.search-btn:hover {
+  color: var(--el-text-color-primary);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .user-chip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px 4px 4px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.04);
+  gap: 6px;
+  padding: 2px 8px 2px 2px;
+  border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s;
+  margin-left: 4px;
 }
-.user-chip:hover { background: rgba(0, 0, 0, 0.06); }
+.user-chip:hover { background: rgba(0, 0, 0, 0.04); }
 .user-dropdown-header { padding: 2px 0; }
 .ud-name { font-size: 14px; font-weight: 700; }
 .ud-role { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 2px; }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 
 .view-tabs-wrap {
   height: 44px;
