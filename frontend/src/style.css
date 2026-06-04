@@ -94,9 +94,31 @@ body {
 .el-button--primary {
   background: var(--apple-blue) !important;
   border-color: var(--apple-blue) !important;
+  color: #fff !important;
   box-shadow: 0 2px 8px rgba(0,113,227,0.25) !important;
 }
-.el-button--primary:hover { box-shadow: 0 4px 14px rgba(0,113,227,0.35) !important; }
+.el-button--primary:hover { background: #0077ed !important; box-shadow: 0 4px 14px rgba(0,113,227,0.35) !important; }
+.el-button--primary:active { background: #0068d6 !important; }
+.el-button--primary.is-plain {
+  background: rgba(0,113,227,0.08) !important;
+  color: var(--apple-blue) !important;
+  border: 1px solid rgba(0,113,227,0.2) !important;
+  box-shadow: none !important;
+}
+.el-button--primary.is-plain:hover { background: rgba(0,113,227,0.14) !important; }
+
+/* Round buttons */
+.el-button.is-round { border-radius: 20px !important; }
+
+/* Small / default buttons that aren't primary */
+.el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger) {
+  color: var(--el-text-color-regular);
+  background: rgba(0,0,0,0.04);
+}
+.el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):hover {
+  background: rgba(0,0,0,0.08);
+  color: var(--el-text-color-primary);
+}
 
 /* Tables */
 .el-table {
