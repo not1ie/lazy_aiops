@@ -93,6 +93,63 @@
         <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- Environment Config Dialog -->
+    <el-dialog :title="'环境配置: ' + configAppName" v-model="envDialogVisible" width="640px" append-to-body>
+      <el-table :data="envConfigs" size="small" v-if="envConfigs.length > 0">
+        <el-table-column prop="env_name" label="环境" width="80" />
+        <el-table-column prop="namespace" label="命名空间" width="120" />
+        <el-table-column label="副本数" width="70">
+          <template #default="{ row }">{{ row.replicas || 1 }}</template>
+        </el-table-column>
+        <el-table-column label="CPU" width="90">
+          <template #default="{ row }">{{ row.cpu_quota || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="内存" width="90">
+          <template #default="{ row }">{{ row.mem_quota || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="健康检查" min-width="150">
+          <template #default="{ row }">{{ row.health_check || '-' }}</template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="暂无环境配置" :image-size="40" />
+
+      <el-divider />
+
+      <el-form :model="envForm" label-width="90px" inline>
+        <el-form-item label="环境">
+          <el-select v-model="envForm.env_name" style="width:100px">
+            <el-option label="dev" value="dev" />
+            <el-option label="test" value="test" />
+            <el-option label="staging" value="staging" />
+            <el-option label="prod" value="prod" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="K8s 集群">
+          <el-select v-model="envForm.cluster_id" style="width:140px" clearable>
+            <el-option v-for="c in k8sClusters" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="命名空间">
+          <el-input v-model="envForm.namespace" style="width:120px" placeholder="default" />
+        </el-form-item>
+        <el-form-item label="副本数">
+          <el-input-number v-model="envForm.replicas" :min="1" :max="99" style="width:80px" />
+        </el-form-item>
+        <el-form-item label="CPU">
+          <el-input v-model="envForm.cpu_quota" style="width:100px" placeholder="500m" />
+        </el-form-item>
+        <el-form-item label="内存">
+          <el-input v-model="envForm.mem_quota" style="width:100px" placeholder="512Mi" />
+        </el-form-item>
+        <el-form-item label="健康检查">
+          <el-input v-model="envForm.health_check" style="width:160px" placeholder="/health" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="envSaving" @click="submitEnvConfig">添加</el-button>
+        </el-form-item>
+      </el-form>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -132,9 +189,49 @@ const handleCardAction = (cmd, app) => {
     })
     visible.value = true
   } else if (cmd === 'config') {
-    ElMessage.info('环境配置功能开发中，请通过 API 管理')
+    openEnvConfig(app)
   } else if (cmd === 'delete') {
     handleDelete(app)
+  }
+}
+
+// --- Environment Config ---
+const envDialogVisible = ref(false)
+const envSaving = ref(false)
+const configAppId = ref('')
+const configAppName = ref('')
+const envConfigs = ref([])
+const k8sClusters = ref([])
+const envForm = ref({ env_name: 'dev', cluster_id: '', namespace: 'default', replicas: 1, cpu_quota: '', mem_quota: '', health_check: '' })
+
+const openEnvConfig = async (app) => {
+  configAppId.value = app.id
+  configAppName.value = app.name
+  envForm.value = { env_name: 'dev', cluster_id: '', namespace: 'default', replicas: 1, cpu_quota: '', mem_quota: '', health_check: '' }
+  envDialogVisible.value = true
+  try {
+    const [cfgRes, k8sRes] = await Promise.all([
+      axios.get(`/api/v1/application/apps/${app.id}/configs`, { headers: authHeaders() }),
+      axios.get('/api/v1/k8s/clusters', { headers: authHeaders() }).catch(() => ({ data: {} }))
+    ])
+    envConfigs.value = cfgRes.data?.data || []
+    k8sClusters.value = k8sRes.data?.data || []
+  } catch (e) { /* silent */ }
+}
+
+const submitEnvConfig = async () => {
+  if (!configAppId.value) return
+  envSaving.value = true
+  try {
+    await axios.post(`/api/v1/application/apps/${configAppId.value}/configs`, envForm.value, { headers: authHeaders() })
+    ElMessage.success('环境配置已添加')
+    // Refresh env list
+    const cfgRes = await axios.get(`/api/v1/application/apps/${configAppId.value}/configs`, { headers: authHeaders() })
+    envConfigs.value = cfgRes.data?.data || []
+  } catch (err) {
+    ElMessage.error('添加失败: ' + (err.response?.data?.message || err.message))
+  } finally {
+    envSaving.value = false
   }
 }
 
