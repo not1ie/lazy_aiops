@@ -99,7 +99,7 @@ const routes = [
 
       // --- 监控 & 告警 ---
       { path: 'monitor/hosts', name: 'MonitorHosts', component: () => import('@/views/monitor/hosts.vue'), meta: { title: '主机监控', hidden: true, perm: 'monitor' } },
-      { path: 'monitor/overview', name: 'MonitorOverview', component: () => import('@/views/monitor/overview.vue'), meta: { title: '监控概览', hidden: true, perm: 'monitor' } },
+      { path: 'monitor/overview', redirect: '/monitor' },
       { path: 'monitor/metrics', name: 'MonitorMetrics', component: () => import('@/views/monitor/metrics.vue'), meta: { title: '指标采集', hidden: true, perm: 'monitor' } },
       { path: 'monitor/containers', name: 'MonitorContainers', component: () => import('@/views/monitor/containers.vue'), meta: { title: '容器监控', hidden: true, perm: 'monitor' } },
       { path: 'monitor/pods', name: 'MonitorPods', component: () => import('@/views/monitor/pods.vue'), meta: { title: 'Pod监控', hidden: true, perm: 'monitor' } },
