@@ -4,20 +4,20 @@
   --apple-blue: #0071e3;
   --el-color-primary: var(--apple-blue);
 
-  /* Background — soft warm gradient like macOS Ventura wallpaper */
-  --page-bg: #ece9e6;
+  /* Vibrant wallpapaer-like background */
+  --page-bg: #e8e4e0;
   --bg-gradient:
-    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(0,113,227,0.06) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 80% at 80% 30%, rgba(52,199,89,0.04) 0%, transparent 50%),
-    radial-gradient(ellipse 70% 50% at 50% 90%, rgba(255,159,10,0.03) 0%, transparent 50%),
-    linear-gradient(180deg, #f0eeed 0%, #e8e6e3 50%, #e5e3e0 100%);
+    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(0,113,227,0.15) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 60% at 70% 40%, rgba(52,199,89,0.1) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 40% 80%, rgba(255,149,0,0.08) 0%, transparent 55%),
+    linear-gradient(180deg, #ece5dd 0%, #e5ded6 40%, #dfd9d2 100%);
 
-  /* Glass surfaces — translucent, deeply blurred */
-  --glass-bg: rgba(255,255,255,0.48);
-  --glass-bg-heavy: rgba(255,255,255,0.62);
-  --glass-bg-light: rgba(255,255,255,0.32);
-  --glass-blur: blur(50px) saturate(180%);
-  --glass-blur-light: blur(30px) saturate(160%);
+  /* Frosted glass — highly transparent, deeply blurred */
+  --glass-bg: rgba(255,255,255,0.38);
+  --glass-bg-heavy: rgba(255,255,255,0.55);
+  --glass-bg-light: rgba(255,255,255,0.22);
+  --glass-blur: blur(70px) saturate(200%);
+  --glass-blur-light: blur(40px) saturate(180%);
 
   /* Borders */
   --glass-border: rgba(255,255,255,0.8);
@@ -75,15 +75,19 @@ body {
 
 /* Cards — all translucent */
 .el-card {
-  border: 1px solid var(--glass-outline) !important;
+  border: 1px solid rgba(255,255,255,0.5) !important;
+  border-top: 1px solid rgba(255,255,255,0.7) !important;
   background: var(--glass-bg) !important;
   backdrop-filter: var(--glass-blur) !important;
   -webkit-backdrop-filter: var(--glass-blur) !important;
-  border-radius: 16px !important;
-  box-shadow: var(--shadow-sm) !important;
+  border-radius: 18px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.4) inset,
+    0 4px 20px rgba(0,0,0,0.06),
+    0 1px 3px rgba(0,0,0,0.04) !important;
 }
 .el-card.is-always-shadow,
-.el-card:hover { box-shadow: var(--shadow-md) !important; }
+.el-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04) !important; }
 
 /* Buttons */
 .el-button {
@@ -145,12 +149,13 @@ body {
 
 /* Dialog */
 .el-dialog {
-  border-radius: 16px !important;
+  border-radius: 18px !important;
   background: var(--glass-bg-heavy) !important;
   backdrop-filter: var(--glass-blur) !important;
   -webkit-backdrop-filter: var(--glass-blur) !important;
-  border: 1px solid var(--glass-outline) !important;
-  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid rgba(255,255,255,0.6) !important;
+  border-top: 1px solid rgba(255,255,255,0.8) !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.12), 0 4px 16px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,0.5) inset !important;
 }
 
 /* Inputs */
