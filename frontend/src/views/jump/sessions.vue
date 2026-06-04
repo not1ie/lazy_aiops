@@ -172,7 +172,37 @@
   <el-drawer v-model="commandsVisible" title="命令审计记录" size="52%">
     <template #default>
       <div class="drawer-subtitle">会话：{{ currentSession?.session_no || '-' }} / {{ currentSession?.asset_name || '-' }}</div>
-      <el-table :fit="true" :data="commands" v-loading="commandsLoading" stripe>
+      <div class="audit-toolbar">
+        <el-radio-group v-model="auditViewMode" size="small">
+          <el-radio-button label="table">表格</el-radio-button>
+          <el-radio-button label="timeline">时间轴</el-radio-button>
+        </el-radio-group>
+        <span class="audit-count">{{ commands.length }} 条命令</span>
+      </div>
+
+      <!-- Timeline View -->
+      <el-timeline v-if="auditViewMode === 'timeline'">
+        <el-timeline-item
+          v-for="cmd in commands"
+          :key="cmd.id || cmd.executed_at"
+          :timestamp="formatTime(cmd.executed_at)"
+          :color="cmd.risk_level === 'critical' ? '#ef4444' : cmd.risk_level === 'high' ? '#f59e0b' : cmd.result_code === 0 ? '#10b981' : '#6b7280'"
+        >
+          <div class="tl-cmd">
+            <code class="tl-cmd-text">{{ cmd.command }}</code>
+            <div class="tl-cmd-meta">
+              <el-tag size="small" effect="plain">{{ cmd.username }}</el-tag>
+              <span>退出码: {{ cmd.result_code }}</span>
+              <el-tag v-if="cmd.risk_level" size="small" :type="riskType(cmd.risk_level)">{{ cmd.risk_level }}</el-tag>
+              <span v-if="cmd.risk_action" class="tl-action" :class="'action-' + cmd.risk_action">{{ cmd.risk_action }}</span>
+            </div>
+            <div v-if="cmd.output_snippet" class="tl-cmd-output">{{ cmd.output_snippet.slice(0, 200) }}</div>
+          </div>
+        </el-timeline-item>
+      </el-timeline>
+
+      <!-- Table View -->
+      <el-table v-else :fit="true" :data="commands" v-loading="commandsLoading" stripe>
         <el-table-column label="执行时间" min-width="170">
           <template #default="{ row }">{{ formatTime(row.executed_at) }}</template>
         </el-table-column>
@@ -250,6 +280,7 @@ const startDialogVisible = ref(false)
 const recordDialogVisible = ref(false)
 const sqlConsoleVisible = ref(false)
 const commandsVisible = ref(false)
+const auditViewMode = ref('table')
 const riskEventsVisible = ref(false)
 const nowTick = ref(Date.now())
 let statusTickTimer = null
@@ -613,6 +644,16 @@ onUnmounted(() => {
 .drawer-subtitle { margin-bottom: 12px; color: #606266; }
 .sql-result { margin-top: 8px; max-height: 220px; overflow: auto; background: #0b1220; color: #cfd8e3; border-radius: 8px; padding: 10px; }
 .sql-result pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.4; }
+.audit-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.audit-count { font-size: 12px; color: var(--el-text-color-secondary); }
+.tl-cmd { padding: 4px 0; }
+.tl-cmd-text { background: var(--el-fill-color); padding: 4px 10px; border-radius: 4px; font-size: 13px; display: inline-block; margin-bottom: 4px; }
+.tl-cmd-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
+.tl-cmd-output { font-size: 11px; color: var(--el-text-color-placeholder); background: var(--el-fill-color-lighter); padding: 6px 10px; border-radius: 4px; margin-top: 6px; max-height: 60px; overflow: hidden; font-family: monospace; }
+.tl-action { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; }
+.tl-action.action-block { background: #fef2f2; color: #dc2626; }
+.tl-action.action-allow { background: #f0fdf4; color: #16a34a; }
+.tl-action.action-audit { background: #fff7ed; color: #ea580c; }
 @media (max-width: 768px) {
   .header { flex-direction: column; align-items: flex-start; }
   .filter-item { width: 100%; }

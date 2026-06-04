@@ -41,6 +41,20 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <el-alert type="info" :closable="false" show-icon style="margin-top:16px">
+      <template #title>🔗 Webhook 自动触发</template>
+      <div class="webhook-info">
+        <p>在 Git Provider 中配置以下 Webhook URL，即可在 Push / Merge Request 时自动触发流水线：</p>
+        <el-tag v-for="p in ['jenkins','gitlab','argocd','github']" :key="p" size="small" effect="plain" style="margin-right:8px;margin-bottom:4px;">
+          <code>{{ webhookBaseUrl }}/api/v1/cicd/webhook/{{ p }}</code>
+          <el-button link size="small" @click="copyWebhook(p)" style="margin-left:4px">
+            <el-icon><CopyDocument /></el-icon>
+          </el-button>
+        </el-tag>
+        <p class="webhook-note">支持 Header <code>X-Hub-Signature</code> 签名校验（在 Secret 中配置）。Secret 为空则跳过校验。</p>
+      </div>
+    </el-alert>
   </el-card>
 
   <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑流水线' : '新增流水线'" width="720px" @closed="handleDialogClosed">
@@ -191,6 +205,18 @@ import { ref, reactive, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+
+const webhookBaseUrl = computed(() => window.location.origin)
+
+const copyWebhook = async (provider) => {
+  const url = `${webhookBaseUrl.value}/api/v1/cicd/webhook/${provider}`
+  try {
+    await navigator.clipboard.writeText(url)
+    ElMessage.success(`已复制 ${provider} webhook URL`)
+  } catch {
+    ElMessage.info(url)
+  }
+}
 
 const pipelines = ref([])
 const credentialOptions = ref([])
@@ -516,4 +542,7 @@ watch(() => form.require_approval, (enabled) => {
 .desc { color: #909399; margin-top: 4px; }
 .actions { display: flex; gap: 8px; }
 .form-tip { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 6px; }
+.webhook-info p { font-size: 13px; color: var(--el-text-color-regular); margin: 8px 0; }
+.webhook-info code { background: var(--el-fill-color); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+.webhook-note { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 8px; }
 </style>
