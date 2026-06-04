@@ -112,6 +112,32 @@
                <el-table-column label="状态"><template #default="{ row }"><StatusBadge v-bind="networkStatusTag(row)" /></template></el-table-column>
              </el-table>
           </el-tab-pane>
+
+          <el-tab-pane label="堡垒机资产" name="jump">
+            <div class="pane-header">
+              <span class="text-muted">{{ jumpIntegration ? '已连接' : '未配置' }} · {{ jumpAssets.length }} 个资产</span>
+              <el-button size="small" type="primary" @click="go('/jump/assets')">堡垒机管理 →</el-button>
+            </div>
+            <div v-if="jumpAssets.length === 0 && !loading" class="empty-cta">
+              <el-empty description="尚未同步 JumpServer 资产" :image-size="50">
+                <el-button type="primary" size="small" @click="go('/jump/assets')">配置堡垒机连接</el-button>
+              </el-empty>
+            </div>
+            <el-table v-else :data="jumpAssets" class="hub-table" size="small">
+              <el-table-column prop="name" label="资产名称" min-width="150" />
+              <el-table-column prop="address" label="地址" width="160" />
+              <el-table-column label="协议" width="80">
+                <template #default="{ row }">
+                  <el-tag size="small" effect="plain">{{ row.protocol || 'ssh' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  <StatusBadge :text="row.is_active ? '活跃' : '停用'" :type="row.is_active ? 'success' : 'info'" />
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
         </el-tabs>
       </div>
     </div>
@@ -163,6 +189,7 @@ const credentials = ref([])
 const networkDevices = ref([])
 const firewallDevices = ref([])
 const jumpIntegration = ref(null)
+const jumpAssets = ref([])
 const activePanel = ref('hosts')
 const panelKeyword = ref('')
 
@@ -221,13 +248,15 @@ const refreshAll = async () => {
       axios.get('/api/v1/cmdb/databases', { headers: authHeaders() }),
       axios.get('/api/v1/cmdb/credentials', { headers: authHeaders() }),
       axios.get('/api/v1/cmdb/network-devices', { headers: authHeaders() }),
-      axios.get('/api/v1/jump/integration/config', { headers: authHeaders() })
+      axios.get('/api/v1/jump/integration/config', { headers: authHeaders() }),
+      axios.get('/api/v1/jump/assets', { headers: authHeaders() }).catch(() => ({ data: {} }))
     ])
     hosts.value = res[0].data?.data || []
     databases.value = res[1].data?.data || []
     credentials.value = res[2].data?.data || []
     networkDevices.value = res[3].data?.data || []
     jumpIntegration.value = res[4].data?.data
+    jumpAssets.value = (res[5].data?.data || []).slice(0, 20)
 
     stats.hostTotal = hosts.value.length
     stats.hostOnline = hosts.value.filter(h => h.status === 1).length
@@ -284,6 +313,7 @@ onMounted(refreshAll)
 .pane-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .spec-tag { font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; }
 .spec-tag.spec-missing { color: var(--el-color-warning); background: rgba(245,158,11,0.1); cursor: help; }
+.text-muted { color: var(--el-text-color-secondary); font-size: 13px; }
 .status-detail { font-size: 11px; color: var(--el-text-color-secondary); }
 .check-time { font-size: 12px; color: var(--el-text-color-secondary); }
 .check-time.stale { color: var(--el-color-warning); font-weight: 600; }
