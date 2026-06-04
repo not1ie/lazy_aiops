@@ -19,9 +19,15 @@
       <el-table-column prop="operator" label="操作符" width="90" />
       <el-table-column prop="threshold" label="阈值" width="100" />
       <el-table-column prop="severity" label="级别" width="120" />
-      <el-table-column prop="enabled" label="启用" width="90">
+      <el-table-column prop="enabled" label="启用" width="80">
         <template #default="scope">
           <el-switch v-model="scope.row.enabled" @change="toggleRule(scope.row)" />
+        </template>
+      </el-table-column>
+      <el-table-column label="自愈" width="70">
+        <template #default="scope">
+          <el-tag v-if="scope.row.auto_recover" type="success" size="small" effect="plain">ON</el-tag>
+          <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="200">
@@ -88,6 +94,13 @@
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
         </el-form-item>
+        <el-form-item label="自动修复">
+          <el-switch v-model="form.auto_recover" />
+          <span class="form-hint">开启后，触发告警时将自动执行修复脚本</span>
+        </el-form-item>
+        <el-form-item label="修复脚本" v-if="form.auto_recover">
+          <el-input v-model="form.recover_script" type="textarea" :rows="3" placeholder="Shell 脚本，将在目标主机上通过 SSH 执行" />
+        </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />
         </el-form-item>
@@ -143,6 +156,8 @@ const form = ref({
   severity: 'warning',
   notify_group_id: '',
   enabled: true,
+  auto_recover: false,
+  recover_script: '',
   description: ''
 })
 
@@ -166,7 +181,7 @@ const fetchTemplates = async () => {
 const openCreate = () => {
   isEdit.value = false
   dialogTitle.value = '新增规则'
-  form.value = { name: '', type: 'host', target: '', metric: '', operator: '>', threshold: '', duration: 0, severity: 'warning', notify_group_id: '', enabled: true, description: '' }
+  form.value = { name: '', type: 'host', target: '', metric: '', operator: '>', threshold: '', duration: 0, severity: 'warning', notify_group_id: '', enabled: true, auto_recover: false, recover_script: '', description: '' }
   dialogVisible.value = true
 }
 
@@ -278,4 +293,6 @@ const testNotify = async () => {
   font-size: 13px;
   line-height: 1.6;
 }
+.text-muted { color: var(--el-text-color-placeholder); }
+.form-hint { font-size: 12px; color: var(--el-text-color-secondary); margin-left: 8px; }
 </style>

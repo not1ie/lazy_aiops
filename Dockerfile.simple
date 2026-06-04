@@ -1,0 +1,29 @@
+# 可通过 --build-arg 覆盖镜像源
+ARG GO_IMAGE=golang:1.21-bookworm
+ARG RUNTIME_IMAGE=debian:bookworm-slim
+
+# === Stage 2: Build Backend (Go) ===
+FROM ${GO_IMAGE} AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+ENV GOPROXY=https://goproxy.cn,direct
+RUN go mod download
+COPY . .
+ENV CGO_ENABLED=1
+RUN go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o app_server ./cmd/server
+
+# === Stage 3: Runtime ===
+FROM ${RUNTIME_IMAGE}
+WORKDIR /app
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+RUN apt-get update && \
+    apt-get install -y ca-certificates tzdata ansible sshpass curl docker.io && \
+    rm -rf /var/lib/apt/lists/*
+ENV TZ=Asia/Shanghai
+COPY --from=builder /app/app_server ./lazy-auto-ops
+COPY --from=builder /app/configs ./configs
+# 关键：这里直接复制本地已经 build 好的 dist
+COPY frontend/dist ./web/static
+RUN mkdir -p data
+EXPOSE 8080
+CMD ["./lazy-auto-ops"]

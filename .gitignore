@@ -30,3 +30,11 @@ configs/config.local.yaml
 
 # Temporary
 tmp/
+
+# Local binaries (build artifacts)
+app_server_host
+app_server_linux
+check_skills_linux
+
+# Vendor (confirm before committing)
+vendor/

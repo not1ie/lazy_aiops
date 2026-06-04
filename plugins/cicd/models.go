@@ -37,6 +37,7 @@ type CICDPipeline struct {
 	GitHubToken    string `json:"github_token,omitempty" gorm:"size:500"`
 	GitHubWorkflow string `json:"github_workflow,omitempty" gorm:"size:200"`
 	// 通用配置
+	TargetRegistryID string `json:"target_registry_id,omitempty" gorm:"size:36;index"`
 	Parameters string `json:"parameters" gorm:"type:text"` // JSON参数
 	EnvVars    string `json:"env_vars" gorm:"type:text"`   // 环境变量
 	Status     int    `json:"status" gorm:"default:1"`     // 1启用 0禁用
@@ -96,4 +97,26 @@ type CICDRelease struct {
 	Notes        string     `json:"notes" gorm:"size:1000"`
 	ReleaseAt    *time.Time `json:"release_at"`
 	Operator     string     `json:"operator" gorm:"size:100"`
+}
+
+// ImageRegistry 镜像仓库资产
+type ImageRegistry struct {
+	core.BaseModel
+	Name        string `json:"name" gorm:"size:100;uniqueIndex"`
+	URL         string `json:"url" gorm:"size:500"` // https://harbor.example.com
+	Provider    string `json:"provider" gorm:"size:50"` // harbor, docker-registry
+	Username    string `json:"username" gorm:"size:100"`
+	Password    string `json:"password" gorm:"size:500"` // 加密存储
+	IsDefault   bool   `json:"is_default" gorm:"default:false"`
+	Description string `json:"description" gorm:"size:500"`
+}
+
+// RegistryCleanRule 镜像清理规则
+type RegistryCleanRule struct {
+	core.BaseModel
+	RegistryID     string `json:"registry_id" gorm:"size:36;index"`
+	RepositoryName string `json:"repository_name" gorm:"size:256"` // 支持正则表达式或 *
+	RetainTags     int    `json:"retain_tags" gorm:"default:5"` // 保留最近n个版本
+	TagRegex       string `json:"tag_regex" gorm:"size:256"` // 仅匹配特定的tag，例如 ^v.*$
+	Enabled        bool   `json:"enabled" gorm:"default:true"`
 }

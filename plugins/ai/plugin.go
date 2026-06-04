@@ -48,6 +48,7 @@ func (p *AIPlugin) Migrate() error {
 		&ChatMessage{},
 		&LogAnalysis{},
 		&AIProviderConfig{},
+		&AISkill{},
 		&AIOpsIncident{},
 		&AIOpsTimelineEvent{},
 		&knowledge.Document{},
@@ -65,6 +66,17 @@ func (p *AIPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/sessions/:id/messages", h.GetSessionMessages)
 	g.POST("/messages/:id/create-workorder", h.CreateApprovalWorkOrderFromMessage)
 	g.DELETE("/sessions/:id", h.DeleteSession)
+
+	// AI技能
+	g.GET("/skills", h.ListSkills)
+	g.GET("/skills/:id", h.GetSkill)
+	g.POST("/skills", h.CreateSkill)
+	g.PUT("/skills/:id", h.UpdateSkill)
+	g.DELETE("/skills/:id", h.DeleteSkill)
+	g.POST("/skills/:id/run", h.RunSkill)
+
+	// AI技能 (Public)
+	g.GET("/skills-public", h.ListSkills)
 
 	// 模型接入配置
 	g.GET("/configs", h.ListProviderConfigs)

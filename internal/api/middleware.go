@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// AuthMiddleware JWT认证中间件
+// AuthMiddleware JWT 认证中间件
 func AuthMiddleware(auth *core.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := ""

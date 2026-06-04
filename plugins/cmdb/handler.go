@@ -413,6 +413,25 @@ func (h *HostHandler) detectOSAsync(hostID, username, password string) {
 	if uname, _, err := client.Execute("uname -srm 2>/dev/null"); err == nil {
 		h.db.Model(&host).Update("os", strings.TrimSpace(uname))
 	}
+
+	// 自动收集 CPU、内存、磁盘
+	cpuOut, _, _ := client.Execute("grep -c ^processor /proc/cpuinfo 2>/dev/null || nproc 2>/dev/null")
+	memOut, _, _ := client.Execute("free -m 2>/dev/null | awk '/Mem:/ {printf \"%.1fG\", $2/1024}'")
+	diskOut, _, _ := client.Execute("df -h / 2>/dev/null | awk 'NR==2 {print $2}'")
+	
+	updates := map[string]interface{}{}
+	if strings.TrimSpace(cpuOut) != "" {
+		updates["cpu"] = strings.TrimSpace(cpuOut) + " Core"
+	}
+	if strings.TrimSpace(memOut) != "" {
+		updates["memory"] = strings.TrimSpace(memOut)
+	}
+	if strings.TrimSpace(diskOut) != "" {
+		updates["disk"] = strings.TrimSpace(diskOut)
+	}
+	if len(updates) > 0 {
+		h.db.Model(&host).Updates(updates)
+	}
 }
 
 // TestHost 测试主机连通性并返回诊断信息
@@ -468,6 +487,23 @@ func (h *HostHandler) TestHost(c *gin.Context) {
 		}
 	} else if strings.TrimSpace(uname) != "" {
 		h.db.Model(&host).Update("os", strings.TrimSpace(uname))
+	}
+
+	cpuOut, _, _ := client.Execute("grep -c ^processor /proc/cpuinfo 2>/dev/null || nproc 2>/dev/null")
+	memOut, _, _ := client.Execute("free -m 2>/dev/null | awk '/Mem:/ {printf \"%.1fG\", $2/1024}'")
+	diskOut, _, _ := client.Execute("df -h / 2>/dev/null | awk 'NR==2 {print $2}'")
+	specs := map[string]interface{}{}
+	if strings.TrimSpace(cpuOut) != "" {
+		specs["cpu"] = strings.TrimSpace(cpuOut) + " Core"
+	}
+	if strings.TrimSpace(memOut) != "" {
+		specs["memory"] = strings.TrimSpace(memOut)
+	}
+	if strings.TrimSpace(diskOut) != "" {
+		specs["disk"] = strings.TrimSpace(diskOut)
+	}
+	if len(specs) > 0 {
+		h.db.Model(&host).Updates(specs)
 	}
 
 	result := gin.H{

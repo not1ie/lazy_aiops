@@ -47,12 +47,18 @@ func (s *Server) setupRoutes() {
 	s.engine.Static("/assets", "./web/static/assets")
 	s.engine.StaticFile("/favicon.ico", "./web/static/favicon.ico")
 
-	// 2. 所有非 API 路径都返回 index.html (SPA History Mode)
+	// 2. 所有非 API 路径且非 assets 路径才返回 index.html (SPA History Mode)
 	s.engine.NoRoute(func(c *gin.Context) {
-		if !strings.HasPrefix(c.Request.URL.Path, "/api") {
-			c.File("./web/static/index.html")
-		} else {
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api") {
 			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "API not found"})
+		} else if strings.HasPrefix(path, "/assets") {
+			c.String(http.StatusNotFound, "Asset not found")
+		} else {
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
+			c.File("./web/static/index.html")
 		}
 	})
 
@@ -124,6 +130,13 @@ func (s *Server) setupPublicRoutes(g *gin.RouterGroup) {
 				"plugins": plugins,
 			},
 		})
+	})
+
+	// Debug route to check skills directly
+	g.GET("/test/skills-dump", func(c *gin.Context) {
+		var list []map[string]interface{}
+		err := s.core.DB.Table("ai_skills").Find(&list).Error
+		c.JSON(http.StatusOK, gin.H{"code": 0, "count": len(list), "data": list, "error": err})
 	})
 }
 

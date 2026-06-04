@@ -192,3 +192,14 @@ type AIProviderConfig struct {
 	Active        bool   `gorm:"default:false;index" json:"active"`
 	Description   string `gorm:"size:512" json:"description"`
 }
+
+// AISkill AI技能预设
+type AISkill struct {
+	BaseModel
+	Name             string `gorm:"size:128;uniqueIndex" json:"name"`
+	Description      string `gorm:"size:512" json:"description"`
+	SystemPrompt     string `gorm:"type:text" json:"system_prompt"`
+	ToolBindings     string `gorm:"type:text" json:"tool_bindings"` // JSON array of tool names
+	ParametersSchema string `gorm:"type:text" json:"parameters_schema"` // JSON schema for dynamic form
+	IsSystem         bool   `gorm:"default:false" json:"is_system"` // 系统预设不可删改
+}

@@ -1475,7 +1475,24 @@ watch(autoContextEnabled, async (value) => {
   await refreshContextPackPreview()
 })
 
-onMounted(refreshAll)
+onMounted(() => {
+  refreshAll()
+  // 从其他页面跳转过来时，自动带上上下文作为首次提问
+  const ctxHint = sessionStorage.getItem('ai_context_hint')
+  if (ctxHint) {
+    try {
+      const ctx = JSON.parse(ctxHint)
+      sessionStorage.removeItem('ai_context_hint')
+      if (ctx.summary) {
+        chatInput.value = `请帮我分析以下运维对象：\n\n${ctx.summary}`
+        // 自动发送
+        nextTick(() => {
+          setTimeout(() => sendChat(), 300)
+        })
+      }
+    } catch (e) { /* ignore */ }
+  }
+})
 
 onBeforeUnmount(() => {
   stopChatProgress()

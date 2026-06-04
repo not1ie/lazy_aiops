@@ -39,6 +39,7 @@ import (
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/topology"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/workflow"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/workorder"
+	_ "github.com/lazyautoops/lazy-auto-ops/plugins/sre"
 )
 
 func main() {

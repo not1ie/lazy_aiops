@@ -1,6 +1,9 @@
 version: "3.9"
 
 services:
+  # =========================================================
+  # lazy-aiops 主服务（Go 后端 + Vue 前端）
+  # =========================================================
   lazy-auto-ops:
     image: ${LAZY_AIOPS_IMAGE:-lazy-aiops:latest}
     deploy:
@@ -33,12 +36,52 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - aiops-net
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
+  # =========================================================
+  # lazysre AI 运维技能引擎（Python FastAPI）
+  # 与 lazy-auto-ops 通过 aiops-net overlay 网络通信
+  # lazy-aiops 的 sre plugin 通过 http://lazysre:8000 访问
+  # =========================================================
+  lazysre:
+    image: ${LAZYSRE_IMAGE:-lazysre:20260402103426}
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+    # 不对外暴露端口，仅内部网络访问
+    # 如需调试可临时改为: ports: ["19090:8000"]
+    environment:
+      TZ: Asia/Shanghai
+      LAZYSRE_DATA_DIR: /app/data/lazysre
+    volumes:
+      - lazysre-data:/app/data/lazysre
+    networks:
+      - aiops-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  aiops-net:
+    driver: overlay
+    attachable: true
+
 volumes:
   data:
+    driver: local
+  lazysre-data:
     driver: local

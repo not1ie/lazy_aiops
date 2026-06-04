@@ -34,7 +34,7 @@ func (p *CICDPlugin) Start() error { return nil }
 func (p *CICDPlugin) Stop() error  { return nil }
 
 func (p *CICDPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&CICDPipeline{}, &CICDJob{}, &CICDExecution{}, &CICDSchedule{}, &CICDRelease{})
+	return p.core.DB.AutoMigrate(&CICDPipeline{}, &CICDJob{}, &CICDExecution{}, &CICDSchedule{}, &CICDRelease{}, &ImageRegistry{}, &RegistryCleanRule{})
 }
 
 func (p *CICDPlugin) RegisterRoutes(r *gin.RouterGroup) {
@@ -69,6 +69,20 @@ func (p *CICDPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/releases", p.handler.CreateRelease)
 	r.PUT("/releases/:id", p.handler.UpdateRelease)
 	r.DELETE("/releases/:id", p.handler.DeleteRelease)
+
+	// 镜像仓库管理
+	r.GET("/registries", p.handler.ListRegistries)
+	r.GET("/registries/:id", p.handler.GetRegistry)
+	r.GET("/registries/:id/tags", p.handler.ListRegistryTags)
+	r.POST("/registries", p.handler.CreateRegistry)
+	r.PUT("/registries/:id", p.handler.UpdateRegistry)
+	r.DELETE("/registries/:id", p.handler.DeleteRegistry)
+
+	// 镜像清理规则
+	r.GET("/registries-clean-rules", p.handler.ListCleanRules)
+	r.POST("/registries-clean-rules", p.handler.CreateCleanRule)
+	r.PUT("/registries-clean-rules/:id", p.handler.UpdateCleanRule)
+	r.DELETE("/registries-clean-rules/:id", p.handler.DeleteCleanRule)
 
 	// Webhook
 	r.POST("/webhook/:provider", p.handler.HandleWebhook)
