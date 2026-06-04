@@ -9,62 +9,31 @@
         </div>
       </div>
 
-      <el-scrollbar class="sider-scroll">
-        <el-menu
-          router
-          :default-active="activeMenuIndex"
-          background-color="transparent"
-          text-color="var(--sider-text)"
-          class="el-menu-vertical"
-        >
-          <el-menu-item index="/dashboard">
-            <el-icon><Odometer /></el-icon>
-            <span>运行仪表盘</span>
-          </el-menu-item>
+      <nav class="sider-nav">
+        <a class="nav-item" :class="{ active: route.path === '/dashboard' }" @click="go('/dashboard')">Overview</a>
 
-          <el-menu-item v-if="can('ai')" index="/ai">
-            <el-icon><MagicStick /></el-icon>
-            <span>AI 智能助手</span>
-          </el-menu-item>
+        <div class="nav-section">AI</div>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/ai') && !route.path.startsWith('/ai/ops') && !route.path.startsWith('/ai-skills') }" @click="go('/ai')">Assistant</a>
+        <a class="nav-item" :class="{ active: route.path === '/ai/ops' }" @click="go('/ai/ops')">Diagnose</a>
+        <a class="nav-item" :class="{ active: route.path === '/ai-skills' }" @click="go('/ai-skills')">Skills</a>
 
-          <el-menu-item v-if="can('ai')" index="/ai/ops">
-            <el-icon><WarningFilled /></el-icon>
-            <span>AIOps 诊断</span>
-          </el-menu-item>
+        <div class="nav-section">Infrastructure</div>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/asset') || route.path === '/host' }" @click="go('/asset')">Assets & Security</a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/k8s') }" @click="go('/k8s')">Container Platform</a>
 
-          <el-menu-item v-if="can('ai')" index="/ai-skills">
-            <el-icon><SetUp /></el-icon>
-            <span>AI 技能管理</span>
-          </el-menu-item>
+        <div class="nav-section">Operations</div>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/monitor') }" @click="go('/monitor')">
+          Monitor
+          <span v-if="sidebarCounts.alerts > 0" class="nav-badge">{{ sidebarCounts.alerts }}</span>
+        </a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/delivery') }" @click="go('/delivery')">
+          Delivery
+          <span v-if="sidebarCounts.tickets > 0" class="nav-badge warn">{{ sidebarCounts.tickets }}</span>
+        </a>
 
-          <el-menu-item v-if="can('cmdb')" index="/asset">
-            <el-icon><Monitor /></el-icon>
-            <span>资产与安全</span>
-          </el-menu-item>
-
-          <el-menu-item v-if="can('k8s')" index="/k8s">
-            <el-icon><Platform /></el-icon>
-            <span>容器编排</span>
-          </el-menu-item>
-
-          <el-menu-item v-if="can('monitor')" index="/monitor">
-            <el-icon><Histogram /></el-icon>
-            <span>统一观测</span>
-            <el-badge v-if="sidebarCounts.alerts > 0" :value="sidebarCounts.alerts" class="menu-badge" />
-          </el-menu-item>
-
-          <el-menu-item v-if="can('cicd')" index="/delivery">
-            <el-icon><Connection /></el-icon>
-            <span>交付与流程</span>
-            <el-badge v-if="sidebarCounts.tickets > 0" :value="sidebarCounts.tickets" class="menu-badge" type="warning" />
-          </el-menu-item>
-
-          <el-menu-item v-if="can('system')" index="/system">
-            <el-icon><Setting /></el-icon>
-            <span>系统治理</span>
-          </el-menu-item>
-        </el-menu>
-      </el-scrollbar>
+        <div class="nav-section">Admin</div>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/system') }" @click="go('/system')">Governance</a>
+      </nav>
     </aside>
 
     <div class="right-panel">
@@ -454,24 +423,50 @@ const submitChangePassword = async () => {
   overflow: auto;
 }
 
-:deep(.el-menu) {
-  border-right: none;
-  background: transparent !important;
+/* Sidebar Nav */
+.sider-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  gap: 2px;
 }
-
-:deep(.el-menu-item) {
-  height: 40px !important;
-  line-height: 40px !important;
-  margin: 4px 12px !important;
-  border-radius: 10px !important;
-  color: var(--el-text-color-regular) !important;
+.nav-section {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--el-text-color-placeholder);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 16px 8px 6px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
   font-weight: 500;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
 }
-
-:deep(.el-menu-item.is-active) {
-  background: var(--apple-blue) !important;
-  color: #fff !important;
+.nav-item:hover { background: rgba(0,0,0,0.04); color: var(--el-text-color-primary); }
+.nav-item.active { background: var(--apple-blue); color: #fff; font-weight: 600; }
+.nav-badge {
+  margin-left: auto;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
 }
+.nav-badge.warn { background: #f59e0b; }
 
 .page-view {
   flex: 1;
@@ -486,11 +481,4 @@ const submitChangePassword = async () => {
 
 .app-route-fade-enter-from { opacity: 0; transform: translateY(10px); }
 .app-route-fade-leave-to { opacity: 0; transform: translateY(-10px); }
-.menu-badge {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-:deep(.el-menu-item) { position: relative; }
 </style>

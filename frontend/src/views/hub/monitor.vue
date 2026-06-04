@@ -52,9 +52,6 @@
                 <el-option label="warning" value="warning" />
                 <el-option label="info" value="info" />
               </el-select>
-              <div class="pane-actions">
-                <el-button size="small" @click="go('/alert/events')">全屏管理 →</el-button>
-              </div>
             </div>
             <div v-if="filteredAlerts.length === 0 && !loading" class="empty-cta">
               <el-empty description="暂无活跃告警 🎉" :image-size="50">

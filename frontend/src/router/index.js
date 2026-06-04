@@ -68,13 +68,13 @@ const routes = [
       // ============================================================
 
       // --- 资产管理 ---
-      { path: 'host', name: 'Host', component: () => import('@/views/cmdb/host.vue'), meta: { title: '主机管理', hidden: true, perm: 'cmdb' } },
-      { path: 'cmdb/group', name: 'CMDBGroup', component: () => import('@/views/cmdb/group.vue'), meta: { title: '主机分组', hidden: true, perm: 'cmdb' } },
+      { path: 'host', redirect: '/asset' },
+      { path: 'cmdb/group', redirect: '/asset' },
       { path: 'cmdb/credential', name: 'CMDBCredential', component: () => import('@/views/cmdb/credential.vue'), meta: { title: '凭据管理', hidden: true, perm: 'cmdb' } },
-      { path: 'cmdb/database', name: 'CMDBDatabase', component: () => import('@/views/cmdb/database.vue'), meta: { title: '数据库资产', hidden: true, perm: 'cmdb' } },
-      { path: 'cmdb/cloud', name: 'CMDBCloud', component: () => import('@/views/cmdb/cloud.vue'), meta: { title: '云资源', hidden: true, perm: 'cmdb' } },
-      { path: 'cmdb/network-devices', name: 'CMDBNetworkDevices', component: () => import('@/views/cmdb/network-device.vue'), meta: { title: '网络设备', hidden: true, perm: 'cmdb' } },
-      { path: 'firewall', name: 'Firewall', redirect: '/host?tab=network', meta: { title: '防火墙管理', hidden: true, perm: 'firewall' } },
+      { path: 'cmdb/database', redirect: '/asset' },
+      { path: 'cmdb/cloud', redirect: '/asset' },
+      { path: 'cmdb/network-devices', redirect: '/asset' },
+      { path: 'firewall', redirect: '/asset' },
 
       // --- AI 技能 & AIOps ---
       { path: 'ai-skills', name: 'AISkills', component: () => import('@/views/hub/ai-skills.vue'), meta: { title: 'AI技能管理', hidden: true, perm: 'ai' } },

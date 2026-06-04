@@ -36,7 +36,6 @@
           <el-tab-pane label="主机资产" name="hosts">
             <div class="pane-header">
               <el-input v-model="panelKeyword" placeholder="筛选 IP / 名称 / 分组..." style="width: 240px" clearable />
-              <el-button link type="primary" @click="go('/host')">全屏管理</el-button>
             </div>
             <div v-if="filteredHosts.length === 0 && !loading" class="empty-cta">
               <el-empty description="暂无主机资产" :image-size="60">
