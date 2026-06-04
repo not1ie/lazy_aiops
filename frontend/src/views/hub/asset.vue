@@ -73,11 +73,12 @@
                   <span v-else class="spec-tag">{{ row.cpu_count || '-' }}C / {{ row.memory_gb || '-' }}G</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="160" fixed="right">
+              <el-table-column label="操作" width="200" fixed="right">
                 <template #default="{ row }">
-                  <el-button link type="primary" @click="openTerminal(row)">终端</el-button>
-                  <el-button link type="primary" @click="handleEditHost(row)">编辑</el-button>
-                  <el-button link @click="goAIAnalysis({ type: 'host', title: row.name, id: row.id, summary: `主机 ${row.name} (${row.ip})，状态: ${hostStatusTag(row).text}` })">
+                  <el-button link type="primary" size="small" @click="openTerminal(row)">终端</el-button>
+                  <el-button link type="primary" size="small" @click="handleEditHost(row)">编辑</el-button>
+                  <el-button link type="success" size="small" :loading="testingHostId === row.id" @click="handleTestHost(row)">测试</el-button>
+                  <el-button link size="small" @click="goAIAnalysis({ type: 'host', title: row.name, id: row.id, summary: `主机 ${row.name} (${row.ip})，状态: ${hostStatusTag(row).text}` })">
                     <el-icon><MagicStick /></el-icon>
                   </el-button>
                 </template>
@@ -161,6 +162,40 @@
         <el-button @click="quickCreateVisible = false">取消</el-button>
         <el-button type="primary" :loading="quickCreating" @click="submitQuickCreate">确认添加</el-button>
       </template>
+    </el-dialog>
+
+    <!-- Host Test Result Dialog -->
+    <el-dialog title="主机诊断结果" v-model="testDialogVisible" width="680px" append-to-body>
+      <div v-if="testResult">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="主机">{{ testHostName }}</el-descriptions-item>
+          <el-descriptions-item label="连通性">
+            <el-tag :type="testResult.ssh?.ok ? 'success' : 'danger'" size="small">{{ testResult.ssh?.ok ? '可达' : '不可达' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="系统信息" :span="2">{{ testResult.uname || testResult.os || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="CPU 使用率" v-if="testResult.cpu_usage"> {{ testResult.cpu_usage }} </el-descriptions-item>
+          <el-descriptions-item label="内存使用率" v-if="testResult.mem_usage"> {{ testResult.mem_usage }} </el-descriptions-item>
+          <el-descriptions-item label="SNMP 状态" v-if="testResult.snmp !== undefined">
+            <el-tag :type="testResult.snmp?.ok ? 'success' : 'info'" size="small">{{ testResult.snmp?.ok ? '可达' : '未配置/不可达' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="检测时间">{{ new Date().toLocaleString() }}</el-descriptions-item>
+        </el-descriptions>
+        <div v-if="testResult.top_cpu || testResult.top_mem" style="margin-top:16px">
+          <el-row :gutter="12">
+            <el-col :span="12" v-if="testResult.top_cpu">
+              <h4 class="sub-title">Top CPU 进程</h4>
+              <pre class="test-output">{{ testResult.top_cpu }}</pre>
+            </el-col>
+            <el-col :span="12" v-if="testResult.top_mem">
+              <h4 class="sub-title">Top MEM 进程</h4>
+              <pre class="test-output">{{ testResult.top_mem }}</pre>
+            </el-col>
+          </el-row>
+        </div>
+      </div>
+      <div v-else-if="testError" class="test-error">
+        <el-alert :title="testError" type="error" :closable="false" show-icon />
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -274,6 +309,11 @@ const handleEditHost = (row) => router.push('/host')
 // --- Quick Create Host ---
 const quickCreateVisible = ref(false)
 const quickCreating = ref(false)
+const testingHostId = ref(null)
+const testDialogVisible = ref(false)
+const testResult = ref(null)
+const testError = ref('')
+const testHostName = ref('')
 const quickForm = ref({ name: '', ip: '', port: 22, os: 'Linux', group: '' })
 
 const handleGlobalAdd = () => {
@@ -305,6 +345,22 @@ const submitQuickCreate = async () => {
   }
 }
 
+const handleTestHost = async (row) => {
+  testingHostId.value = row.id
+  testHostName.value = row.name
+  testResult.value = null
+  testError.value = ''
+  testDialogVisible.value = true
+  try {
+    const res = await axios.post(`/api/v1/cmdb/hosts/${row.id}/test`, {}, { headers: authHeaders() })
+    testResult.value = res.data?.data || res.data
+  } catch (err) {
+    testError.value = err.response?.data?.message || '主机诊断失败：请确认凭据已配置且主机可达'
+  } finally {
+    testingHostId.value = null
+  }
+}
+
 onMounted(refreshAll)
 </script>
 
@@ -314,6 +370,9 @@ onMounted(refreshAll)
 .spec-tag { font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; }
 .spec-tag.spec-missing { color: var(--el-color-warning); background: rgba(245,158,11,0.1); cursor: help; }
 .text-muted { color: var(--el-text-color-secondary); font-size: 13px; }
+.sub-title { font-size: 13px; font-weight: 700; margin: 0 0 8px 0; }
+.test-output { font-size: 11px; font-family: monospace; background: var(--el-fill-color); padding: 10px; border-radius: 6px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; margin: 0; }
+.test-error { padding: 20px 0; }
 .status-detail { font-size: 11px; color: var(--el-text-color-secondary); }
 .check-time { font-size: 12px; color: var(--el-text-color-secondary); }
 .check-time.stale { color: var(--el-color-warning); font-weight: 600; }
