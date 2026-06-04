@@ -10,29 +10,19 @@
       </div>
 
       <nav class="sider-nav">
-        <a class="nav-item" :class="{ active: route.path === '/dashboard' }" @click="go('/dashboard')">Overview</a>
-
-        <div class="nav-section">AI</div>
-        <a class="nav-item" :class="{ active: route.path.startsWith('/ai') && !route.path.startsWith('/ai/ops') && !route.path.startsWith('/ai-skills') }" @click="go('/ai')">Assistant</a>
-        <a class="nav-item" :class="{ active: route.path === '/ai/ops' }" @click="go('/ai/ops')">Diagnose</a>
-        <a class="nav-item" :class="{ active: route.path === '/ai-skills' }" @click="go('/ai-skills')">Skills</a>
-
-        <div class="nav-section">Infrastructure</div>
-        <a class="nav-item" :class="{ active: route.path.startsWith('/asset') || route.path === '/host' }" @click="go('/asset')">Assets & Security</a>
-        <a class="nav-item" :class="{ active: route.path.startsWith('/k8s') }" @click="go('/k8s')">Container Platform</a>
-
-        <div class="nav-section">Operations</div>
+        <a class="nav-item" :class="{ active: route.path === '/dashboard' }" @click="go('/dashboard')">仪表盘</a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/ai') }" @click="go('/ai')">智能助手</a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/asset') || route.path === '/host' }" @click="go('/asset')">资产与安全</a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/k8s') }" @click="go('/k8s')">容器平台</a>
         <a class="nav-item" :class="{ active: route.path.startsWith('/monitor') }" @click="go('/monitor')">
-          Monitor
+          统一观测
           <span v-if="sidebarCounts.alerts > 0" class="nav-badge">{{ sidebarCounts.alerts }}</span>
         </a>
         <a class="nav-item" :class="{ active: route.path.startsWith('/delivery') }" @click="go('/delivery')">
-          Delivery
+          变更交付
           <span v-if="sidebarCounts.tickets > 0" class="nav-badge warn">{{ sidebarCounts.tickets }}</span>
         </a>
-
-        <div class="nav-section">Admin</div>
-        <a class="nav-item" :class="{ active: route.path.startsWith('/system') }" @click="go('/system')">Governance</a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/system') }" @click="go('/system')">系统治理</a>
       </nav>
     </aside>
 
@@ -82,28 +72,9 @@
       </header>
 
       <main class="main">
-        <div class="view-tabs-wrap">
-          <el-scrollbar>
-            <div class="view-tabs">
-              <div
-                v-for="item in viewTabs"
-                :key="item.path"
-                class="view-tab"
-                :class="{ 'is-active': route.path === item.path }"
-                @click="go(item.path)"
-              >
-                {{ item.title }}
-                <el-icon v-if="item.closable" class="tab-close" @click.stop="closeTab(item.path)"><Close /></el-icon>
-              </div>
-            </div>
-          </el-scrollbar>
-        </div>
-
         <router-view v-slot="{ Component, route }">
           <transition name="app-route-fade" mode="out-in">
-            <div class="page-view" :key="route.fullPath">
-              <component :is="Component" />
-            </div>
+            <component :is="Component" :key="route.fullPath" />
           </transition>
         </router-view>
       </main>
@@ -269,54 +240,28 @@ const submitChangePassword = async () => {
 }
 
 .aside {
-  margin: 16px 0 16px 16px;
-  width: 240px !important;
-  border-radius: 24px;
-  background: var(--glass-bg) !important;
+  margin: 10px 0 10px 10px;
+  width: 200px;
+  border-radius: 20px;
+  background: var(--glass-bg-heavy);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-outline);
-  box-shadow: var(--surface-shadow), inset 0 1px 1px var(--glass-border);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  overflow: hidden;
 }
 
-.logo {
-  padding: 20px 20px 16px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
+.logo { padding: 18px 16px 12px; display: flex; align-items: center; gap: 8px; }
 .logo-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: var(--apple-blue);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--apple-blue); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; box-shadow: 0 3px 10px rgba(0,113,227,0.35);
 }
-
-.logo-title {
-  color: var(--el-text-color-primary);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.logo-subtitle {
-  color: var(--el-text-color-secondary);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
+.logo-title { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+.logo-subtitle { font-size: 9px; font-weight: 600; letter-spacing: 0.1em; color: var(--el-text-color-secondary); }
 
 .right-panel {
   flex: 1;
@@ -327,101 +272,26 @@ const submitChangePassword = async () => {
 }
 
 .header {
-  height: 48px;
-  margin: 12px 16px 0 16px;
-  padding: 0 12px 0 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  height: 42px; margin: 10px 14px 0 14px;
+  padding: 0 10px 0 14px;
+  display: flex; align-items: center; justify-content: space-between;
   border-radius: 12px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
+  background: var(--glass-bg); backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-outline);
+  border: 1px solid var(--glass-outline); box-shadow: var(--shadow-sm);
   flex-shrink: 0;
 }
+.header-left { display: flex; align-items: center; }
+.header-right { display: flex; align-items: center; gap: 2px; }
+.search-btn { color: var(--el-text-color-secondary); background: transparent !important; border: none !important; box-shadow: none !important; }
+.search-btn:hover { color: var(--el-text-color-primary); background: rgba(0,0,0,0.04) !important; }
+.user-chip { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 3px; border-radius: 8px; cursor: pointer; }
+.user-chip:hover { background: rgba(0,0,0,0.04); }
+.user-dropdown-header { padding: 4px 0; }
+.ud-name { font-size: 13px; font-weight: 700; }
+.ud-role { font-size: 11px; color: var(--el-text-color-secondary); }
 
-.header-left {
-  display: flex;
-  align-items: center;
-}
-
-.search-btn {
-  color: var(--el-text-color-secondary);
-  box-shadow: none;
-  background: transparent;
-  border: none;
-}
-.search-btn:hover {
-  color: var(--el-text-color-primary);
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.user-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px 2px 2px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.15s;
-  margin-left: 4px;
-}
-.user-chip:hover { background: rgba(0, 0, 0, 0.04); }
-.user-dropdown-header { padding: 2px 0; }
-.ud-name { font-size: 14px; font-weight: 700; }
-.ud-role { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 2px; }
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.view-tabs-wrap {
-  height: 44px;
-  margin: 12px 16px 0;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  border-radius: 12px;
-  border: 1px solid var(--glass-outline);
-}
-
-.view-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 4px 0;
-}
-
-.view-tab {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--el-text-color-regular);
-  transition: all 0.2s;
-}
-
-.view-tab.is-active {
-  background: var(--apple-blue);
-  color: #fff;
-  font-weight: 600;
-}
-
-.tab-close { font-size: 10px; }
-
-.main {
-  flex: 1;
-  padding: 16px;
-  overflow: auto;
-}
+.main { flex: 1; padding: 12px 14px 14px 14px; overflow: auto; }
 
 /* Sidebar Nav */
 .sider-nav {
@@ -467,12 +337,6 @@ const submitChangePassword = async () => {
   padding: 0 5px;
 }
 .nav-badge.warn { background: #f59e0b; }
-
-.page-view {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
 
 .app-route-fade-enter-active,
 .app-route-fade-leave-active {
