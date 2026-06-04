@@ -60,9 +60,17 @@
                 </template>
               </el-table-column>
               <el-table-column prop="os" label="OS" width="100" />
-              <el-table-column label="规格" width="120">
+              <el-table-column label="规格" width="130">
                 <template #default="{ row }">
-                  <span class="spec-tag">{{ row.cpu_count || '-' }}C / {{ row.memory_gb || '-' }}G</span>
+                  <el-tooltip v-if="!row.cpu_count && !row.memory_gb" placement="top" effect="dark" raw-content>
+                    <template #content>
+                      <div>Agent 未上报或采集失败</div>
+                      <div v-if="row.status_reason" style="margin-top:4px;opacity:0.8">原因：{{ row.status_reason }}</div>
+                      <div v-if="row.last_check_at" style="opacity:0.7;font-size:11px">最后检测：{{ new Date(row.last_check_at).toLocaleString() }}</div>
+                    </template>
+                    <span class="spec-tag spec-missing">未采集</span>
+                  </el-tooltip>
+                  <span v-else class="spec-tag">{{ row.cpu_count || '-' }}C / {{ row.memory_gb || '-' }}G</span>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="160" fixed="right">
@@ -275,6 +283,7 @@ onMounted(refreshAll)
 .full-width { grid-template-columns: 1fr; }
 .pane-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .spec-tag { font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; }
+.spec-tag.spec-missing { color: var(--el-color-warning); background: rgba(245,158,11,0.1); cursor: help; }
 .status-detail { font-size: 11px; color: var(--el-text-color-secondary); }
 .check-time { font-size: 12px; color: var(--el-text-color-secondary); }
 .check-time.stale { color: var(--el-color-warning); font-weight: 600; }

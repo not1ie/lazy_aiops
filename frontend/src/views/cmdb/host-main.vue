@@ -224,6 +224,14 @@
           <span>分组: {{ detailHost?.group?.name || '-' }}</span>
           <span>实例: {{ detailInstanceLabel || '-' }}</span>
         </div>
+        <div class="detail-conn">
+          <span class="conn-label">SSH:</span>
+          <el-input-number v-model="detailConnForm.port" :min="1" :max="65535" size="small" controls-position="right" style="width:100px" />
+          <el-input v-model="detailConnForm.username" placeholder="用户名" size="small" style="width:110px" />
+          <el-input v-model="detailConnForm.password" type="password" show-password placeholder="新密码" size="small" style="width:120px" />
+          <el-button size="small" type="primary" :loading="detailConnSaving" @click="saveDetailConn">保存连接</el-button>
+        </div>
+
         <div class="detail-actions">
           <el-radio-group v-model="detailRangeHours" size="small" @change="fetchDetailMetrics()">
             <el-radio-button :label="1">1h</el-radio-button>
@@ -567,6 +575,8 @@ const detailLoading = ref(false)
 const detailRangeHours = ref(1)
 const detailAutoRefresh = ref(true)
 const detailInstanceLabel = ref('')
+const detailConnForm = reactive({ port: 22, username: '', password: '' })
+const detailConnSaving = ref(false)
 
 const detailCpuChartRef = ref(null)
 const detailMemChartRef = ref(null)
@@ -1600,8 +1610,31 @@ const openDetail = async (row) => {
   detailHost.value = row
   detailVisible.value = true
   detailRangeHours.value = 1
+  detailConnForm.port = row.port || 22
+  detailConnForm.username = row.username || ''
+  detailConnForm.password = ''
   await fetchDetailMetrics()
   ensureDetailAutoTimer()
+}
+
+const saveDetailConn = async () => {
+  if (!detailHost.value?.id) return
+  detailConnSaving.value = true
+  try {
+    const payload = {
+      port: detailConnForm.port,
+      username: detailConnForm.username
+    }
+    if (detailConnForm.password) payload.password = detailConnForm.password
+    await axios.put(`/api/v1/cmdb/hosts/${detailHost.value.id}`, payload, { headers: authHeaders() })
+    ElMessage.success('连接信息已更新')
+    detailHost.value.port = detailConnForm.port
+    detailHost.value.username = detailConnForm.username
+  } catch (err) {
+    ElMessage.error('保存失败: ' + (err.response?.data?.message || err.message))
+  } finally {
+    detailConnSaving.value = false
+  }
 }
 
 const onResize = () => {
@@ -1778,6 +1811,18 @@ onBeforeUnmount(() => {
   gap: 10px;
   flex-wrap: wrap;
 }
+
+.detail-conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  font-size: 13px;
+}
+.conn-label { font-weight: 700; color: var(--el-text-color-secondary); margin-right: 4px; }
 
 .detail-metrics {
   display: grid;
