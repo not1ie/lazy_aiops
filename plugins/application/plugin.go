@@ -34,8 +34,13 @@ func (p *AppPlugin) Migrate() error {
 
 func (p *AppPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	h := NewAppHandler(p.core.DB)
+	// 应用 CRUD
 	g.GET("/apps", h.ListApps)
 	g.POST("/apps", h.CreateApp)
+	g.GET("/apps/:id", h.GetApp)
+	g.PUT("/apps/:id", h.UpdateApp)
+	g.DELETE("/apps/:id", h.DeleteApp)
+	// 环境配置
 	g.GET("/apps/:id/configs", h.GetAppConfigs)
-	g.POST("/configs", h.CreateAppConfig)
+	g.POST("/apps/:id/configs", h.CreateAppConfig)
 }

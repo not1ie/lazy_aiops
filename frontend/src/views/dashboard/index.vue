@@ -188,6 +188,24 @@
           </div>
         </el-card>
 
+        <!-- Module Status -->
+        <el-card class="side-card module-status-card" shadow="never" v-if="moduleEntries.length > 0">
+          <h3>Plugin Status</h3>
+          <div class="module-grid">
+            <span
+              v-for="m in moduleEntries"
+              :key="m.name"
+              class="module-chip"
+              :class="'module-' + m.status"
+            >{{ m.name }}</span>
+          </div>
+          <div class="module-legend">
+            <span><span class="dot bg-green"></span> online</span>
+            <span><span class="dot bg-red"></span> error</span>
+            <span><span class="dot bg-gray"></span> disabled</span>
+          </div>
+        </el-card>
+
         <OpsCalendar />
       </div>
     </div>
@@ -239,6 +257,14 @@ const snapshots = reactive({
 })
 
 const generatedAt = ref(null)
+
+const moduleEntries = computed(() => {
+  const map = summary.moduleStatus || {}
+  return Object.entries(map).map(([name, status]) => ({
+    name,
+    status: String(status || '').toLowerCase()
+  }))
+})
 
 const pendingWorkorders = computed(() => {
   const wos = snapshots.workorders || []
@@ -522,5 +548,22 @@ onUnmounted(() => {
 .bg-red { background: #ef4444; }
 .bg-purple { background: #8b5cf6; }
 .bg-orange { background: #f59e0b; }
+.bg-gray { background: #9ca3af; }
 .flat-tag { background: rgba(0,0,0,0.04) !important; border: none !important; border-radius: 6px !important; font-weight: 700 !important; }
+
+.module-status-card { margin-bottom: 16px; }
+.module-status-card h3 { font-size: 14px; font-weight: 700; margin: 0 0 12px 0; }
+.module-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.module-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+.module-chip.module-online, .module-chip.module-ok, .module-chip.module-enabled { background: #f0fdf4; color: #16a34a; }
+.module-chip.module-offline, .module-chip.module-error, .module-chip.module-failed { background: #fef2f2; color: #dc2626; }
+.module-chip.module-disabled { background: #f3f4f6; color: #9ca3af; }
+.module-legend { display: flex; gap: 16px; font-size: 11px; color: var(--el-text-color-secondary); }
+.module-legend .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
 </style>

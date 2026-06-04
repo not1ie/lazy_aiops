@@ -87,6 +87,9 @@ plugins:
   # Docker管理
   docker:
     enabled: true
+    config:
+      # Docker 主机状态后台检测间隔（秒），默认 60，范围 10-300
+      status_sync_interval_seconds: 60
   # Nacos配置中心
   nacos:
     enabled: true
