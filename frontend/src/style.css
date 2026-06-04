@@ -28,7 +28,7 @@
   --el-text-color-primary: #1d1d1f;
   --el-text-color-regular: #424245;
   --el-text-color-secondary: #86868b;
-  --el-border-radius-base: 20px;
+  --el-border-radius-base: 12px;
 }
 
 html[data-theme='dark'] {

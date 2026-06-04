@@ -91,7 +91,7 @@
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-outline);
-  border-radius: 20px;
+  border-radius: 14px;
   padding: 0;
   overflow: hidden;
 }
@@ -125,11 +125,11 @@
   font-size: 11px;
   text-transform: uppercase;
   color: var(--el-text-color-secondary);
-  padding: 8px 0;
+  padding: 8px 12px;
 }
 
 .hub-table :deep(td.el-table__cell) {
-  padding: 10px 0;
+  padding: 10px 12px;
 }
 
 /* Action Buttons */

@@ -84,25 +84,33 @@
             <kbd class="search-kbd">⌘K</kbd>
           </div>
 
-          <div class="user-chip" @click="changePasswordVisible = true">
-            <el-avatar :size="24" icon="UserFilled" />
-            <div class="user-meta">
-              <strong>{{ username }}</strong>
-              <span>{{ roleCode }}</span>
+          <el-dropdown trigger="click" @command="handleUserCommand">
+            <div class="user-chip">
+              <el-avatar :size="28" icon="UserFilled" />
+              <div class="user-meta">
+                <strong>{{ username }}</strong>
+                <span>{{ roleCode }}</span>
+              </div>
+              <el-icon><ArrowDown /></el-icon>
             </div>
-            <el-icon><ArrowDown /></el-icon>
-          </div>
-
-          <el-dropdown trigger="click" @command="handleHeaderCommand">
-            <el-button circle icon="Operation" />
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item disabled>
+                  <div class="user-dropdown-header">
+                    <div class="ud-name">{{ username }}</div>
+                    <div class="ud-role">{{ roleCode }}</div>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item divided command="password">
+                  <el-icon><Lock /></el-icon>
+                  修改密码
+                </el-dropdown-item>
                 <el-dropdown-item command="theme">
                   <el-icon><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon>
                   {{ isDark ? '浅色模式' : '深色模式' }}
                 </el-dropdown-item>
                 <el-dropdown-item command="logout" divided>
-                  <el-icon><Close /></el-icon>
+                  <el-icon><SwitchButton /></el-icon>
                   退出登录
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -231,8 +239,9 @@ const activeMenuIndex = computed(() => {
   return path
 })
 
-const handleHeaderCommand = (cmd) => {
-  if (cmd === 'theme') toggleTheme()
+const handleUserCommand = (cmd) => {
+  if (cmd === 'password') { changePasswordVisible.value = true; return }
+  if (cmd === 'theme') { toggleTheme(); return }
   if (cmd === 'logout') {
     localStorage.clear()
     router.push('/login')
@@ -410,11 +419,16 @@ const submitChangePassword = async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px;
-  border-radius: 10px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 12px;
   background: rgba(0, 0, 0, 0.04);
   cursor: pointer;
+  transition: background 0.15s;
 }
+.user-chip:hover { background: rgba(0, 0, 0, 0.06); }
+.user-dropdown-header { padding: 2px 0; }
+.ud-name { font-size: 14px; font-weight: 700; }
+.ud-role { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 2px; }
 
 .view-tabs-wrap {
   height: 44px;
