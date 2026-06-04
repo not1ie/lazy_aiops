@@ -264,6 +264,37 @@
         </div>
       </div>
 
+      <!-- Cross-ref: Related Alerts & Docker -->
+      <div class="detail-cross-ref" v-if="detailHost">
+        <div class="cross-section">
+          <div class="cross-title">
+            <el-icon><WarningFilled /></el-icon> 关联告警
+            <span class="cross-count" v-if="detailAlerts.length > 0">{{ detailAlerts.length }}</span>
+          </div>
+          <div v-if="detailAlerts.length === 0" class="cross-empty">无关联告警</div>
+          <div v-for="a in detailAlerts.slice(0, 3)" :key="a.id" class="cross-item" @click="go('/alert/events/detail?id=' + a.id)">
+            <el-tag :type="a.severity === 'critical' ? 'danger' : 'warning'" size="small">{{ a.severity }}</el-tag>
+            <span>{{ a.alert_name || a.rule_name }}</span>
+            <span class="cross-time">{{ fmtTimeAgo(a.fired_at || a.created_at) }}</span>
+          </div>
+          <el-button v-if="detailAlerts.length > 3" link type="primary" size="small" @click="go('/alert/events')">查看全部 →</el-button>
+        </div>
+        <div class="cross-section">
+          <div class="cross-title">
+            <el-icon><Platform /></el-icon> Docker 容器
+            <span class="cross-count" v-if="detailDockerContainers.length > 0">{{ detailDockerContainers.length }}</span>
+          </div>
+          <div v-if="!detailDockerHost" class="cross-empty">非 Docker 主机或未配置</div>
+          <div v-else-if="detailDockerContainers.length === 0" class="cross-empty">无运行中容器</div>
+          <div v-for="c in detailDockerContainers.slice(0, 3)" :key="c.id || c.name" class="cross-item">
+            <span class="cross-dot" :class="c.status === 'running' ? 'bg-green' : 'bg-red'"></span>
+            <span>{{ c.name || c.id?.slice(0, 12) }}</span>
+            <span class="cross-time">{{ c.image || '' }}</span>
+          </div>
+          <el-button v-if="detailDockerHost" link type="primary" size="small" @click="go('/docker')">Docker 管理 →</el-button>
+        </div>
+      </div>
+
       <el-empty v-if="!detailInstanceLabel" description="未匹配到监控实例，无法展示趋势图" />
       <div v-else class="detail-chart-grid" v-loading="detailLoading">
         <div class="chart-card"><div class="chart-title">CPU 使用率</div><div ref="detailCpuChartRef" class="detail-chart" /></div>
@@ -577,6 +608,9 @@ const detailAutoRefresh = ref(true)
 const detailInstanceLabel = ref('')
 const detailConnForm = reactive({ port: 22, username: '', password: '' })
 const detailConnSaving = ref(false)
+const detailAlerts = ref([])
+const detailDockerHost = ref(null)
+const detailDockerContainers = ref([])
 
 const detailCpuChartRef = ref(null)
 const detailMemChartRef = ref(null)
@@ -1613,8 +1647,47 @@ const openDetail = async (row) => {
   detailConnForm.port = row.port || 22
   detailConnForm.username = row.username || ''
   detailConnForm.password = ''
+  detailAlerts.value = []
+  detailDockerHost.value = null
+  detailDockerContainers.value = []
   await fetchDetailMetrics()
+  fetchDetailAlerts(row)
+  fetchDetailDocker(row)
   ensureDetailAutoTimer()
+}
+
+const fmtTimeAgo = (val) => {
+  if (!val) return ''
+  const diff = Math.floor((Date.now() - new Date(val).getTime()) / 1000)
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m前`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h前`
+  return `${Math.floor(diff / 86400)}d前`
+}
+
+const fetchDetailAlerts = async (host) => {
+  try {
+    const res = await axios.get('/api/v1/alert/alerts', { headers: authHeaders() })
+    const allAlerts = res.data?.data || []
+    const ip = (host.ip || '').trim()
+    const name = (host.name || '').trim()
+    detailAlerts.value = allAlerts.filter(a =>
+      a.status === 'firing' && ((a.target || '').includes(ip) || (a.target || '').includes(name))
+    ).slice(0, 10)
+  } catch (e) { /* silent */ }
+}
+
+const fetchDetailDocker = async (host) => {
+  try {
+    const res = await axios.get('/api/v1/docker/hosts', { headers: authHeaders() })
+    const dockerHosts = res.data?.data || []
+    const ip = (host.ip || '').trim()
+    const matched = dockerHosts.find(d => (d.ip || '').trim() === ip)
+    if (matched) {
+      detailDockerHost.value = matched
+      detailDockerContainers.value = matched.containers || matched.container_list || []
+    }
+  } catch (e) { /* silent */ }
 }
 
 const saveDetailConn = async () => {
@@ -1823,6 +1896,16 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .conn-label { font-weight: 700; color: var(--el-text-color-secondary); margin-right: 4px; }
+
+.detail-cross-ref { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.cross-section { background: var(--el-fill-color-lighter); border-radius: 8px; padding: 10px 12px; }
+.cross-title { font-size: 12px; font-weight: 700; color: var(--el-text-color-secondary); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.cross-count { background: var(--el-color-primary); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 8px; }
+.cross-empty { font-size: 12px; color: var(--el-text-color-placeholder); padding: 8px 0; }
+.cross-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--el-border-color-lighter); }
+.cross-item:last-child { border-bottom: none; }
+.cross-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.cross-time { font-size: 11px; color: var(--el-text-color-placeholder); margin-left: auto; }
 
 .detail-metrics {
   display: grid;
