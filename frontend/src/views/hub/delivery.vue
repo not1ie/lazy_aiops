@@ -180,6 +180,7 @@
               <el-card class="quick-card" shadow="hover" @click="go('/gitops/repos')">
                 <el-icon :size="24" class="qc-blue"><Share /></el-icon>
                 <span class="qc-label">GitOps</span>
+                <span class="qc-sub" v-if="gitopsRepos.length > 0">{{ gitopsRepos.length }} repos</span>
               </el-card>
               <el-card class="quick-card" shadow="hover" @click="go('/knowledge')">
                 <el-icon :size="24" class="qc-purple"><Reading /></el-icon>
@@ -220,6 +221,7 @@ const pipelines = ref([])
 const releases = ref([])
 const tickets = ref([])
 const oncallNow = ref([])
+const gitopsRepos = ref([])
 const activePanel = ref('executions')
 const execFilter = ref('')
 
@@ -272,14 +274,15 @@ const refreshAll = async () => {
   loading.value = true
   try {
     const headers = authHeaders()
-    const [appRes, exeRes, pipeRes, relRes, tktRes, oncRes, sqlRes] = await Promise.all([
+    const [appRes, exeRes, pipeRes, relRes, tktRes, oncRes, sqlRes, gitRes] = await Promise.all([
       axios.get('/api/v1/application/applications', { headers }),
       axios.get('/api/v1/cicd/executions', { headers }),
       axios.get('/api/v1/cicd/pipelines', { headers }).catch(() => ({ data: {} })),
       axios.get('/api/v1/cicd/releases', { headers }).catch(() => ({ data: {} })),
       axios.get('/api/v1/workorder/tickets', { headers }),
       axios.get('/api/v1/oncall/whoisoncall', { headers }).catch(() => ({ data: {} })),
-      axios.get('/api/v1/sqlaudit/statistics', { headers }).catch(() => ({ data: {} }))
+      axios.get('/api/v1/sqlaudit/statistics', { headers }).catch(() => ({ data: {} })),
+      axios.get('/api/v1/gitops/repos', { headers }).catch(() => ({ data: {} }))
     ])
     apps.value = appRes.data?.data || []
     executions.value = exeRes.data?.data || []
@@ -294,6 +297,7 @@ const refreshAll = async () => {
     stats.todayExecutions = executions.value.length
     stats.releaseCount = releases.value.length
     stats.sqlRisk = sqlRes.data?.data?.risk_count || sqlRes.data?.data?.total || 0
+    gitopsRepos.value = gitRes.data?.data || []
   } catch (err) {
     ElMessage.error('加载交付中心失败')
   } finally {
@@ -323,6 +327,7 @@ onMounted(refreshAll)
 .quick-card:hover { border-color: var(--apple-blue); }
 .qc-label { font-size: 14px; font-weight: 600; color: var(--el-text-color-primary); flex: 1; }
 .qc-badge { font-size: 12px; font-weight: 700; color: #fff; background: #ef4444; padding: 2px 8px; border-radius: 10px; }
+.qc-sub { font-size: 11px; color: var(--el-text-color-secondary); display: block; }
 .qc-red { color: #ef4444; }
 .qc-blue { color: #0071e3; }
 .qc-purple { color: #8b5cf6; }
