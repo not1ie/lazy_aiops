@@ -7,8 +7,8 @@
       </div>
       <div class="hub-actions">
         <el-button round icon="Refresh" @click="refreshAll">刷新</el-button>
+        <el-button round icon="DataBoard" @click="go('/monitor/metrics')">Prometheus 指标</el-button>
         <el-button round icon="Share" @click="go('/topology')">服务拓扑</el-button>
-        <el-button round icon="Bell" @click="go('/monitor/hosts')">主机监控</el-button>
         <el-button type="primary" round icon="Plus" @click="go('/alert/rules')">告警治理</el-button>
       </div>
     </header>

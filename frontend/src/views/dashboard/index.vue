@@ -154,10 +154,10 @@
         <div class="panel glass">
           <h3 style="font-size:12px;font-weight:700;margin:0 0 8px;text-transform:uppercase;color:var(--el-text-color-secondary)">快捷操作</h3>
           <div class="quick-row">
-            <span class="ql" @click="go('/monitor/hosts')">主机监控</span>
+            <span class="ql" @click="go('/monitor/metrics')">Prometheus 指标采集</span>
             <span class="ql" @click="go('/monitor/agents')">Agent 管理</span>
             <span class="ql" @click="go('/alert/rules')">告警规则</span>
-            <span class="ql" @click="go('/monitor/metrics')">指标采集</span>
+            <span class="ql" @click="go('/topology')">服务拓扑</span>
           </div>
         </div>
       </div>
