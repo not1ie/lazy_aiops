@@ -14,18 +14,18 @@
     <div class="kpi-row">
       <div class="kpi">
         <div class="kpi-title">CPU 使用率</div>
-        <div class="kpi-val" :class="metrics.cpu > 80 ? 'bad' : metrics.cpu > 60 ? 'warn' : ''">{{ metrics.cpu.toFixed(1) }}%</div>
-        <div class="kpi-bar"><span class="bar-fill" :class="metrics.cpu > 80 ? 'bad' : metrics.cpu > 60 ? 'warn' : ''" :style="{width: Math.min(metrics.cpu,100)+'%'}"></span></div>
+        <div class="kpi-val" :class="(metrics.cpu||0) > 80 ? 'bad' : (metrics.cpu||0) > 60 ? 'warn' : ''">{{ (metrics.cpu||0).toFixed(1) }}%</div>
+        <div class="kpi-bar"><span class="bar-fill" :class="(metrics.cpu||0) > 80 ? 'bad' : (metrics.cpu||0) > 60 ? 'warn' : ''" :style="{width: Math.min(metrics.cpu||0,100)+'%'}"></span></div>
       </div>
       <div class="kpi">
         <div class="kpi-title">内存使用率</div>
-        <div class="kpi-val" :class="metrics.memory > 85 ? 'bad' : metrics.memory > 70 ? 'warn' : ''">{{ metrics.memory.toFixed(1) }}%</div>
-        <div class="kpi-bar"><span class="bar-fill" :class="metrics.memory > 85 ? 'bad' : metrics.memory > 70 ? 'warn' : ''" :style="{width: Math.min(metrics.memory,100)+'%'}"></span></div>
+        <div class="kpi-val" :class="(metrics.memory||0) > 85 ? 'bad' : (metrics.memory||0) > 70 ? 'warn' : ''">{{ (metrics.memory||0).toFixed(1) }}%</div>
+        <div class="kpi-bar"><span class="bar-fill" :class="(metrics.memory||0) > 85 ? 'bad' : (metrics.memory||0) > 70 ? 'warn' : ''" :style="{width: Math.min(metrics.memory||0,100)+'%'}"></span></div>
       </div>
       <div class="kpi">
         <div class="kpi-title">磁盘使用率</div>
-        <div class="kpi-val" :class="metrics.disk > 85 ? 'bad' : metrics.disk > 70 ? 'warn' : ''">{{ metrics.disk.toFixed(1) }}%</div>
-        <div class="kpi-bar"><span class="bar-fill" :class="metrics.disk > 85 ? 'bad' : metrics.disk > 70 ? 'warn' : ''" :style="{width: Math.min(metrics.disk,100)+'%'}"></span></div>
+        <div class="kpi-val" :class="(metrics.disk||0) > 85 ? 'bad' : (metrics.disk||0) > 70 ? 'warn' : ''">{{ (metrics.disk||0).toFixed(1) }}%</div>
+        <div class="kpi-bar"><span class="bar-fill" :class="(metrics.disk||0) > 85 ? 'bad' : (metrics.disk||0) > 70 ? 'warn' : ''" :style="{width: Math.min(metrics.disk||0,100)+'%'}"></span></div>
       </div>
       <div class="kpi">
         <div class="kpi-title">在线 Agent</div>
@@ -69,9 +69,9 @@
             </div>
             <div v-for="a in agents.slice(0, 8)" :key="a.id||a.agent_id" class="agent-row" @click="go('/monitor/agents')">
               <span class="a-name">{{ a.hostname||a.ip }}</span>
-              <span class="a-metric" :class="a.cpu>80?'bad':a.cpu>60?'warn':''">{{ (a.cpu||0).toFixed(0) }}%</span>
-              <span class="a-metric" :class="a.memory>85?'bad':a.memory>70?'warn':''">{{ (a.memory||0).toFixed(0) }}%</span>
-              <span class="a-metric" :class="a.disk>85?'bad':a.disk>70?'warn':''">{{ (a.disk||0).toFixed(0) }}%</span>
+              <span class="a-metric" :class="(a.cpu||0)>80?'bad':(a.cpu||0)>60?'warn':''">{{ Math.round(a.cpu||0) }}%</span>
+              <span class="a-metric" :class="(a.memory||0)>85?'bad':(a.memory||0)>70?'warn':''">{{ Math.round(a.memory||0) }}%</span>
+              <span class="a-metric" :class="(a.disk||0)>85?'bad':(a.disk||0)>70?'warn':''">{{ Math.round(a.disk||0) }}%</span>
               <span class="a-status" :class="a.status">{{ a.status==='online'?'在线':'离线' }}</span>
             </div>
           </div>

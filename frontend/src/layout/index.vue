@@ -10,18 +10,25 @@
       </div>
 
       <nav class="sider-nav">
-        <a class="nav-item" :class="{ active: route.path === '/dashboard' }" @click="go('/dashboard')">仪表盘</a>
-        <a class="nav-item" :class="{ active: route.path.startsWith('/ai') }" @click="go('/ai')">智能助手</a>
-        <a class="nav-item" :class="{ active: route.path.startsWith('/asset') || route.path === '/host' }" @click="go('/asset')">资产与安全</a>
-        <a class="nav-item" :class="{ active: route.path.startsWith('/k8s') }" @click="go('/k8s')">容器平台</a>
+        <div class="nav-group-label">监控</div>
+        <a class="nav-item" :class="{ active: route.path === '/dashboard' }" @click="go('/dashboard')">监控仪表盘</a>
         <a class="nav-item" :class="{ active: route.path.startsWith('/monitor') }" @click="go('/monitor')">
-          统一观测
+          告警运营台
           <span v-if="sidebarCounts.alerts > 0" class="nav-badge">{{ sidebarCounts.alerts }}</span>
         </a>
+
+        <div class="nav-group-label">资源</div>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/asset') || route.path === '/host' }" @click="go('/asset')">资产与安全</a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/k8s') }" @click="go('/k8s')">容器平台</a>
+
+        <div class="nav-group-label">运维</div>
         <a class="nav-item" :class="{ active: route.path.startsWith('/delivery') }" @click="go('/delivery')">
           变更交付
           <span v-if="sidebarCounts.tickets > 0" class="nav-badge warn">{{ sidebarCounts.tickets }}</span>
         </a>
+        <a class="nav-item" :class="{ active: route.path.startsWith('/ai') }" @click="go('/ai')">智能助手</a>
+
+        <div class="nav-group-label">管理</div>
         <a class="nav-item" :class="{ active: route.path.startsWith('/system') }" @click="go('/system')">系统治理</a>
       </nav>
     </aside>
@@ -297,17 +304,16 @@ const submitChangePassword = async () => {
 .sider-nav {
   display: flex;
   flex-direction: column;
-  padding: 8px 12px;
-  gap: 2px;
+  padding: 4px 10px 12px;
+  gap: 1px;
+  flex: 1;
 }
-.nav-section {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--el-text-color-placeholder);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 16px 8px 6px;
+.nav-group-label {
+  font-size: 10px; font-weight: 700; color: var(--el-text-color-placeholder);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 14px 8px 4px;
 }
+.nav-group-label:first-child { padding-top: 4px; }
 .nav-item {
   display: flex;
   align-items: center;
