@@ -59,9 +59,10 @@
                 </template>
               </el-table-column>
               <el-table-column prop="os" label="OS" width="100" />
-              <el-table-column label="规格" width="130">
+              <el-table-column label="CPU / 内存 / 磁盘" min-width="180">
                 <template #default="{ row }">
-                  <el-tooltip v-if="!row.cpu_count && !row.memory_gb" placement="top" effect="dark" raw-content>
+                  <span v-if="row.cpu || row.memory || row.disk" class="spec-tag">{{ row.cpu || '-' }} / {{ row.memory || '-' }} / {{ row.disk || '-' }}</span>
+                  <el-tooltip v-else placement="top" effect="dark" raw-content>
                     <template #content>
                       <div>Agent 未上报或采集失败</div>
                       <div v-if="row.status_reason" style="margin-top:4px;opacity:0.8">原因：{{ row.status_reason }}</div>
@@ -69,13 +70,11 @@
                     </template>
                     <span class="spec-tag spec-missing">未采集</span>
                   </el-tooltip>
-                  <span v-else class="spec-tag">{{ row.cpu_count || '-' }}C / {{ row.memory_gb || '-' }}G</span>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="200" fixed="right">
                 <template #default="{ row }">
                   <el-button link type="primary" size="small" @click="openTerminal(row)">终端</el-button>
-                  <el-button link type="primary" size="small" @click="handleEditHost(row)">编辑</el-button>
                   <el-button link type="success" size="small" :loading="testingHostId === row.id" @click="handleTestHost(row)">测试</el-button>
                   <el-button link size="small" @click="goAIAnalysis({ type: 'host', title: row.name, id: row.id, summary: `主机 ${row.name} (${row.ip})，状态: ${hostStatusTag(row).text}` })">
                     <el-icon><MagicStick /></el-icon>

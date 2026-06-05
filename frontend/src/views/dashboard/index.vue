@@ -1,10 +1,9 @@
 <template>
   <div class="dash">
-    <!-- Top bar -->
+    <!-- Header -->
     <div class="dash-top">
       <div>
         <h1>{{ greeting }}，{{ username }}</h1>
-        <p>{{ statusSummary }}</p>
       </div>
       <div class="dash-top-right">
         <span class="dash-time">{{ nowStr }}</span>
@@ -12,116 +11,73 @@
       </div>
     </div>
 
-    <!-- Status row -->
+    <!-- Status Chips -->
     <div class="status-row">
-      <div class="status-chip ok" @click="go('/asset')">
-        <span class="chip-num">{{ summary.hostOnline }}</span>
-        <span class="chip-label">主机在线</span>
-        <span class="chip-sub">共 {{ summary.hostTotal }} 台</span>
+      <div class="chip" :class="summary.hostOffline > 0 ? 'warn' : ''" @click="go('/asset')">
+        <div class="chip-val">{{ summary.hostOnline }}<small>/{{ summary.hostTotal }}</small></div>
+        <div class="chip-label">主机在线</div>
       </div>
-      <div class="status-chip" :class="summary.alertOpen > 0 ? 'bad' : 'ok'" @click="go('/monitor')">
-        <span class="chip-num">{{ summary.alertOpen }}</span>
-        <span class="chip-label">活跃告警</span>
-        <span class="chip-sub" v-if="summary.alertCritical > 0">{{ summary.alertCritical }} 严重</span>
+      <div class="chip" :class="summary.alertOpen > 0 ? 'bad' : ''" @click="go('/monitor')">
+        <div class="chip-val">{{ summary.alertOpen }}</div>
+        <div class="chip-label">活跃告警</div>
       </div>
-      <div class="status-chip ok" @click="go('/k8s')">
-        <span class="chip-num">{{ summary.k8sTotal + summary.dockerTotal }}</span>
-        <span class="chip-label">集群/主机</span>
-        <span class="chip-sub">{{ summary.k8sTotal }} K8s · {{ summary.dockerTotal }} Docker</span>
+      <div class="chip" @click="go('/k8s')">
+        <div class="chip-val">{{ summary.k8sTotal }}<small> / {{ summary.dockerTotal }}</small></div>
+        <div class="chip-label">K8s / Docker</div>
       </div>
-      <div class="status-chip" :class="pendingWorkorders > 0 ? 'warn' : 'ok'" @click="go('/delivery')">
-        <span class="chip-num">{{ pendingWorkorders }}</span>
-        <span class="chip-label">待处理工单</span>
-        <span class="chip-sub" v-if="lastExecs.length > 0">{{ lastExecs.length }} 次部署</span>
-      </div>
-      <div class="status-chip ok" @click="go('/ai/ops')">
-        <span class="chip-num">{{ recentAIOps.length }}</span>
-        <span class="chip-label">AIOps 事件</span>
-        <span class="chip-sub">最近诊断</span>
+      <div class="chip" :class="pendingTickets > 0 ? 'warn' : ''" @click="go('/delivery')">
+        <div class="chip-val">{{ pendingTickets }}</div>
+        <div class="chip-label">待处理工单</div>
       </div>
     </div>
 
-    <!-- Main grid -->
-    <div class="dash-grid">
-      <!-- Left column -->
-      <div class="dash-main">
-        <!-- Active alerts -->
-        <div class="glass-panel">
-          <div class="panel-head">
-            <h3>活跃告警</h3>
-            <a @click.prevent="go('/monitor')">全部 →</a>
-          </div>
-          <div v-if="recentAlerts.length === 0" class="panel-empty">暂无活跃告警</div>
-          <div v-else class="alert-list">
-            <div v-for="a in recentAlerts" :key="a.id" class="alert-row" @click="go('/alert/events/detail?id=' + a.id)">
-              <span class="a-sev" :class="a.severity">{{ a.severity === 'critical' ? '严重' : a.severity === 'warning' ? '警告' : '信息' }}</span>
-              <span class="a-name">{{ a.alert_name || a.rule_name }}</span>
-              <span class="a-target">{{ a.target }}</span>
-              <span class="a-time">{{ fmtRel(a.fired_at || a.created_at) }}</span>
-            </div>
-          </div>
+    <!-- Main content: timeline + side -->
+    <div class="dash-body">
+      <!-- Timeline feed -->
+      <div class="timeline-panel glass">
+        <div class="tl-head">
+          <h3>事件时间线</h3>
+          <a @click.prevent="go('/monitor')">查看全部 →</a>
         </div>
-
-        <!-- Recent deployments + AIOps -->
-        <div class="panel-grid">
-          <div class="glass-panel">
-            <div class="panel-head">
-              <h3>最近部署</h3>
-              <a @click.prevent="go('/delivery')">全部 →</a>
-            </div>
-            <div v-if="lastExecs.length === 0" class="panel-empty">暂无部署记录</div>
-            <div v-else>
-              <div v-for="ex in lastExecs" :key="ex.id" class="act-row" @click="go('/cicd/executions')">
-                <span class="act-dot" :class="ex._dotClass"></span>
-                <span class="act-name">{{ ex.pipeline_name }}</span>
-                <span class="act-stat" :class="ex.status">{{ ex.status }}</span>
-                <span class="act-time">{{ fmtRel(ex.created_at) }}</span>
+        <div v-if="timeline.length === 0" class="tl-empty">暂无事件</div>
+        <div v-else class="tl-list">
+          <div v-for="(ev, i) in timeline" :key="i" class="tl-item" @click="go(ev._path)">
+            <div class="tl-marker" :class="ev._type"></div>
+            <div class="tl-body">
+              <div class="tl-title">
+                <span class="tl-tag" :class="ev._type">{{ ev._tag }}</span>
+                {{ ev._title }}
               </div>
+              <div class="tl-meta">{{ ev._meta }}</div>
             </div>
-          </div>
-          <div class="glass-panel">
-            <div class="panel-head">
-              <h3>AIOps 诊断</h3>
-              <a @click.prevent="go('/ai/ops')">全部 →</a>
-            </div>
-            <div v-if="recentAIOps.length === 0" class="panel-empty">暂无诊断记录</div>
-            <div v-else>
-              <div v-for="inc in recentAIOps" :key="inc.incident_id" class="act-row" @click="go('/ai/ops')">
-                <span class="act-dot ai"></span>
-                <span class="act-name">{{ inc.title || inc.query?.slice(0, 40) }}</span>
-                <span class="act-stat">{{ inc.status }}</span>
-                <span class="act-time">{{ fmtRel(inc.created_at) }}</span>
-              </div>
-            </div>
+            <div class="tl-time">{{ fmtRel(ev._time) }}</div>
           </div>
         </div>
       </div>
 
-      <!-- Right column -->
+      <!-- Side -->
       <div class="dash-side">
-        <div class="glass-panel">
-          <h3 style="margin:0 0 12px;font-size:14px;font-weight:700">快捷入口</h3>
-          <div class="quick-list">
-            <div v-for="h in quickLinks" :key="h.path" class="ql-item" @click="go(h.path)">{{ h.label }}</div>
+        <div class="glass side-card">
+          <h3>快捷入口</h3>
+          <div class="ql-list">
+            <div v-for="h in quickLinks" :key="h.path" class="ql-i" @click="go(h.path)">{{ h.label }}</div>
           </div>
         </div>
-
-        <div class="glass-panel">
-          <h3 style="margin:0 0 10px;font-size:14px;font-weight:700">系统健康</h3>
-          <div class="health-list">
-            <div class="hl-row" v-for="h in healthItems" :key="h.key">
-              <span class="hl-dot" :class="h.ok ? 'ok' : 'bad'"></span>
-              <span class="hl-label">{{ h.label }}</span>
-              <span class="hl-val">{{ h.val }}</span>
+        <div class="glass side-card">
+          <h3>系统健康</h3>
+          <div class="hl-list">
+            <div v-for="h in healthItems" :key="h.key" class="hl-i">
+              <span class="hl-d" :class="h.ok ? 'ok' : 'bad'"></span>
+              <span class="hl-l">{{ h.label }}</span>
+              <span class="hl-v">{{ h.val }}</span>
             </div>
           </div>
         </div>
-
-        <div class="glass-panel" v-if="oncallList.length > 0">
-          <h3 style="margin:0 0 8px;font-size:14px;font-weight:700">今日值班</h3>
-          <div v-for="o in oncallList" :key="o.id || o.username" class="oc-row">
-            <el-avatar :size="20" icon="UserFilled" />
-            <span>{{ o.username || o.name }}</span>
+        <div class="glass side-card" v-if="oncallList.length">
+          <h3>今日值班</h3>
+          <div v-for="o in oncallList" :key="o.id||o.username" class="oc-i">
+            <el-avatar :size="18" icon="UserFilled" />
+            <span>{{ o.username||o.name }}</span>
           </div>
         </div>
       </div>
@@ -136,15 +92,15 @@ import axios from 'axios'
 
 const router = useRouter()
 const nowStr = ref('')
-let refreshTimer = null
+let timer = null
 
 const username = ref(localStorage.getItem('username') || 'Admin')
-const summary = reactive({ hostTotal: 0, hostOnline: 0, hostOffline: 0, k8sTotal: 0, dockerTotal: 0, alertOpen: 0, alertCritical: 0 })
-const snapshots = reactive({ alerts: [], cicd_executions: [], workorders: [] })
+const summary = reactive({ hostTotal:0, hostOnline:0, hostOffline:0, k8sTotal:0, dockerTotal:0, alertOpen:0 })
+const snapshots = reactive({ alerts:[], cicd_executions:[], workorders:[] })
 const recentAIOps = ref([])
 const oncallList = ref([])
 
-const go = (p) => router.push(p)
+const go = p => router.push(p)
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -154,46 +110,67 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-const statusSummary = computed(() => {
-  const p = []
-  if (summary.alertOpen > 0) p.push(`${summary.alertOpen} 条告警需处理`)
-  else p.push('所有系统运行正常')
-  if (summary.hostOffline > 0) p.push(`${summary.hostOffline} 台离线`)
-  return p.join('  ·  ')
+const pendingTickets = computed(() => (snapshots.workorders||[]).filter(w => w.status==='pending'||w.status==='open').length)
+
+// Build timeline from alerts + deployments + AIOps
+const timeline = computed(() => {
+  const items = []
+  ;(snapshots.alerts||[]).filter(a => a.status==='firing').forEach(a => {
+    items.push({
+      _type: 'alert',
+      _tag: a.severity==='critical'?'严重':a.severity==='warning'?'警告':'信息',
+      _title: a.alert_name||a.rule_name||'告警',
+      _meta: a.target||'',
+      _time: a.fired_at||a.created_at,
+      _path: '/monitor'
+    })
+  })
+  ;(snapshots.cicd_executions||[]).slice(0,5).forEach(e => {
+    items.push({
+      _type: 'deploy',
+      _tag: e.status==='success'?'成功':'失败',
+      _title: e.pipeline_name||'Pipeline',
+      _meta: e.status||'',
+      _time: e.finished_at||e.created_at,
+      _path: '/delivery'
+    })
+  })
+  ;recentAIOps.value.forEach(inc => {
+    items.push({
+      _type: 'aiops',
+      _tag: 'AIOps',
+      _title: inc.title||inc.query?.slice(0,40)||'诊断',
+      _meta: inc.status||'',
+      _time: inc.created_at,
+      _path: '/ai/ops'
+    })
+  })
+  return items.sort((a,b) => new Date(b._time||0) - new Date(a._time||0)).slice(0, 12)
 })
 
-const recentAlerts = computed(() => (snapshots.alerts || []).filter(a => a.status === 'firing').slice(0, 6))
-
-const lastExecs = computed(() => (snapshots.cicd_executions || []).slice(0, 4).map(e => ({
-  ...e,
-  _dotClass: e.status === 'success' ? 'ok' : e.status === 'failed' ? 'bad' : 'warn'
-})))
-
-const pendingWorkorders = computed(() => (snapshots.workorders || []).filter(w => w.status === 'pending' || w.status === 'open').length)
-
 const quickLinks = [
-  { label: '资产与安全', path: '/asset' },
-  { label: '容器平台', path: '/k8s' },
-  { label: '告警运营台', path: '/monitor' },
-  { label: '变更交付', path: '/delivery' },
-  { label: '智能助手', path: '/ai' },
-  { label: '系统治理', path: '/system' }
+  { label:'资产与安全', path:'/asset' },
+  { label:'容器平台', path:'/k8s' },
+  { label:'统一观测', path:'/monitor' },
+  { label:'变更交付', path:'/delivery' },
+  { label:'智能助手', path:'/ai' },
+  { label:'系统治理', path:'/system' },
 ]
 
 const healthItems = computed(() => [
-  { key: 'hosts', label: '主机', ok: summary.hostOffline === 0, val: `${summary.hostOnline}/${summary.hostTotal}` },
-  { key: 'alerts', label: '告警', ok: summary.alertOpen === 0, val: String(summary.alertOpen) },
-  { key: 'k8s', label: 'K8s', ok: true, val: String(summary.k8sTotal) },
-  { key: 'docker', label: 'Docker', ok: true, val: String(summary.dockerTotal) }
+  { key:'hosts', label:'主机', ok:summary.hostOffline===0, val:`${summary.hostOnline}/${summary.hostTotal}` },
+  { key:'alerts', label:'告警', ok:summary.alertOpen===0, val:String(summary.alertOpen) },
+  { key:'k8s', label:'K8s', ok:true, val:String(summary.k8sTotal) },
+  { key:'docker', label:'Docker', ok:true, val:String(summary.dockerTotal) },
 ])
 
-const fmtRel = (v) => {
+const fmtRel = v => {
   if (!v) return ''
-  const d = Math.floor((Date.now() - new Date(v).getTime()) / 1000)
-  if (d < 60) return '刚刚'
-  if (d < 3600) return `${Math.floor(d / 60)}分钟前`
-  if (d < 86400) return `${Math.floor(d / 3600)}小时前`
-  return `${Math.floor(d / 86400)}天前`
+  const d = Math.floor((Date.now()-new Date(v).getTime())/1000)
+  if (d<60) return '刚刚'
+  if (d<3600) return `${Math.floor(d/60)}分钟前`
+  if (d<86400) return `${Math.floor(d/3600)}小时前`
+  return `${Math.floor(d/86400)}天前`
 }
 
 const updateClock = () => {
@@ -203,130 +180,103 @@ const updateClock = () => {
 
 const fetchData = async () => {
   try {
-    const h = { Authorization: 'Bearer ' + localStorage.getItem('token') }
-    const res = await axios.get('/api/v1/dashboard/overview', { headers: h })
+    const h = { Authorization:'Bearer '+localStorage.getItem('token') }
+    const res = await axios.get('/api/v1/dashboard/overview',{headers:h})
     const d = res.data?.data
     if (d?.summary) {
-      summary.hostTotal = d.summary.host_total || 0
-      summary.hostOnline = d.summary.host_online || 0
-      summary.hostOffline = d.summary.host_offline || 0
-      summary.k8sTotal = d.summary.k8s_total || 0
-      summary.dockerTotal = d.summary.docker_total || 0
-      summary.alertOpen = d.summary.alert_open || 0
-      summary.alertCritical = (d.snapshots?.alerts || []).filter(a => a.severity === 'critical').length
+      summary.hostTotal = d.summary.host_total||0
+      summary.hostOnline = d.summary.host_online||0
+      summary.hostOffline = d.summary.host_offline||0
+      summary.k8sTotal = d.summary.k8s_total||0
+      summary.dockerTotal = d.summary.docker_total||0
+      summary.alertOpen = d.summary.alert_open||0
     }
     if (d?.snapshots) {
-      snapshots.alerts = d.snapshots.alerts || []
-      snapshots.cicd_executions = d.snapshots.cicd_executions || []
-      snapshots.workorders = d.snapshots.workorders || []
+      snapshots.alerts = d.snapshots.alerts||[]
+      snapshots.cicd_executions = d.snapshots.cicd_executions||[]
+      snapshots.workorders = d.snapshots.workorders||[]
     }
-    // AIOps + oncall (non-blocking)
-    const [ai, onc] = await Promise.all([
-      axios.get('/api/v1/ai/ops/incidents', { headers: h }).catch(() => ({ data: {} })),
-      axios.get('/api/v1/oncall/whoisoncall', { headers: h }).catch(() => ({ data: {} }))
+    const [ai,onc] = await Promise.all([
+      axios.get('/api/v1/ai/ops/incidents',{headers:h}).catch(()=>({data:{}})),
+      axios.get('/api/v1/oncall/whoisoncall',{headers:h}).catch(()=>({data:{}}))
     ])
-    recentAIOps.value = (ai.data?.data || []).slice(0, 3)
-    oncallList.value = onc.data?.data || []
-  } catch (e) { /* silent */ }
+    recentAIOps.value = (ai.data?.data||[]).slice(0,3)
+    oncallList.value = onc.data?.data||[]
+  } catch(e){}
 }
 
-onMounted(() => {
-  fetchData()
-  updateClock()
-  setInterval(updateClock, 30000)
-  refreshTimer = setInterval(fetchData, 30000)
-})
-onUnmounted(() => clearInterval(refreshTimer))
+onMounted(()=>{ fetchData(); updateClock(); setInterval(updateClock,30000); timer=setInterval(fetchData,30000) })
+onUnmounted(()=>clearInterval(timer))
 </script>
 
 <style scoped>
-.dash { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+.dash { max-width:1100px; margin:0 auto; padding:20px; }
+.dash-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
+.dash-top h1 { font-size:22px; font-weight:700; margin:0; letter-spacing:-0.02em; }
+.dash-top-right { display:flex; align-items:center; gap:8px; }
+.dash-time { font-size:12px; color:var(--el-text-color-secondary); }
 
-/* Top */
-.dash-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-.dash-top h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.02em; }
-.dash-top p { font-size: 13px; color: var(--el-text-color-secondary); margin: 0; }
-.dash-top-right { display: flex; align-items: center; gap: 10px; }
-.dash-time { font-size: 12px; color: var(--el-text-color-secondary); }
-
-/* Status chips */
-.status-row { display: flex; gap: 12px; margin-bottom: 24px; }
-.status-chip {
-  flex: 1; padding: 14px 16px; border-radius: 14px;
-  background: var(--glass-bg); backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(255,255,255,0.5); cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.15s;
+/* Chips */
+.status-row { display:flex; gap:10px; margin-bottom:20px; }
+.chip {
+  flex:1; padding:12px 14px; border-radius:14px; cursor:pointer;
+  background:var(--glass-bg); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid rgba(255,255,255,0.5); box-shadow:var(--shadow-sm); transition:all .15s;
 }
-.status-chip:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.status-chip.ok .chip-num { color: #34c759; }
-.status-chip.bad .chip-num { color: #ff3b30; }
-.status-chip.warn .chip-num { color: #ff9500; }
-.chip-num { font-size: 28px; font-weight: 700; display: block; }
-.chip-label { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; display: block; }
-.chip-sub { font-size: 11px; color: var(--el-text-color-placeholder); display: block; }
+.chip:hover { box-shadow:var(--shadow-md); }
+.chip.bad { border-left:3px solid #ff3b30; }
+.chip.warn { border-left:3px solid #ff9500; }
+.chip-val { font-size:26px; font-weight:700; color:var(--el-text-color-primary); }
+.chip-val small { font-size:14px; font-weight:500; color:var(--el-text-color-secondary); }
+.chip.bad .chip-val { color:#ff3b30; }
+.chip.warn .chip-val { color:#ff9500; }
+.chip-label { font-size:11px; color:var(--el-text-color-secondary); margin-top:2px; font-weight:500; }
 
-/* Grid */
-.dash-grid { display: grid; grid-template-columns: 1fr 260px; gap: 16px; }
-.dash-main { display: flex; flex-direction: column; gap: 16px; }
-.dash-side { display: flex; flex-direction: column; gap: 14px; }
+/* Body */
+.dash-body { display:grid; grid-template-columns:1fr 240px; gap:14px; }
+.dash-side { display:flex; flex-direction:column; gap:12px; }
 
-/* Glass panel — the core frosted glass look */
-.glass-panel {
-  background: var(--glass-bg); backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(255,255,255,0.5); border-top: 1px solid rgba(255,255,255,0.7);
-  border-radius: 16px; padding: 16px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.4) inset, var(--shadow-sm);
+/* Glass card */
+.glass {
+  background:var(--glass-bg); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid rgba(255,255,255,0.5); border-top:1px solid rgba(255,255,255,0.7);
+  border-radius:16px; padding:16px;
+  box-shadow:0 1px 0 rgba(255,255,255,0.4) inset, var(--shadow-sm);
 }
-.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.panel-head h3 { font-size: 14px; font-weight: 700; margin: 0; }
-.panel-head a { font-size: 12px; font-weight: 600; color: var(--apple-blue); text-decoration: none; cursor: pointer; }
-.panel-empty { font-size: 13px; color: var(--el-text-color-placeholder); padding: 20px 0; text-align: center; }
-.panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
-/* Alerts */
-.alert-list { display: flex; flex-direction: column; }
-.alert-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid rgba(0,0,0,0.04); cursor: pointer; font-size: 13px; }
-.alert-row:last-child { border: none; }
-.a-sev { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; }
-.a-sev.critical { background: #fee2e2; color: #dc2626; }
-.a-sev.warning { background: #fef3c7; color: #d97706; }
-.a-sev.info { background: #e0e7ff; color: #4f46e5; }
-.a-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.a-target { font-size: 12px; color: var(--el-text-color-secondary); max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.a-time { font-size: 11px; color: var(--el-text-color-placeholder); flex-shrink: 0; }
+/* Timeline */
+.timeline-panel { padding:14px 16px; }
+.tl-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.tl-head h3 { font-size:13px; font-weight:700; margin:0; text-transform:uppercase; letter-spacing:0.04em; color:var(--el-text-color-secondary); }
+.tl-head a { font-size:12px; font-weight:600; color:var(--apple-blue); text-decoration:none; cursor:pointer; }
+.tl-empty { font-size:13px; color:var(--el-text-color-placeholder); text-align:center; padding:24px 0; }
+.tl-list { display:flex; flex-direction:column; }
+.tl-item { display:flex; gap:10px; padding:8px 0; cursor:pointer; border-bottom:1px solid rgba(0,0,0,0.04); align-items:flex-start; }
+.tl-item:last-child { border:none; }
+.tl-marker { width:8px; height:8px; border-radius:50%; margin-top:4px; flex-shrink:0; }
+.tl-marker.alert { background:#ff3b30; }
+.tl-marker.deploy { background:#34c759; }
+.tl-marker.aiops { background:#7c3aed; }
+.tl-body { flex:1; min-width:0; }
+.tl-title { font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; }
+.tl-tag { font-size:10px; font-weight:700; padding:0 4px; border-radius:3px; text-transform:uppercase; }
+.tl-tag.alert { background:#fee2e2; color:#dc2626; }
+.tl-tag.deploy { background:#dcfce7; color:#16a34a; }
+.tl-tag.aiops { background:#ede9fe; color:#7c3aed; }
+.tl-meta { font-size:11px; color:var(--el-text-color-secondary); margin-top:2px; }
+.tl-time { font-size:11px; color:var(--el-text-color-placeholder); flex-shrink:0; margin-top:2px; }
 
-/* Activity */
-.act-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,0.04); cursor: pointer; font-size: 12px; }
-.act-row:last-child { border: none; }
-.act-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.act-dot.ok { background: #34c759; }
-.act-dot.bad { background: #ff3b30; }
-.act-dot.warn { background: #ff9500; }
-.act-dot.ai { background: #7c3aed; }
-.act-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.act-stat { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; }
-.act-stat.success { background: #dcfce7; color: #16a34a; }
-.act-stat.failed { background: #fee2e2; color: #dc2626; }
-.act-stat.running { background: #dbeafe; color: #2563eb; }
-.act-time { font-size: 11px; color: var(--el-text-color-placeholder); flex-shrink: 0; }
-
-/* Quick links */
-.quick-list { display: flex; flex-direction: column; gap: 2px; }
-.ql-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--el-text-color-regular); }
-.ql-item:hover { background: rgba(0,0,0,0.04); }
-
-/* Health */
-.health-list { display: flex; flex-direction: column; gap: 6px; }
-.hl-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.hl-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.hl-dot.ok { background: #34c759; }
-.hl-dot.bad { background: #ff3b30; }
-.hl-label { flex: 1; color: var(--el-text-color-secondary); }
-.hl-val { font-weight: 600; }
-
-/* Oncall */
-.oc-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; font-weight: 600; }
+/* Side */
+.side-card h3 { font-size:12px; font-weight:700; margin:0 0 10px; text-transform:uppercase; letter-spacing:0.04em; color:var(--el-text-color-secondary); }
+.ql-list { display:flex; flex-direction:column; gap:1px; }
+.ql-i { padding:7px 8px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:500; color:var(--el-text-color-regular); }
+.ql-i:hover { background:rgba(0,0,0,0.04); }
+.hl-list { display:flex; flex-direction:column; gap:5px; }
+.hl-i { display:flex; align-items:center; gap:6px; font-size:12px; }
+.hl-d { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+.hl-d.ok { background:#34c759; }
+.hl-d.bad { background:#ff3b30; }
+.hl-l { flex:1; color:var(--el-text-color-secondary); }
+.hl-v { font-weight:600; }
+.oc-i { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:12px; font-weight:600; }
 </style>
