@@ -1,83 +1,163 @@
 <template>
-  <div class="dash">
-    <!-- Header -->
-    <div class="dash-top">
-      <div>
-        <h1>{{ greeting }}，{{ username }}</h1>
-      </div>
-      <div class="dash-top-right">
-        <span class="dash-time">{{ nowStr }}</span>
+  <div class="dash" v-loading="loading">
+    <!-- Top bar -->
+    <div class="top">
+      <h1>系统监控</h1>
+      <div class="top-r">
+        <span class="top-time">{{ nowStr }}</span>
+        <el-switch v-model="autoRefresh" size="small" active-text="自动刷新" />
         <el-button size="small" icon="Refresh" circle @click="fetchData" />
       </div>
     </div>
 
-    <!-- Status Chips -->
-    <div class="status-row">
-      <div class="chip" :class="summary.hostOffline > 0 ? 'warn' : ''" @click="go('/asset')">
-        <div class="chip-val">{{ summary.hostOnline }}<small>/{{ summary.hostTotal }}</small></div>
-        <div class="chip-label">主机在线</div>
+    <!-- Aggregate metrics -->
+    <div class="kpi-row">
+      <div class="kpi">
+        <div class="kpi-title">CPU 使用率</div>
+        <div class="kpi-val" :class="metrics.cpu > 80 ? 'bad' : metrics.cpu > 60 ? 'warn' : ''">{{ metrics.cpu.toFixed(1) }}%</div>
+        <div class="kpi-bar"><span class="bar-fill" :class="metrics.cpu > 80 ? 'bad' : metrics.cpu > 60 ? 'warn' : ''" :style="{width: Math.min(metrics.cpu,100)+'%'}"></span></div>
       </div>
-      <div class="chip" :class="summary.alertOpen > 0 ? 'bad' : ''" @click="go('/monitor')">
-        <div class="chip-val">{{ summary.alertOpen }}</div>
-        <div class="chip-label">活跃告警</div>
+      <div class="kpi">
+        <div class="kpi-title">内存使用率</div>
+        <div class="kpi-val" :class="metrics.memory > 85 ? 'bad' : metrics.memory > 70 ? 'warn' : ''">{{ metrics.memory.toFixed(1) }}%</div>
+        <div class="kpi-bar"><span class="bar-fill" :class="metrics.memory > 85 ? 'bad' : metrics.memory > 70 ? 'warn' : ''" :style="{width: Math.min(metrics.memory,100)+'%'}"></span></div>
       </div>
-      <div class="chip" @click="go('/k8s')">
-        <div class="chip-val">{{ summary.k8sTotal }}<small> / {{ summary.dockerTotal }}</small></div>
-        <div class="chip-label">K8s / Docker</div>
+      <div class="kpi">
+        <div class="kpi-title">磁盘使用率</div>
+        <div class="kpi-val" :class="metrics.disk > 85 ? 'bad' : metrics.disk > 70 ? 'warn' : ''">{{ metrics.disk.toFixed(1) }}%</div>
+        <div class="kpi-bar"><span class="bar-fill" :class="metrics.disk > 85 ? 'bad' : metrics.disk > 70 ? 'warn' : ''" :style="{width: Math.min(metrics.disk,100)+'%'}"></span></div>
       </div>
-      <div class="chip" :class="pendingTickets > 0 ? 'warn' : ''" @click="go('/delivery')">
-        <div class="chip-val">{{ pendingTickets }}</div>
-        <div class="chip-label">待处理工单</div>
+      <div class="kpi">
+        <div class="kpi-title">在线 Agent</div>
+        <div class="kpi-val">{{ agents.filter(a=>a.status==='online').length }}<small> / {{ agents.length }}</small></div>
+        <div class="kpi-sub">{{ agents.filter(a=>a.status!=='online').length }} 离线</div>
       </div>
     </div>
 
-    <!-- Main content: timeline + side -->
-    <div class="dash-body">
-      <!-- Timeline feed -->
-      <div class="timeline-panel glass">
-        <div class="tl-head">
-          <h3>事件时间线</h3>
-          <a @click.prevent="go('/monitor')">查看全部 →</a>
-        </div>
-        <div v-if="timeline.length === 0" class="tl-empty">暂无事件</div>
-        <div v-else class="tl-list">
-          <div v-for="(ev, i) in timeline" :key="i" class="tl-item" @click="go(ev._path)">
-            <div class="tl-marker" :class="ev._type"></div>
-            <div class="tl-body">
-              <div class="tl-title">
-                <span class="tl-tag" :class="ev._type">{{ ev._tag }}</span>
-                {{ ev._title }}
-              </div>
-              <div class="tl-meta">{{ ev._meta }}</div>
+    <!-- Main grid -->
+    <div class="grid">
+      <!-- Left: hosts + alerts -->
+      <div class="main-col">
+        <!-- Host status -->
+        <div class="panel glass">
+          <div class="panel-head">
+            <h3>主机状态</h3>
+            <a @click.prevent="go('/asset')">全部 →</a>
+          </div>
+          <div class="host-grid">
+            <div class="host-stat ok" @click="go('/asset')">
+              <span class="hs-num">{{ summary.hostOnline }}</span>
+              <span class="hs-label">在线</span>
             </div>
-            <div class="tl-time">{{ fmtRel(ev._time) }}</div>
+            <div class="host-stat bad" @click="go('/asset')">
+              <span class="hs-num">{{ summary.hostOffline }}</span>
+              <span class="hs-label">离线</span>
+            </div>
+            <div class="host-stat warn">
+              <span class="hs-num">{{ summary.hostStale }}</span>
+              <span class="hs-label">超时未检测</span>
+            </div>
+            <div class="host-stat">
+              <span class="hs-num">{{ summary.k8sTotal }}</span>
+              <span class="hs-label">K8s 集群</span>
+            </div>
+          </div>
+          <!-- Agent list -->
+          <div v-if="agents.length > 0" class="agent-list">
+            <div class="agent-row header">
+              <span>主机</span><span>CPU</span><span>内存</span><span>磁盘</span><span>状态</span>
+            </div>
+            <div v-for="a in agents.slice(0, 8)" :key="a.id||a.agent_id" class="agent-row" @click="go('/monitor/agents')">
+              <span class="a-name">{{ a.hostname||a.ip }}</span>
+              <span class="a-metric" :class="a.cpu>80?'bad':a.cpu>60?'warn':''">{{ (a.cpu||0).toFixed(0) }}%</span>
+              <span class="a-metric" :class="a.memory>85?'bad':a.memory>70?'warn':''">{{ (a.memory||0).toFixed(0) }}%</span>
+              <span class="a-metric" :class="a.disk>85?'bad':a.disk>70?'warn':''">{{ (a.disk||0).toFixed(0) }}%</span>
+              <span class="a-status" :class="a.status">{{ a.status==='online'?'在线':'离线' }}</span>
+            </div>
+          </div>
+          <div v-else class="panel-empty">暂无 Agent 数据</div>
+        </div>
+
+        <!-- Active alerts -->
+        <div class="panel glass">
+          <div class="panel-head">
+            <h3>活跃告警</h3>
+            <a @click.prevent="go('/monitor')">全部 →</a>
+          </div>
+          <div v-if="firingAlerts.length === 0" class="panel-empty">🎉 暂无活跃告警</div>
+          <div v-else class="alert-list">
+            <div v-for="a in firingAlerts.slice(0, 8)" :key="a.id" class="alert-row" @click="go('/monitor')">
+              <span class="a-sev" :class="a.severity">{{ a.severity==='critical'?'严重':'警告' }}</span>
+              <span class="a-name">{{ a.rule_name||a.alert_name }}</span>
+              <span class="a-target">{{ a.target }}</span>
+              <span class="a-time">{{ fmtRel(a.fired_at||a.created_at) }}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Side -->
-      <div class="dash-side">
-        <div class="glass side-card">
-          <h3>快捷入口</h3>
-          <div class="ql-list">
-            <div v-for="h in quickLinks" :key="h.path" class="ql-i" @click="go(h.path)">{{ h.label }}</div>
-          </div>
-        </div>
-        <div class="glass side-card">
-          <h3>系统健康</h3>
-          <div class="hl-list">
-            <div v-for="h in healthItems" :key="h.key" class="hl-i">
-              <span class="hl-d" :class="h.ok ? 'ok' : 'bad'"></span>
-              <span class="hl-l">{{ h.label }}</span>
-              <span class="hl-v">{{ h.val }}</span>
+      <!-- Right: charts + health -->
+      <div class="side-col">
+        <!-- Metric history chart -->
+        <div class="panel glass chart-panel" v-if="metricHistory.length > 1">
+          <h3 class="chart-title">CPU 历史趋势</h3>
+          <div class="chart-wrap">
+            <svg viewBox="0 0 300 100" preserveAspectRatio="none" class="spark-chart">
+              <defs>
+                <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="rgba(0,113,227,0.2)"/>
+                  <stop offset="100%" stop-color="rgba(0,113,227,0)"/>
+                </linearGradient>
+              </defs>
+              <path :d="cpuArea" fill="url(#cpuGrad)"/>
+              <path :d="cpuLine" fill="none" stroke="#0071e3" stroke-width="2" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="chart-ticks">
+              <span v-for="(t,i) in chartTicks" :key="i">{{ t }}</span>
             </div>
           </div>
         </div>
-        <div class="glass side-card" v-if="oncallList.length">
-          <h3>今日值班</h3>
-          <div v-for="o in oncallList" :key="o.id||o.username" class="oc-i">
-            <el-avatar :size="18" icon="UserFilled" />
-            <span>{{ o.username||o.name }}</span>
+
+        <!-- Docker hosts -->
+        <div class="panel glass">
+          <div class="panel-head">
+            <h3>Docker 环境</h3>
+            <a @click.prevent="go('/k8s')">全部 →</a>
+          </div>
+          <div v-if="dockerHosts.length === 0" class="panel-empty">无 Docker 环境</div>
+          <div v-else class="docker-list">
+            <div v-for="d in dockerHosts.slice(0,6)" :key="d.id" class="docker-row">
+              <span class="d-dot" :class="d.status==='online'?'ok':'bad'"></span>
+              <span class="d-name">{{ d.name||d.host_id }}</span>
+              <span class="d-status" :class="d.status">{{ d.status==='online'?'在线':'离线' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- K8s clusters -->
+        <div class="panel glass">
+          <div class="panel-head">
+            <h3>K8s 集群</h3>
+            <a @click.prevent="go('/k8s')">全部 →</a>
+          </div>
+          <div v-if="k8sClusters.length === 0" class="panel-empty">无 K8s 集群</div>
+          <div v-else>
+            <div v-for="k in k8sClusters.slice(0,6)" :key="k.id" class="docker-row">
+              <span class="d-dot" :class="k.status===1?'ok':'bad'"></span>
+              <span class="d-name">{{ k.name }}</span>
+              <span class="d-status" :class="k.status===1?'online':'offline'">{{ k.status===1?'在线':'离线' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div class="panel glass">
+          <h3 style="font-size:12px;font-weight:700;margin:0 0 8px;text-transform:uppercase;color:var(--el-text-color-secondary)">快捷操作</h3>
+          <div class="quick-row">
+            <span class="ql" @click="go('/monitor/hosts')">主机监控</span>
+            <span class="ql" @click="go('/monitor/agents')">Agent 管理</span>
+            <span class="ql" @click="go('/alert/rules')">告警规则</span>
+            <span class="ql" @click="go('/monitor/metrics')">指标采集</span>
           </div>
         </div>
       </div>
@@ -91,192 +171,158 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 
 const router = useRouter()
+const loading = ref(false)
+const autoRefresh = ref(true)
 const nowStr = ref('')
 let timer = null
 
-const username = ref(localStorage.getItem('username') || 'Admin')
-const summary = reactive({ hostTotal:0, hostOnline:0, hostOffline:0, k8sTotal:0, dockerTotal:0, alertOpen:0 })
-const snapshots = reactive({ alerts:[], cicd_executions:[], workorders:[] })
-const recentAIOps = ref([])
-const oncallList = ref([])
+const summary = reactive({ hostOnline:0, hostOffline:0, hostStale:0, k8sTotal:0, dockerTotal:0, dockerOnline:0, dockerOffline:0, alertOpen:0 })
+const metrics = reactive({ cpu:0, memory:0, disk:0 })
+const agents = ref([])
+const firingAlerts = ref([])
+const metricHistory = ref([])
+const dockerHosts = ref([])
+const k8sClusters = ref([])
 
 const go = p => router.push(p)
+const fmtRel = v => { if(!v) return ''; const d = Math.floor((Date.now()-new Date(v).getTime())/1000); if(d<60) return '刚刚'; if(d<3600) return Math.floor(d/60)+'分钟前'; if(d<86400) return Math.floor(d/3600)+'小时前'; return Math.floor(d/86400)+'天前' }
 
-const greeting = computed(() => {
-  const h = new Date().getHours()
-  if (h < 6) return '夜深了'
-  if (h < 12) return '早上好'
-  if (h < 18) return '下午好'
-  return '晚上好'
+const cpuLine = computed(() => buildLine(metricHistory.value.map(m=>m.cpu_usage||0)))
+const cpuArea = computed(() => cpuLine.value + ' L300,100 L0,100 Z')
+const chartTicks = computed(() => {
+  const h = metricHistory.value; if (h.length<2) return []
+  const step = Math.max(1,Math.floor(h.length/5))
+  return h.filter((_,i)=>i%step===0).map(m=>{
+    const d = new Date(m.timestamp||m.at); return (d.getMonth()+1)+'/'+d.getDate()+' '+d.getHours()+':00'
+  }).slice(0,6)
 })
 
-const pendingTickets = computed(() => (snapshots.workorders||[]).filter(w => w.status==='pending'||w.status==='open').length)
-
-// Build timeline from alerts + deployments + AIOps
-const timeline = computed(() => {
-  const items = []
-  ;(snapshots.alerts||[]).filter(a => a.status==='firing').forEach(a => {
-    items.push({
-      _type: 'alert',
-      _tag: a.severity==='critical'?'严重':a.severity==='warning'?'警告':'信息',
-      _title: a.alert_name||a.rule_name||'告警',
-      _meta: a.target||'',
-      _time: a.fired_at||a.created_at,
-      _path: '/monitor'
-    })
-  })
-  ;(snapshots.cicd_executions||[]).slice(0,5).forEach(e => {
-    items.push({
-      _type: 'deploy',
-      _tag: e.status==='success'?'成功':'失败',
-      _title: e.pipeline_name||'Pipeline',
-      _meta: e.status||'',
-      _time: e.finished_at||e.created_at,
-      _path: '/delivery'
-    })
-  })
-  ;recentAIOps.value.forEach(inc => {
-    items.push({
-      _type: 'aiops',
-      _tag: 'AIOps',
-      _title: inc.title||inc.query?.slice(0,40)||'诊断',
-      _meta: inc.status||'',
-      _time: inc.created_at,
-      _path: '/ai/ops'
-    })
-  })
-  return items.sort((a,b) => new Date(b._time||0) - new Date(a._time||0)).slice(0, 12)
-})
-
-const quickLinks = [
-  { label:'资产与安全', path:'/asset' },
-  { label:'容器平台', path:'/k8s' },
-  { label:'统一观测', path:'/monitor' },
-  { label:'变更交付', path:'/delivery' },
-  { label:'智能助手', path:'/ai' },
-  { label:'系统治理', path:'/system' },
-]
-
-const healthItems = computed(() => [
-  { key:'hosts', label:'主机', ok:summary.hostOffline===0, val:`${summary.hostOnline}/${summary.hostTotal}` },
-  { key:'alerts', label:'告警', ok:summary.alertOpen===0, val:String(summary.alertOpen) },
-  { key:'k8s', label:'K8s', ok:true, val:String(summary.k8sTotal) },
-  { key:'docker', label:'Docker', ok:true, val:String(summary.dockerTotal) },
-])
-
-const fmtRel = v => {
-  if (!v) return ''
-  const d = Math.floor((Date.now()-new Date(v).getTime())/1000)
-  if (d<60) return '刚刚'
-  if (d<3600) return `${Math.floor(d/60)}分钟前`
-  if (d<86400) return `${Math.floor(d/3600)}小时前`
-  return `${Math.floor(d/86400)}天前`
+function buildLine(vals) {
+  if (!vals.length) return ''
+  const max = Math.max(...vals, 1)
+  const step = 300 / (vals.length-1)
+  return vals.map((v,i) => `${i===0?'M':'L'}${Math.round(i*step)},${Math.round(95-(v/max)*90)}`).join(' ')
 }
 
-const updateClock = () => {
-  const n = new Date()
-  nowStr.value = `${n.getFullYear()}/${n.getMonth()+1}/${n.getDate()} ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}`
-}
+const updateClock = () => { const n=new Date(); nowStr.value=n.getFullYear()+'/'+(n.getMonth()+1)+'/'+n.getDate()+' '+String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0') }
 
 const fetchData = async () => {
+  loading.value = true
   try {
     const h = { Authorization:'Bearer '+localStorage.getItem('token') }
     const res = await axios.get('/api/v1/dashboard/overview',{headers:h})
-    const d = res.data?.data
-    if (d?.summary) {
-      summary.hostTotal = d.summary.host_total||0
+    const d = res.data?.data; if (!d) return
+    if (d.summary) {
       summary.hostOnline = d.summary.host_online||0
       summary.hostOffline = d.summary.host_offline||0
+      summary.hostStale = d.summary.host_stale||0
       summary.k8sTotal = d.summary.k8s_total||0
       summary.dockerTotal = d.summary.docker_total||0
+      summary.dockerOnline = d.summary.docker_online||0
+      summary.dockerOffline = d.summary.docker_offline||0
       summary.alertOpen = d.summary.alert_open||0
     }
-    if (d?.snapshots) {
-      snapshots.alerts = d.snapshots.alerts||[]
-      snapshots.cicd_executions = d.snapshots.cicd_executions||[]
-      snapshots.workorders = d.snapshots.workorders||[]
+    if (d.snapshots) {
+      agents.value = d.snapshots.agents||[]
+      firingAlerts.value = (d.snapshots.alerts||[]).filter(a=>a.status===0)
+      metricHistory.value = d.snapshots.metric_history||[]
+      dockerHosts.value = d.snapshots.docker_hosts||[]
+      k8sClusters.value = d.snapshots.k8s_clusters||[]
+      if (d.snapshots.metrics) { metrics.cpu=d.snapshots.metrics.cpu||0; metrics.memory=d.snapshots.metrics.memory||0; metrics.disk=d.snapshots.metrics.disk||0 }
     }
-    const [ai,onc] = await Promise.all([
-      axios.get('/api/v1/ai/ops/incidents',{headers:h}).catch(()=>({data:{}})),
-      axios.get('/api/v1/oncall/whoisoncall',{headers:h}).catch(()=>({data:{}}))
-    ])
-    recentAIOps.value = (ai.data?.data||[]).slice(0,3)
-    oncallList.value = onc.data?.data||[]
-  } catch(e){}
+  } catch(e){} finally { loading.value=false }
 }
 
-onMounted(()=>{ fetchData(); updateClock(); setInterval(updateClock,30000); timer=setInterval(fetchData,30000) })
+onMounted(()=>{ fetchData(); updateClock(); setInterval(updateClock,30000); timer=setInterval(()=>{ if(autoRefresh.value) fetchData() },30000) })
 onUnmounted(()=>clearInterval(timer))
 </script>
 
 <style scoped>
-.dash { max-width:1100px; margin:0 auto; padding:20px; }
-.dash-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
-.dash-top h1 { font-size:22px; font-weight:700; margin:0; letter-spacing:-0.02em; }
-.dash-top-right { display:flex; align-items:center; gap:8px; }
-.dash-time { font-size:12px; color:var(--el-text-color-secondary); }
+.dash { max-width:1200px; margin:0 auto; padding:16px 20px; }
 
-/* Chips */
-.status-row { display:flex; gap:10px; margin-bottom:20px; }
-.chip {
-  flex:1; padding:12px 14px; border-radius:14px; cursor:pointer;
-  background:var(--glass-bg); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur);
-  border:1px solid rgba(255,255,255,0.5); box-shadow:var(--shadow-sm); transition:all .15s;
-}
-.chip:hover { box-shadow:var(--shadow-md); }
-.chip.bad { border-left:3px solid #ff3b30; }
-.chip.warn { border-left:3px solid #ff9500; }
-.chip-val { font-size:26px; font-weight:700; color:var(--el-text-color-primary); }
-.chip-val small { font-size:14px; font-weight:500; color:var(--el-text-color-secondary); }
-.chip.bad .chip-val { color:#ff3b30; }
-.chip.warn .chip-val { color:#ff9500; }
-.chip-label { font-size:11px; color:var(--el-text-color-secondary); margin-top:2px; font-weight:500; }
+.top { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.top h1 { font-size:20px; font-weight:700; margin:0; }
+.top-r { display:flex; align-items:center; gap:10px; }
+.top-time { font-size:12px; color:var(--el-text-color-secondary); }
 
-/* Body */
-.dash-body { display:grid; grid-template-columns:1fr 240px; gap:14px; }
-.dash-side { display:flex; flex-direction:column; gap:12px; }
+/* KPI */
+.kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px; }
+.kpi { padding:12px 14px; border-radius:14px; background:var(--glass-bg); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); border:1px solid rgba(255,255,255,0.5); box-shadow:var(--shadow-sm); }
+.kpi-title { font-size:11px; color:var(--el-text-color-secondary); font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+.kpi-val { font-size:28px; font-weight:700; margin:4px 0; }
+.kpi-val.bad { color:#ff3b30; }
+.kpi-val.warn { color:#ff9500; }
+.kpi-val small { font-size:14px; font-weight:500; color:var(--el-text-color-secondary); }
+.kpi-bar { height:3px; background:rgba(0,0,0,0.06); border-radius:2px; margin-top:6px; }
+.bar-fill { display:block; height:100%; border-radius:2px; background:#34c759; transition:width .5s; }
+.bar-fill.warn { background:#ff9500; }
+.bar-fill.bad { background:#ff3b30; }
+.kpi-sub { font-size:11px; color:var(--el-text-color-secondary); }
 
-/* Glass card */
-.glass {
-  background:var(--glass-bg); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur);
-  border:1px solid rgba(255,255,255,0.5); border-top:1px solid rgba(255,255,255,0.7);
-  border-radius:16px; padding:16px;
-  box-shadow:0 1px 0 rgba(255,255,255,0.4) inset, var(--shadow-sm);
-}
+/* Grid */
+.grid { display:grid; grid-template-columns:1fr 320px; gap:12px; }
+.main-col { display:flex; flex-direction:column; gap:12px; }
+.side-col { display:flex; flex-direction:column; gap:10px; }
 
-/* Timeline */
-.timeline-panel { padding:14px 16px; }
-.tl-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-.tl-head h3 { font-size:13px; font-weight:700; margin:0; text-transform:uppercase; letter-spacing:0.04em; color:var(--el-text-color-secondary); }
-.tl-head a { font-size:12px; font-weight:600; color:var(--apple-blue); text-decoration:none; cursor:pointer; }
-.tl-empty { font-size:13px; color:var(--el-text-color-placeholder); text-align:center; padding:24px 0; }
-.tl-list { display:flex; flex-direction:column; }
-.tl-item { display:flex; gap:10px; padding:8px 0; cursor:pointer; border-bottom:1px solid rgba(0,0,0,0.04); align-items:flex-start; }
-.tl-item:last-child { border:none; }
-.tl-marker { width:8px; height:8px; border-radius:50%; margin-top:4px; flex-shrink:0; }
-.tl-marker.alert { background:#ff3b30; }
-.tl-marker.deploy { background:#34c759; }
-.tl-marker.aiops { background:#7c3aed; }
-.tl-body { flex:1; min-width:0; }
-.tl-title { font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; }
-.tl-tag { font-size:10px; font-weight:700; padding:0 4px; border-radius:3px; text-transform:uppercase; }
-.tl-tag.alert { background:#fee2e2; color:#dc2626; }
-.tl-tag.deploy { background:#dcfce7; color:#16a34a; }
-.tl-tag.aiops { background:#ede9fe; color:#7c3aed; }
-.tl-meta { font-size:11px; color:var(--el-text-color-secondary); margin-top:2px; }
-.tl-time { font-size:11px; color:var(--el-text-color-placeholder); flex-shrink:0; margin-top:2px; }
+/* Glass panel */
+.glass { background:var(--glass-bg); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); border:1px solid rgba(255,255,255,0.5); border-top:1px solid rgba(255,255,255,0.7); border-radius:14px; padding:14px; box-shadow:0 1px 0 rgba(255,255,255,0.4) inset, var(--shadow-sm); }
+.panel-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.panel-head h3 { font-size:12px; font-weight:700; margin:0; text-transform:uppercase; letter-spacing:0.04em; color:var(--el-text-color-secondary); }
+.panel-head a { font-size:11px; font-weight:600; color:var(--apple-blue); text-decoration:none; cursor:pointer; }
+.panel-empty { font-size:12px; color:var(--el-text-color-placeholder); text-align:center; padding:16px 0; }
 
-/* Side */
-.side-card h3 { font-size:12px; font-weight:700; margin:0 0 10px; text-transform:uppercase; letter-spacing:0.04em; color:var(--el-text-color-secondary); }
-.ql-list { display:flex; flex-direction:column; gap:1px; }
-.ql-i { padding:7px 8px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:500; color:var(--el-text-color-regular); }
-.ql-i:hover { background:rgba(0,0,0,0.04); }
-.hl-list { display:flex; flex-direction:column; gap:5px; }
-.hl-i { display:flex; align-items:center; gap:6px; font-size:12px; }
-.hl-d { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
-.hl-d.ok { background:#34c759; }
-.hl-d.bad { background:#ff3b30; }
-.hl-l { flex:1; color:var(--el-text-color-secondary); }
-.hl-v { font-weight:600; }
-.oc-i { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:12px; font-weight:600; }
+/* Host stats */
+.host-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
+.host-stat { padding:10px; border-radius:10px; background:rgba(0,0,0,0.02); text-align:center; cursor:pointer; }
+.host-stat.ok { background:rgba(52,199,89,0.06); }
+.host-stat.bad { background:rgba(255,59,48,0.06); }
+.host-stat.warn { background:rgba(255,149,0,0.06); }
+.hs-num { font-size:20px; font-weight:700; display:block; }
+.hs-label { font-size:10px; color:var(--el-text-color-secondary); margin-top:2px; display:block; }
+
+/* Agent list */
+.agent-list { margin-top:8px; }
+.agent-row { display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr; gap:4px; padding:5px 8px; font-size:12px; border-bottom:1px solid rgba(0,0,0,0.04); cursor:pointer; align-items:center; }
+.agent-row.header { font-size:10px; font-weight:700; color:var(--el-text-color-secondary); text-transform:uppercase; cursor:default; }
+.a-name { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.a-metric { font-weight:600; text-align:center; }
+.a-metric.bad { color:#ff3b30; }
+.a-metric.warn { color:#ff9500; }
+.a-status { font-size:11px; font-weight:600; }
+.a-status.online { color:#34c759; }
+.a-status.offline { color:#ff3b30; }
+
+/* Alerts */
+.alert-list { display:flex; flex-direction:column; }
+.alert-row { display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid rgba(0,0,0,0.04); cursor:pointer; font-size:12px; }
+.alert-row:last-child { border:none; }
+.a-sev { font-size:10px; font-weight:700; padding:0 4px; border-radius:3px; }
+.a-sev.critical { background:#fee2e2; color:#dc2626; }
+.a-sev.warning { background:#fef3c7; color:#d97706; }
+.a-name { font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.a-target { font-size:11px; color:var(--el-text-color-secondary); max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.a-time { font-size:10px; color:var(--el-text-color-placeholder); flex-shrink:0; }
+
+/* Chart */
+.chart-panel { padding:12px 14px; }
+.chart-title { font-size:11px; font-weight:700; margin:0 0 8px; text-transform:uppercase; color:var(--el-text-color-secondary); }
+.chart-wrap { }
+.spark-chart { width:100%; height:80px; }
+.chart-ticks { display:flex; justify-content:space-between; font-size:9px; color:var(--el-text-color-placeholder); margin-top:4px; }
+
+/* Docker/K8s */
+.docker-list { display:flex; flex-direction:column; }
+.docker-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid rgba(0,0,0,0.03); font-size:12px; }
+.d-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.d-dot.ok { background:#34c759; }
+.d-dot.bad { background:#ff3b30; }
+.d-name { flex:1; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.d-status { font-size:11px; }
+.d-status.online { color:#34c759; }
+.d-status.offline { color:#ff3b30; }
+
+/* Quick ops */
+.quick-row { display:flex; flex-wrap:wrap; gap:6px; }
+.ql { padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; color:var(--apple-blue); cursor:pointer; background:rgba(0,113,227,0.06); }
+.ql:hover { background:rgba(0,113,227,0.12); }
 </style>
