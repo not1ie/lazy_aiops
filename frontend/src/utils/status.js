@@ -540,6 +540,16 @@ export const databaseAssetStatusMeta = (row, options = {}) => {
       }
     )
   }
+  if (status === 2) {
+    return withStatusMeta(
+      { key: 'offline', text: '不可用', type: 'danger' },
+      {
+        source,
+        checkAt,
+        reason: row?.status_reason || '数据库网络连接失败'
+      }
+    )
+  }
   if (!hasEndpoint) {
     return withStatusMeta(
       { key: 'error', text: '配置异常', type: 'danger' },

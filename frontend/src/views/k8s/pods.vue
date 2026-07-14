@@ -131,9 +131,10 @@
           <el-option v-for="c in logContainers" :key="c" :label="c" :value="c" />
         </el-select>
         <el-input-number v-model="logTail" :min="10" :max="1000" />
+        <el-checkbox v-model="logFollow" style="margin-left: 12px;">实时滚动 (Follow)</el-checkbox>
         <el-button type="primary" @click="fetchLogs">获取日志</el-button>
       </div>
-      <el-input v-model="logText" type="textarea" :rows="18" readonly />
+      <el-input v-model="logText" class="log-dialog-textarea" type="textarea" :rows="18" readonly />
       <template #footer>
         <el-button @click="logVisible = false">关闭</el-button>
       </template>
@@ -142,7 +143,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -176,6 +177,27 @@ const logTail = ref(200)
 const logContainer = ref('')
 const logContainers = ref([])
 const logPod = ref(null)
+const logFollow = ref(false)
+let logEventSource = null
+
+const closeLogStream = () => {
+  if (logEventSource) {
+    logEventSource.close()
+    logEventSource = null
+  }
+}
+
+watch(logVisible, (val) => {
+  if (!val) {
+    closeLogStream()
+  }
+})
+
+watch([logContainer, logTail, logFollow], () => {
+  if (logVisible.value) {
+    fetchLogs()
+  }
+})
 const router = useRouter()
 const route = useRoute()
 
@@ -324,14 +346,36 @@ const openOwnerWorkload = (row) => {
 
 const fetchLogs = async () => {
   if (!logPod.value) return
-  try {
-    const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${logPod.value.namespace}/pods/${logPod.value.name}/logs`, {
-      headers: authHeaders(),
-      params: { container: logContainer.value, tail: logTail.value }
-    })
-    logText.value = res.data.data || ''
-  } catch (err) {
-    ElMessage.error(getErrorMessage(err, '获取日志失败'))
+  closeLogStream()
+
+  if (logFollow.value) {
+    logText.value = '正在连接实时日志流...\n'
+    const token = localStorage.getItem('token')
+    const url = `/api/v1/k8s/clusters/${clusterId.value}/namespaces/${logPod.value.namespace}/pods/${logPod.value.name}/logs/stream?container=${logContainer.value}&tail=${logTail.value}&token=${token}`
+
+    logEventSource = new EventSource(url)
+    logEventSource.onmessage = (event) => {
+      logText.value += event.data + '\n'
+      const textarea = document.querySelector('.log-dialog-textarea textarea')
+      if (textarea) {
+        textarea.scrollTop = textarea.scrollHeight
+      }
+    }
+    logEventSource.onerror = (err) => {
+      console.error('SSE error:', err)
+      logText.value += '[连接流已断开]\n'
+      closeLogStream()
+    }
+  } else {
+    try {
+      const res = await axios.get(`/api/v1/k8s/clusters/${clusterId.value}/namespaces/${logPod.value.namespace}/pods/${logPod.value.name}/logs`, {
+        headers: authHeaders(),
+        params: { container: logContainer.value, tail: logTail.value }
+      })
+      logText.value = res.data.data || ''
+    } catch (err) {
+      ElMessage.error(getErrorMessage(err, '获取日志失败'))
+    }
   }
 }
 

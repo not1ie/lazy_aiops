@@ -40,6 +40,7 @@ import (
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/workflow"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/workorder"
 	_ "github.com/lazyautoops/lazy-auto-ops/plugins/sre"
+	_ "github.com/lazyautoops/lazy-auto-ops/plugins/log"
 )
 
 func main() {

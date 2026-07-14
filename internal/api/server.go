@@ -1,10 +1,14 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,24 +25,54 @@ type Server struct {
 
 	workspacePresetInitMu   sync.Mutex
 	workspacePresetInitDone bool
+	loginLimiter            *ipLimiter
 }
 
 func NewServer(cfg *config.Config, c *core.Core, pm *plugin.Manager) *Server {
 	gin.SetMode(cfg.Server.Mode)
 	engine := gin.New()
-	engine.Use(gin.Recovery(), gin.Logger(), CORSMiddleware(cfg.Server.CORSOrigins))
+	engine.Use(gin.Recovery(), gin.Logger(), CORSMiddleware(cfg.Server.CORSOrigins), PaginationLimiterMiddleware())
 
 	return &Server{
-		config: cfg,
-		core:   c,
-		pm:     pm,
-		engine: engine,
+		config:       cfg,
+		core:         c,
+		pm:           pm,
+		engine:       engine,
+		loginLimiter: newIPLimiter(1*time.Minute, 10),
 	}
 }
 
 func (s *Server) Run() error {
 	s.setupRoutes()
-	return s.engine.Run(":" + s.config.Server.Port)
+
+	srv := &http.Server{
+		Addr:    ":" + s.config.Server.Port,
+		Handler: s.engine,
+	}
+
+	go func() {
+		log.Printf("🚀 Server is running on port %s", s.config.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	s.pm.StopAll()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown:", err)
+	}
+
+	log.Println("Server exiting")
+	return nil
 }
 
 func (s *Server) setupRoutes() {
@@ -67,6 +101,19 @@ func (s *Server) setupRoutes() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// 浏览器错误日志上报
+	s.engine.POST("/api/v1/debug/error", func(c *gin.Context) {
+		var req struct {
+			Message string `json:"message"`
+			Stack   string `json:"stack"`
+			URL     string `json:"url"`
+		}
+		if err := c.ShouldBindJSON(&req); err == nil {
+			log.Printf("[BROWSER_ERROR] Msg: %s, Stack: %s, URL: %s", req.Message, req.Stack, req.URL)
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
 	// API v1
 	v1 := s.engine.Group("/api/v1")
 
@@ -92,7 +139,7 @@ func (s *Server) setupRoutes() {
 
 func (s *Server) setupPublicRoutes(g *gin.RouterGroup) {
 	// 登录
-	g.POST("/login", func(c *gin.Context) {
+	g.POST("/login", s.loginLimiter.limitMiddleware(), func(c *gin.Context) {
 		var req core.LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			s.recordLoginLog(c, req.Username, 0, "参数错误")
@@ -130,13 +177,6 @@ func (s *Server) setupPublicRoutes(g *gin.RouterGroup) {
 				"plugins": plugins,
 			},
 		})
-	})
-
-	// Debug route to check skills directly
-	g.GET("/test/skills-dump", func(c *gin.Context) {
-		var list []map[string]interface{}
-		err := s.core.DB.Table("ai_skills").Find(&list).Error
-		c.JSON(http.StatusOK, gin.H{"code": 0, "count": len(list), "data": list, "error": err})
 	})
 }
 

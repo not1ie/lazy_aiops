@@ -172,7 +172,7 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 			Key:      host.Credential.PrivateKey,
 			Timeout:  30 * time.Second,
 		}
-		stdout, stderr, execErr = client.Execute(rule.RecoverScript)
+		stdout, stderr, execErr = client.ExecuteWithPool(rule.RecoverScript)
 	}
 
 	now := time.Now()

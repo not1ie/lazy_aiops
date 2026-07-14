@@ -2,13 +2,41 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
 	"gorm.io/gorm"
 )
+
+type permissionCacheEntry struct {
+	permissions []string
+	expiresAt   time.Time
+}
+
+var (
+	rbacCache      sync.Map
+	rbacCacheTTL   = 30 * time.Second
+)
+
+// PaginationLimiterMiddleware caps the page_size parameter to 100 to prevent memory exhaustion
+func PaginationLimiterMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pageSizeStr := c.Query("page_size")
+		if pageSizeStr != "" {
+			pageSize, err := strconv.Atoi(pageSizeStr)
+			if err == nil && pageSize > 100 {
+				q := c.Request.URL.Query()
+				q.Set("page_size", "100")
+				c.Request.URL.RawQuery = q.Encode()
+			}
+		}
+		c.Next()
+	}
+}
 
 // AuthMiddleware JWT 认证中间件
 func AuthMiddleware(auth *core.AuthService) gin.HandlerFunc {
@@ -122,9 +150,6 @@ func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
 			continue
 		}
 		originMap[origin] = struct{}{}
-	}
-	if len(originMap) == 0 && !allowAny {
-		allowAny = true
 	}
 
 	return func(c *gin.Context) {
@@ -327,6 +352,21 @@ func hasPermission(db *gorm.DB, userID, required string) (bool, error) {
 	if required == "" {
 		return true, nil
 	}
+
+	// 1. Check cache first
+	now := time.Now()
+	if val, ok := rbacCache.Load(userID); ok {
+		if entry, ok := val.(*permissionCacheEntry); ok && entry.expiresAt.After(now) {
+			for _, code := range entry.permissions {
+				if code == required || strings.HasPrefix(required, code+":") {
+					return true, nil
+				}
+			}
+			return false, nil
+		}
+	}
+
+	// 2. Cache miss or expired, query DB
 	var user core.User
 	if err := db.Preload("Role.Permissions").First(&user, "id = ?", userID).Error; err != nil {
 		return false, err
@@ -334,16 +374,24 @@ func hasPermission(db *gorm.DB, userID, required string) (bool, error) {
 	if user.Role == nil {
 		return false, nil
 	}
+
+	var permissions []string
+	hasRequired := false
 	for _, perm := range user.Role.Permissions {
 		if perm == nil {
 			continue
 		}
-		if perm.Code == required {
-			return true, nil
-		}
-		if strings.HasPrefix(required, perm.Code+":") {
-			return true, nil
+		permissions = append(permissions, perm.Code)
+		if perm.Code == required || strings.HasPrefix(required, perm.Code+":") {
+			hasRequired = true
 		}
 	}
-	return false, nil
+
+	// 3. Cache the permissions list
+	rbacCache.Store(userID, &permissionCacheEntry{
+		permissions: permissions,
+		expiresAt:   now.Add(rbacCacheTTL),
+	})
+
+	return hasRequired, nil
 }

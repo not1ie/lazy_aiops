@@ -3,8 +3,11 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/lazyautoops/lazy-auto-ops/internal/config"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -82,8 +85,17 @@ func (c *Core) initDB() error {
 			return err
 		}
 		dialector = sqlite.Open(c.Config.Database.DSN)
+	case "mysql":
+		dialector = mysql.Open(c.Config.Database.DSN)
+	case "postgres", "postgresql":
+		dialector = postgres.Open(c.Config.Database.DSN)
 	default:
-		dialector = sqlite.Open(c.Config.Database.DSN)
+		dir := filepath.Dir(c.Config.Database.DSN)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			dialector = sqlite.Open("data/lazy-auto-ops.db")
+		} else {
+			dialector = sqlite.Open(c.Config.Database.DSN)
+		}
 	}
 
 	logLevel := logger.Silent
@@ -96,6 +108,16 @@ func (c *Core) initDB() error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Configure connection pooling for production-grade databases
+	if c.Config.Database.Driver != "sqlite" {
+		sqlDB, err := db.DB()
+		if err == nil {
+			sqlDB.SetMaxIdleConns(10)
+			sqlDB.SetMaxOpenConns(100)
+			sqlDB.SetConnMaxLifetime(time.Hour)
+		}
 	}
 
 	c.DB = db

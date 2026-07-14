@@ -1,6 +1,7 @@
 # Binaries
 bin/
 lazy-auto-ops
+main
 
 # Data and Logs
 data/
@@ -30,6 +31,7 @@ configs/config.local.yaml
 
 # Temporary
 tmp/
+docs/session_exports/*.jsonl
 
 # Local binaries (build artifacts)
 app_server_host

@@ -1,6 +1,9 @@
 <template>
-  <el-card class="page-card">
-    <template #header>
+  <div>
+    <el-tabs v-model="activeTab" class="jump-integration-tabs">
+      <el-tab-pane label="资产管理" name="assets">
+        <el-card class="page-card" style="margin-top: 0; border: none; box-shadow: none;">
+          <template #header>
       <div class="header">
         <div>
           <div class="title">堡垒机资产</div>
@@ -66,6 +69,20 @@
       </el-table>
     </div>
   </el-card>
+      </el-tab-pane>
+
+      <el-tab-pane label="授权策略" name="policies">
+        <PoliciesView />
+      </el-tab-pane>
+
+      <el-tab-pane label="命令风控" name="rules">
+        <CommandRulesView />
+      </el-tab-pane>
+
+      <el-tab-pane label="会话审计" name="sessions">
+        <SessionsView />
+      </el-tab-pane>
+    </el-tabs>
 
   <el-dialog append-to-body v-model="dialogVisible" :title="editing ? '编辑资产' : '新增资产'" width="720px">
     <el-form :model="form" label-width="96px">
@@ -174,6 +191,7 @@
       <el-button type="primary" :loading="savingIntegration" @click="saveIntegrationConfig">保存</el-button>
     </template>
   </el-dialog>
+  </div>
 </template>
 
 <script setup>
@@ -182,6 +200,11 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import PoliciesView from './policies.vue'
+import CommandRulesView from './command-rules.vue'
+import SessionsView from './sessions.vue'
+
+const activeTab = ref('assets')
 import {
   cmdbHostStatusMeta,
   dockerHostStatusMeta,

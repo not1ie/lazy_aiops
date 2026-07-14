@@ -174,9 +174,9 @@
                 {{ formatTime(row.created) }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="470" fixed="right">
+            <el-table-column label="操作" width="520" fixed="right">
               <template #default="{ row }">
-                <el-space size="8">
+                <el-space wrap :size="[8, 8]">
                   <el-button size="small" @click="openLogs(row)">日志</el-button>
                   <el-button size="small" type="primary" plain @click="openInspect(row)">详情</el-button>
                   <el-button size="small" type="info" plain :disabled="!isContainerRunning(row)" @click="openExec(row)">执行命令</el-button>
@@ -531,9 +531,9 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="440" fixed="right">
+            <el-table-column label="操作" width="550" fixed="right">
               <template #default="{ row }">
-                <el-space size="8">
+                <el-space wrap :size="[8, 8]">
                   <el-button size="small" @click="openServiceDetail(row)">详情</el-button>
                   <el-button size="small" type="primary" plain @click="openEditService(row)">编辑</el-button>
                   <el-button size="small" type="info" plain @click="openServiceTasks(row)">任务</el-button>

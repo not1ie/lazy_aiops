@@ -111,7 +111,7 @@
             :fit="true"
             :data="filteredTableData"
             v-loading="loading"
-            style="width: 100%; min-width: 1420px"
+            style="width: 100%"
             @selection-change="selectedRows = $event"
           >
             <el-table-column type="selection" width="48" />
@@ -132,28 +132,37 @@
               </template>
             </el-table-column>
             <el-table-column prop="os" label="操作系统" min-width="160" show-overflow-tooltip />
-            <el-table-column label="CPU" width="96" align="center">
+            <el-table-column label="CPU" min-width="140" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :effect="hasMetricValue(row, 'cpu') ? 'light' : 'plain'" :type="metricTagType(metricValue(row, 'cpu'))">
-                  {{ metricText(row, 'cpu') }}
-                </el-tag>
+                <div class="flex flex-col items-center justify-center gap-1">
+                  <span class="font-medium" style="font-size: 13px">{{ hardwareUsageText(row, 'cpu', '核') }}</span>
+                  <el-tag v-if="hasMetricValue(row, 'cpu')" size="small" effect="light" :type="metricTagType(metricValue(row, 'cpu'))" style="font-size: 10px; padding: 0 4px; height: 20px;">
+                    {{ metricText(row, 'cpu') }}
+                  </el-tag>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column label="内存" width="96" align="center">
+            <el-table-column label="内存" min-width="140" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :effect="hasMetricValue(row, 'memory') ? 'light' : 'plain'" :type="metricTagType(metricValue(row, 'memory'))">
-                  {{ metricText(row, 'memory') }}
-                </el-tag>
+                <div class="flex flex-col items-center justify-center gap-1">
+                  <span class="font-medium" style="font-size: 13px">{{ hardwareUsageText(row, 'memory', 'G') }}</span>
+                  <el-tag v-if="hasMetricValue(row, 'memory')" size="small" effect="light" :type="metricTagType(metricValue(row, 'memory'))" style="font-size: 10px; padding: 0 4px; height: 20px;">
+                    {{ metricText(row, 'memory') }}
+                  </el-tag>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column label="磁盘" width="96" align="center">
+            <el-table-column label="磁盘" min-width="140" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :effect="hasMetricValue(row, 'disk') ? 'light' : 'plain'" :type="metricTagType(metricValue(row, 'disk'))">
-                  {{ metricText(row, 'disk') }}
-                </el-tag>
+                <div class="flex flex-col items-center justify-center gap-1">
+                  <span class="font-medium" style="font-size: 13px">{{ hardwareUsageText(row, 'disk', 'G') }}</span>
+                  <el-tag v-if="hasMetricValue(row, 'disk')" size="small" effect="light" :type="metricTagType(metricValue(row, 'disk'))" style="font-size: 10px; padding: 0 4px; height: 20px;">
+                    {{ metricText(row, 'disk') }}
+                  </el-tag>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" min-width="130">
+            <el-table-column prop="status" label="状态" min-width="120">
               <template #default="{ row }">
                 <StatusBadge
                   :text="hostStatusMeta(row).text"
@@ -166,12 +175,12 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column prop="last_check_at" label="最后检测" min-width="170">
+            <el-table-column prop="last_check_at" label="最后检测" width="160">
               <template #default="{ row }">
                 {{ formatTime(hostStatusMeta(row).checkAt || row.last_check_at) }}
               </template>
             </el-table-column>
-            <el-table-column prop="status_reason" label="状态说明" min-width="220" show-overflow-tooltip>
+            <el-table-column prop="status_reason" label="状态说明" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ hostStatusMeta(row).reason || '-' }}
               </template>
@@ -179,7 +188,7 @@
             <el-table-column prop="group.name" label="分组" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">{{ row?.group?.name || '-' }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="320" fixed="right">
+            <el-table-column label="操作" width="330" fixed="right" class-name="fixed-op-col">
               <template #default="{ row }">
                 <div class="op-row">
                   <el-button size="small" plain icon="View" @click="openDetail(row)">详情</el-button>
@@ -203,6 +212,18 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <div class="pagination-wrapper">
+            <el-pagination
+              v-model:current-page="currentPage"
+              v-model:page-size="pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="totalHosts"
+              @size-change="fetchData"
+              @current-change="fetchData"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -211,6 +232,7 @@
       v-model="detailVisible"
       :title="`主机详情 - ${detailHost?.name || '-'}`"
       size="75%"
+      append-to-body
       :destroy-on-close="false"
       class="host-detail-drawer"
     >
@@ -245,17 +267,17 @@
         </div>
       </div>
 
-      <div class="detail-metrics">
+      <div class="detail-metrics mb-4">
         <div class="metric-card">
-          <span class="metric-label">CPU</span>
+          <span class="metric-label">CPU ({{ hardwareUsageText(detailHost, 'cpu', '核') }})</span>
           <strong>{{ metricText(detailHost, 'cpu') }}</strong>
         </div>
         <div class="metric-card">
-          <span class="metric-label">内存</span>
+          <span class="metric-label">内存 ({{ hardwareUsageText(detailHost, 'memory', 'G') }})</span>
           <strong>{{ metricText(detailHost, 'memory') }}</strong>
         </div>
         <div class="metric-card">
-          <span class="metric-label">磁盘</span>
+          <span class="metric-label">磁盘 ({{ hardwareUsageText(detailHost, 'disk', 'G') }})</span>
           <strong>{{ metricText(detailHost, 'disk') }}</strong>
         </div>
         <div class="metric-card">
@@ -317,18 +339,15 @@
         <el-form-item label="端口">
           <el-input-number v-model="form.port" :min="1" :max="65535" />
         </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="form.status" style="width: 100%">
-            <el-option label="在线" :value="1" />
-            <el-option label="离线" :value="0" />
-            <el-option label="维护" :value="2" />
-          </el-select>
-        </el-form-item>
+
         <el-form-item label="用户名">
           <el-input v-model="form.username" placeholder="root" />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="form.password" type="password" show-password placeholder="如有变更请填写" />
+          <div class="flex gap-2" style="width: 100%">
+            <el-input v-model="form.password" :type="passwordVisible ? 'text' : 'password'" placeholder="如有变更请填写" style="flex: 1" />
+            <el-checkbox v-model="passwordVisible">可见</el-checkbox>
+          </div>
           <div v-if="isEdit" class="helper-row">已加载当前密码，可直接修改。</div>
         </el-form-item>
         <el-form-item label="分组">
@@ -341,7 +360,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="groupManageVisible" title="分组维护" width="820px">
+    <el-dialog append-to-body v-model="groupManageVisible" title="分组维护" width="820px">
       <div class="group-manage-toolbar">
         <el-button type="primary" icon="Plus" @click="openCreateGroup">新增分组</el-button>
         <el-button icon="Refresh" @click="fetchGroups">刷新</el-button>
@@ -553,6 +572,9 @@ const DEFAULT_HOST_PORT = 22
 
 const loading = ref(false)
 const tableData = ref([])
+const currentPage = ref(1)
+const pageSize = ref(20)
+const totalHosts = ref(0)
 const groups = ref([])
 const selectedRows = ref([])
 const searchKeyword = ref('')
@@ -582,6 +604,7 @@ const importText = ref('')
 const batchStatusVisible = ref(false)
 const batchStatusLoading = ref(false)
 const batchStatus = ref(null)
+const passwordVisible = ref(false)
 
 const syncingStatus = ref(false)
 const hostMetricsMap = ref({})
@@ -682,8 +705,10 @@ const formatTime = (value) => {
 const toNumber = (value) => {
   if (value === null || value === undefined) return NaN
   if (typeof value === 'number') return value
-  const num = Number(String(value).replace('%', '').trim())
-  return Number.isFinite(num) ? num : NaN
+  const str = String(value).trim()
+  const match = str.match(/-?\d+(?:\.\d+)?/)
+  if (match) return parseFloat(match[0])
+  return NaN
 }
 
 const normalizeHostAddress = (value) => {
@@ -766,6 +791,19 @@ const metricText = (row, key) => {
   return `${value.toFixed(1)}%`
 }
 
+const hardwareUsageText = (row, key, unit) => {
+  if (!row) return `- / - ${unit}`
+  const total = toNumber(row[key])
+  if (!Number.isFinite(total)) return `- / - ${unit}`
+  
+  const usagePct = metricValue(row, key)
+  if (!Number.isFinite(usagePct)) return `- / ${total}${unit}`
+  
+  const used = (total * (usagePct / 100))
+  const usedFormatted = (used % 1 === 0) ? used : used.toFixed(1)
+  return `${usedFormatted}${unit} / ${total}${unit}`
+}
+
 const metricTagType = (value) => {
   const num = toNumber(value)
   if (!Number.isFinite(num)) return 'info'
@@ -824,14 +862,12 @@ const groupNodeFilter = (value, data) => {
 }
 
 const filteredTableData = computed(() => {
-  if (!activeGroupId.value) return tableData.value
-  if (activeGroupId.value === UNGROUPED_GROUP_ID) {
-    return tableData.value.filter((row) => !row?.group?.id && !row?.group_id)
-  }
-  return tableData.value.filter((row) => {
-    const gid = String(row?.group?.id || row?.group_id || '').trim()
-    return gid === String(activeGroupId.value)
-  })
+  return tableData.value
+})
+
+watch(activeGroupId, () => {
+  currentPage.value = 1
+  fetchData()
 })
 
 const providerSummaryList = computed(() => {
@@ -969,19 +1005,32 @@ const handleGroupDelete = async (row) => {
 const fetchData = async () => {
   loading.value = true
   try {
+    const params = {
+      keyword: searchKeyword.value,
+      live: 1,
+      page: currentPage.value,
+      page_size: pageSize.value
+    }
+    if (activeGroupId.value) {
+      params.group_id = activeGroupId.value
+    }
     const hostReq = axios.get('/api/v1/cmdb/hosts', {
       headers: authHeaders(),
-      params: {
-        keyword: searchKeyword.value,
-        live: 1
-      }
+      params
     })
     const metricsReq = axios.get('/api/v1/monitor/servers', { headers: authHeaders() })
     const cloudReq = axios.get('/api/v1/cmdb/cloud/resources', { headers: authHeaders() })
     const [hostRes, metricsRes, cloudRes] = await Promise.allSettled([hostReq, metricsReq, cloudReq])
 
     if (hostRes.status === 'fulfilled' && hostRes.value.data?.code === 0) {
-      tableData.value = hostRes.value.data.data || []
+      const resData = hostRes.value.data.data
+      if (resData && typeof resData === 'object' && Array.isArray(resData.list)) {
+        tableData.value = resData.list
+        totalHosts.value = resData.total || 0
+      } else {
+        tableData.value = Array.isArray(resData) ? resData : []
+        totalHosts.value = tableData.value.length
+      }
     } else {
       const reason = hostRes.status === 'rejected' ? hostRes.reason : hostRes.value?.data?.message
       ElMessage.error(getErrorMessage(reason, '加载主机列表失败'))
@@ -1095,7 +1144,7 @@ const submitForm = async () => {
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '添加成功')
       dialogVisible.value = false
-      fetchData()
+      syncStatuses(true)
     } else {
       ElMessage.error(res.data.message)
     }
@@ -1186,7 +1235,7 @@ const submitImport = async () => {
     }
     ElMessage.success('导入完成')
     importVisible.value = false
-    await fetchData()
+    await syncStatuses(true)
   } catch (e) {
     ElMessage.error(getErrorMessage(e, '导入失败'))
   } finally {
@@ -1763,6 +1812,11 @@ onBeforeUnmount(() => {
 .font-bold { font-weight: 600; }
 .mb-4 { margin-bottom: 16px; }
 .w-64 { width: 256px; }
+.pagination-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
 
 .host-page-card { min-height: 400px; }
 .header-wrap { flex-wrap: wrap; gap: 10px; }
@@ -1842,7 +1896,6 @@ onBeforeUnmount(() => {
 .filters-row { flex-wrap: wrap; }
 
 .table-scroll {
-  overflow-x: auto;
   padding-bottom: 2px;
 }
 
@@ -1851,6 +1904,13 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+}
+
+:deep(.fixed-op-col) {
+  background-color: var(--el-bg-color, #ffffff) !important;
+}
+:deep(.el-table__row:hover .fixed-op-col) {
+  background-color: var(--el-table-row-hover-bg-color, #f5f7fa) !important;
 }
 
 .group-manage-toolbar {

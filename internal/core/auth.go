@@ -103,7 +103,7 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	var user User
 	if err := s.db.Preload("Role").Preload("Role.Permissions").Where("username = ?", req.Username).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("用户不存在")
+			return nil, errors.New("用户名或密码错误")
 		}
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return nil, errors.New("密码错误")
+		return nil, errors.New("用户名或密码错误")
 	}
 
 	mustChangePassword := isDefaultAdminPassword(&user)

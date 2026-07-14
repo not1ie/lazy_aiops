@@ -1,5 +1,6 @@
 <template>
-  <el-card class="page-card">
+  <div>
+    <el-card class="page-card">
     <template #header>
       <div class="header">
         <div>
@@ -23,7 +24,11 @@
         <el-table :fit="true" :data="accounts" v-loading="loadingAccounts" stripe @selection-change="selectedAccounts = $event">
           <el-table-column type="selection" width="48" />
           <el-table-column prop="name" label="账号名称" min-width="180" />
-          <el-table-column prop="provider" label="云厂商" width="120" />
+          <el-table-column prop="provider" label="云厂商" width="120">
+            <template #default="{ row }">
+              <el-tag type="info" size="small">{{ providerMap[row.provider] || row.provider }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="region" label="区域" width="140" />
           <el-table-column prop="status" label="状态" width="100">
             <template #default="{ row }">
@@ -70,6 +75,18 @@
             </template>
           </el-table-column>
         </el-table>
+
+        <div class="pagination-wrapper">
+          <el-pagination
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="totalResources"
+            @size-change="fetchResources"
+            @current-change="fetchResources"
+          />
+        </div>
       </el-tab-pane>
     </el-tabs>
   </el-card>
@@ -174,12 +191,21 @@
       <el-button type="primary" :loading="testLoading" @click="submitTest">测试</el-button>
     </template>
   </el-dialog>
+  </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const providerMap = {
+  tencent: '腾讯云',
+  baidu: '百度云',
+  aliyun: '阿里云',
+  huawei: '华为云',
+  aws: 'AWS'
+}
 
 const activeTab = ref('accounts')
 const activeDialog = ref('accounts')
@@ -191,6 +217,14 @@ const saving = ref(false)
 
 const accounts = ref([])
 const resources = ref([])
+const currentPage = ref(1)
+const pageSize = ref(20)
+const totalResources = ref(0)
+
+watch([() => resourceFilters.account_id, () => resourceFilters.keyword], () => {
+  currentPage.value = 1
+  fetchResources()
+})
 const loadingAccounts = ref(false)
 const loadingResources = ref(false)
 const selectedAccounts = ref([])
@@ -265,10 +299,22 @@ const fetchResources = async () => {
   try {
     const res = await axios.get('/api/v1/cmdb/cloud/resources', {
       headers: headers(),
-      params: { account_id: resourceFilters.account_id, keyword: resourceFilters.keyword }
+      params: {
+        account_id: resourceFilters.account_id,
+        keyword: resourceFilters.keyword,
+        page: currentPage.value,
+        page_size: pageSize.value
+      }
     })
     if (res.data.code === 0) {
-      resources.value = res.data.data
+      const resData = res.data.data
+      if (resData && typeof resData === 'object' && Array.isArray(resData.list)) {
+        resources.value = resData.list
+        totalResources.value = resData.total || 0
+      } else {
+        resources.value = Array.isArray(resData) ? resData : []
+        totalResources.value = resources.value.length
+      }
     }
   } catch (error) {
     ElMessage.error(getErrorMessage(error, '加载云资源失败'))
@@ -337,6 +383,30 @@ const openEdit = async (tab, row) => {
 }
 
 const saveDialog = async () => {
+  if (activeDialog.value === 'accounts') {
+    if (!accountForm.name || !accountForm.name.trim()) {
+      ElMessage.warning('请输入账号名称')
+      return
+    }
+    if (!accountForm.provider) {
+      ElMessage.warning('请选择云厂商')
+      return
+    }
+  } else {
+    if (!resourceForm.account_id) {
+      ElMessage.warning('请选择所属账号')
+      return
+    }
+    if (!resourceForm.resource_id || !resourceForm.resource_id.trim()) {
+      ElMessage.warning('请输入资源ID')
+      return
+    }
+    if (!resourceForm.name || !resourceForm.name.trim()) {
+      ElMessage.warning('请输入资源名称')
+      return
+    }
+  }
+
   saving.value = true
   try {
     if (activeDialog.value === 'accounts') {
@@ -437,6 +507,9 @@ const submitImport = async () => {
   importLoading.value = true
   try {
     for (const row of rows) {
+      if (activeTab.value === 'accounts') {
+        row.status = row.status !== undefined && row.status !== '' ? Number(row.status) : 1
+      }
       const url = activeTab.value === 'accounts' ? '/api/v1/cmdb/cloud/accounts' : '/api/v1/cmdb/cloud/resources'
       await axios.post(url, row, { headers: headers() })
     }
@@ -517,4 +590,5 @@ onMounted(async () => {
 .import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .test-tip { color: #909399; margin-top: 8px; }
 .helper-row { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.pagination-wrapper { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

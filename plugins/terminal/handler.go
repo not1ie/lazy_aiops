@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -245,12 +246,42 @@ func (h *TerminalHandler) ListSessions(c *gin.Context) {
 		like := "%" + keyword + "%"
 		query = query.Where("host LIKE ? OR operator LIKE ? OR username LIKE ?", like, like, like)
 	}
-	if err := query.Limit(200).Find(&sessions).Error; err != nil {
+
+	var total int64
+	if err := query.Model(&TerminalSession{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("page_size")
+	if pageStr != "" && pageSizeStr != "" {
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page > 0 && pageSize > 0 {
+			query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+		}
+	} else {
+		query = query.Limit(200)
+	}
+
+	if err := query.Find(&sessions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
 	maskSessionSecretsBatch(sessions)
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": sessions})
+
+	if pageStr != "" && pageSizeStr != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"list":  sessions,
+				"total": total,
+			},
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": sessions})
+	}
 }
 
 // GetSession 会话详情
@@ -1296,7 +1327,26 @@ func (h *TerminalHandler) ListRecords(c *gin.Context) {
 		like := "%" + keyword + "%"
 		query = query.Where("host LIKE ? OR operator LIKE ? OR session_id LIKE ?", like, like, like)
 	}
-	if err := query.Limit(100).Find(&records).Error; err != nil {
+
+	var total int64
+	if err := query.Model(&TerminalRecord{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("page_size")
+	if pageStr != "" && pageSizeStr != "" {
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page > 0 && pageSize > 0 {
+			query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+		}
+	} else {
+		query = query.Limit(100)
+	}
+
+	if err := query.Find(&records).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
@@ -1306,7 +1356,17 @@ func (h *TerminalHandler) ListRecords(c *gin.Context) {
 		records[i].Data = ""
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": records})
+	if pageStr != "" && pageSizeStr != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"list":  records,
+				"total": total,
+			},
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": records})
+	}
 }
 
 // ListCommandAudits 命令审计列表
@@ -1331,8 +1391,7 @@ func (h *TerminalHandler) ListCommandAudits(c *gin.Context) {
 			jc.executed_at
 		`).
 		Joins("LEFT JOIN jump_sessions js ON js.id = jc.session_id").
-		Joins("LEFT JOIN terminal_sessions ts ON ts.id = js.relay_session_id").
-		Order("jc.executed_at DESC")
+		Joins("LEFT JOIN terminal_sessions ts ON ts.id = js.relay_session_id")
 
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
@@ -1360,11 +1419,42 @@ func (h *TerminalHandler) ListCommandAudits(c *gin.Context) {
 		}
 	}
 
-	if err := query.Limit(200).Scan(&audits).Error; err != nil {
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": audits})
+
+	query = query.Order("jc.executed_at DESC")
+
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("page_size")
+	if pageStr != "" && pageSizeStr != "" {
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page > 0 && pageSize > 0 {
+			query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+		}
+	} else {
+		query = query.Limit(200)
+	}
+
+	if err := query.Scan(&audits).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	if pageStr != "" && pageSizeStr != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"list":  audits,
+				"total": total,
+			},
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": audits})
+	}
 }
 
 // GetRecord 获取录像详情

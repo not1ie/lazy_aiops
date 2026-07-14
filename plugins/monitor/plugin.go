@@ -30,13 +30,9 @@ func (p *MonitorPlugin) Init(c *core.Core, cfg map[string]interface{}) error {
 	p.core = c
 	p.cfg = cfg
 
-	// 获取采集间隔配置，默认30秒
-	interval := 30 * time.Second
-	if v, ok := cfg["interval"].(int); ok {
-		interval = time.Duration(v) * time.Second
-	}
-
-	p.collector = NewCollector(c.DB, interval)
+	// Start collector
+	interval := time.Duration(15) * time.Second // 默认15秒
+	p.collector = NewCollector(c.DB, interval, c.Config.JWT.Secret)
 	return nil
 }
 

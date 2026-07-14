@@ -25,37 +25,54 @@
 
     <el-divider />
 
-    <h3 class="section-title">Prometheus 接入</h3>
-    <div class="query-bar">
-      <el-input v-model="form.name" placeholder="名称" class="w-40" />
-      <el-input v-model="form.prometheus_url" placeholder="Prometheus 地址，例如 http://10.0.0.1:9090" class="w-52" />
-      <el-select v-model="form.auth_type" class="w-40">
+    <h3 class="section-title">监控平台接入</h3>
+    <div class="query-bar" style="flex-wrap: wrap; gap: 8px;">
+      <el-select v-model="form.type" placeholder="类型" class="w-36">
+        <el-option label="Prometheus" value="prometheus" />
+        <el-option label="Zabbix" value="zabbix" />
+        <el-option label="夜莺 (N9e)" value="n9e" />
+      </el-select>
+      <el-input v-model="form.name" placeholder="名称" class="w-36" />
+      <el-input 
+        v-model="form.prometheus_url" 
+        :placeholder="form.type === 'prometheus' ? 'Prometheus 地址，如 http://127.0.0.1:9090' : form.type === 'zabbix' ? 'Zabbix API 地址，如 http://127.0.0.1/api_jsonrpc.php' : '夜莺 API 地址，如 http://127.0.0.1:17000'" 
+        style="width: 320px;" 
+      />
+      <el-select v-if="form.type !== 'n9e'" v-model="form.auth_type" class="w-36">
         <el-option label="无认证" value="none" />
         <el-option label="Basic" value="basic" />
-        <el-option label="Bearer" value="bearer" />
+        <el-option v-if="form.type === 'prometheus'" label="Bearer" value="bearer" />
       </el-select>
-      <el-input v-if="form.auth_type === 'basic'" v-model="form.username" placeholder="用户名" class="w-40" />
-      <el-input v-if="form.auth_type === 'basic'" v-model="form.password" type="password" placeholder="密码" class="w-40" show-password />
-      <el-input v-if="form.auth_type === 'bearer'" v-model="form.token" type="password" placeholder="Token" class="w-52" show-password />
+      <el-input v-if="form.type !== 'n9e' && form.auth_type === 'basic'" v-model="form.username" placeholder="用户名" class="w-36" />
+      <el-input v-if="form.type !== 'n9e' && form.auth_type === 'basic'" v-model="form.password" type="password" placeholder="密码" class="w-36" show-password />
+      <el-input v-if="form.type === 'prometheus' && form.auth_type === 'bearer'" v-model="form.token" type="password" placeholder="Token" class="w-48" show-password />
+      <el-input v-if="form.type === 'n9e'" v-model="form.token" type="password" placeholder="API Token" class="w-52" show-password />
       <el-button type="primary" @click="saveSetting">{{ form.id ? '更新' : '新增' }}</el-button>
       <el-button @click="resetForm">清空</el-button>
     </div>
 
     <el-table :fit="true" :data="settings" size="small" style="width: 100%; margin-top: 12px" :row-class-name="settingsRowClass">
-      <el-table-column prop="name" label="名称" width="160" />
-      <el-table-column prop="prometheus_url" label="地址" min-width="240" />
-      <el-table-column prop="auth_type" label="认证" width="120" />
-      <el-table-column prop="active" label="当前" width="90">
+      <el-table-column prop="type" label="类型" width="120">
         <template #default="scope">
-          <el-tag v-if="scope.row.active" type="success">当前</el-tag>
+          <el-tag :type="scope.row.type === 'prometheus' ? 'warning' : scope.row.type === 'zabbix' ? 'primary' : 'success'" size="small">
+            {{ scope.row.type === 'prometheus' ? 'Prometheus' : scope.row.type === 'zabbix' ? 'Zabbix' : '夜莺 (N9e)' }}
+          </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="260">
+      <el-table-column prop="name" label="名称" width="160" />
+      <el-table-column prop="prometheus_url" label="数据源地址" min-width="240" />
+      <el-table-column prop="auth_type" label="认证方式" width="120" />
+      <el-table-column prop="active" label="当前激活" width="90">
+        <template #default="scope">
+          <el-tag v-if="scope.row.active" type="success">活动中</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="340">
         <template #default="scope">
           <el-space size="8">
             <el-button size="small" @click="editSetting(scope.row)">编辑</el-button>
             <el-button size="small" type="success" plain @click="activateSetting(scope.row)">设为当前</el-button>
-            <el-button size="small" type="info" plain @click="testSetting(scope.row)">测试</el-button>
+            <el-button size="small" type="info" plain @click="testSetting(scope.row)">测试连接</el-button>
             <el-button size="small" type="danger" plain @click="deleteSetting(scope.row)">删除</el-button>
           </el-space>
         </template>
@@ -156,6 +173,7 @@ const settings = ref([])
 const form = ref({
   id: '',
   name: '',
+  type: 'prometheus',
   prometheus_url: '',
   auth_type: 'none',
   username: '',
@@ -269,6 +287,7 @@ const resetForm = () => {
   form.value = {
     id: '',
     name: '',
+    type: 'prometheus',
     prometheus_url: '',
     auth_type: 'none',
     username: '',
@@ -285,6 +304,7 @@ const editSetting = async (row) => {
       form.value = {
         id: data.id,
         name: data.name || '',
+        type: data.type || 'prometheus',
         prometheus_url: data.prometheus_url || '',
         auth_type: data.auth_type || 'none',
         username: data.username || '',
@@ -293,7 +313,7 @@ const editSetting = async (row) => {
       }
     }
   } catch (err) {
-    ElMessage.error(getErrorMessage(err, '加载 Prometheus 配置详情失败'))
+    ElMessage.error(getErrorMessage(err, '加载配置详情失败'))
   }
 }
 
@@ -341,10 +361,11 @@ const activateSetting = async (row) => {
 const testSetting = async (row) => {
   try {
     const res = await axios.post(`/api/v1/monitor/settings/${row.id}/test`, {}, { headers: authHeaders() })
-    if (res.data?.status === 'success') {
-      ElMessage.success('连接成功')
+    const data = res.data || {}
+    if (data.status === 'success' || data.result || data.dat || res.status === 200) {
+      ElMessage.success('连接测试成功')
     } else {
-      ElMessage.warning('Prometheus 返回异常')
+      ElMessage.warning('连接测试返回值异常')
     }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '连接失败'))

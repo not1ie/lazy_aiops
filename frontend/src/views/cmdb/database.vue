@@ -1,5 +1,6 @@
 <template>
-  <el-card class="page-card">
+  <div>
+    <el-card class="page-card">
     <template #header>
       <div class="header">
         <div>
@@ -31,7 +32,7 @@
       </el-select>
     </div>
 
-    <el-table :fit="true" :data="items" v-loading="loading" stripe @selection-change="selectedRows = $event">
+    <el-table :fit="true" :data="items" v-loading="loading" stripe style="width: 100%" @selection-change="selectedRows = $event">
       <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column prop="type" label="类型" width="120" />
@@ -43,21 +44,43 @@
       <el-table-column prop="database" label="库名" min-width="140" />
       <el-table-column prop="environment" label="环境" width="100" />
       <el-table-column prop="owner" label="负责人" width="120" />
-      <el-table-column prop="status" label="状态" width="100">
+      <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'danger'">{{ row.status === 1 ? '正常' : '禁用' }}</el-tag>
+          <el-tooltip v-if="row.status === 2" :content="row.status_reason || '连接失败'" placement="top">
+            <el-tag type="danger" style="cursor: pointer">不可用</el-tag>
+          </el-tooltip>
+          <el-tag v-else-if="row.status === 1" type="success">正常</el-tag>
+          <el-tag v-else type="info">禁用</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="240" fixed="right">
+      <el-table-column label="操作" width="420" fixed="right">
         <template #default="{ row }">
-          <el-space size="8">
+          <el-space wrap :size="[8, 8]">
             <el-button size="small" type="warning" plain icon="FirstAidKit" @click="openTest(row)">测试</el-button>
+            <el-button size="small" :type="row.slow_log_enabled ? 'danger' : 'success'" plain @click="toggleSlowLog(row)">
+              {{ row.slow_log_enabled ? '关闭慢查询' : '开启慢查询' }}
+            </el-button>
+            <el-button v-if="row.slow_log_enabled" size="small" type="primary" plain @click="openSlowLogAnalysis(row)">
+              AI 自治分析
+            </el-button>
             <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
           </el-space>
         </template>
       </el-table-column>
     </el-table>
+
+    <div class="pagination-wrapper">
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="totalItems"
+        @size-change="fetchData"
+        @current-change="fetchData"
+      />
+    </div>
   </el-card>
 
   <el-dialog append-to-body v-model="dialogVisible" :title="isEdit ? '编辑数据库资产' : '新增数据库资产'" width="560px">
@@ -135,16 +158,103 @@
       <el-button type="primary" :loading="testLoading" @click="submitTest">测试</el-button>
     </template>
   </el-dialog>
+
+  <!-- AI 慢日志自治分析弹窗 -->
+  <el-dialog append-to-body v-model="slowLogDialogVisible" title="AI 数据库慢日志自治分析" width="800px">
+    <div v-loading="slowLogLoading">
+      <div v-if="slowLogData">
+        <!-- 统计面板 -->
+        <div class="stats-row" style="display: flex; gap: 16px; margin-bottom: 20px;">
+          <div class="stat-card" style="flex: 1; padding: 16px; background: #f5f7fa; border-radius: 8px; text-align: center;">
+            <div style="font-size: 14px; color: #909399; margin-bottom: 8px;">今日慢 SQL 计数</div>
+            <div style="font-size: 24px; font-weight: bold; color: #e6a23c;">{{ slowLogData.slow_sql_count }} 次</div>
+          </div>
+          <div class="stat-card" style="flex: 1; padding: 16px; background: #f5f7fa; border-radius: 8px; text-align: center;">
+            <div style="font-size: 14px; color: #909399; margin-bottom: 8px;">平均执行延迟</div>
+            <div style="font-size: 24px; font-weight: bold; color: #f56c6c;">{{ slowLogData.avg_query_time_s }} 秒</div>
+          </div>
+          <div class="stat-card" style="flex: 1; padding: 16px; background: #f5f7fa; border-radius: 8px; text-align: center;">
+            <div style="font-size: 14px; color: #909399; margin-bottom: 8px;">无索引扫描数</div>
+            <div style="font-size: 24px; font-weight: bold; color: #409eff;">{{ slowLogData.no_index_scans }} 次</div>
+          </div>
+        </div>
+
+        <!-- AI 诊断摘要 -->
+        <el-card shadow="never" style="margin-bottom: 20px; border-color: #dcdfe6; background: #fdf6ec;">
+          <template #header>
+            <div style="font-weight: bold; color: #e6a23c; display: flex; align-items: center; gap: 8px;">
+              <el-icon><Warning /></el-icon>
+              <span>AI 慢日志自治诊断报告</span>
+            </div>
+          </template>
+          <div style="font-size: 14px; color: #606266; line-height: 1.6; white-space: pre-wrap;">
+            {{ slowLogData.ai_summary_report }}
+          </div>
+        </el-card>
+
+        <!-- 慢 SQL 详情列表 -->
+        <h4 style="margin: 0 0 12px 0; color: #303133;">慢 SQL 排查与索引调优推荐</h4>
+        <el-collapse accordion>
+          <el-collapse-item v-for="(q, idx) in slowLogData.queries" :key="idx" :name="idx">
+            <template #title>
+              <div style="display: flex; justify-content: space-between; width: 90%; align-items: center;">
+                <span style="font-family: monospace; font-size: 12px; color: #f56c6c; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; width: 60%;">
+                  {{ q.sql }}
+                </span>
+                <el-tag size="small" type="danger">查询耗时: {{ q.query_time }}s</el-tag>
+              </div>
+            </template>
+            <div style="padding: 12px; background: #fafafa; border-radius: 4px;">
+              <!-- 基础指标 -->
+              <div style="display: flex; gap: 24px; margin-bottom: 12px; font-size: 13px; color: #606266;">
+                <span><strong>执行次数:</strong> {{ q.count }} 次</span>
+                <span><strong>扫描行数 Examined:</strong> {{ q.rows_examined.toLocaleString() }}</span>
+                <span><strong>返回行数 Sent:</strong> {{ q.rows_sent }}</span>
+              </div>
+              <!-- 慢因分析 -->
+              <div style="margin-bottom: 12px;">
+                <div style="font-weight: bold; color: #303133; font-size: 13px; margin-bottom: 4px;">慢因解析</div>
+                <div style="font-size: 13px; color: #909399;">{{ q.reason }}</div>
+              </div>
+              <!-- 推荐索引 SQL -->
+              <div style="margin-bottom: 12px;">
+                <div style="font-weight: bold; color: #67c23a; font-size: 13px; margin-bottom: 4px;">推荐优化索引 SQL</div>
+                <pre style="margin: 0; padding: 8px; background: #e8f5e9; color: #2e7d32; border-radius: 4px; font-family: monospace; font-size: 12px; overflow-x: auto;">{{ q.recommendation }}</pre>
+              </div>
+              <!-- SQL 重写指引 -->
+              <div>
+                <div style="font-weight: bold; color: #409eff; font-size: 13px; margin-bottom: 4px;">查询改写建议</div>
+                <div style="font-size: 13px; color: #606266; line-height: 1.4;">{{ q.rewrite }}</div>
+              </div>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+    </div>
+    <template #footer>
+      <el-button type="primary" @click="slowLogDialogVisible = false">完成优化</el-button>
+    </template>
+  </el-dialog>
+  </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import axios from 'axios'
+import { ref, reactive, onMounted, watch } from 'vue'
+import request from '../../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Warning } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const saving = ref(false)
 const items = ref([])
+const currentPage = ref(1)
+const pageSize = ref(20)
+const totalItems = ref(0)
+
+watch([() => filters.keyword, () => filters.environment], () => {
+  currentPage.value = 1
+  fetchData()
+})
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
@@ -159,6 +269,10 @@ const testLoading = ref(false)
 const testRow = ref(null)
 const testError = ref('')
 const testSuccess = ref('')
+
+const slowLogDialogVisible = ref(false)
+const slowLogLoading = ref(false)
+const slowLogData = ref(null)
 
 const filters = reactive({
   keyword: '',
@@ -180,8 +294,6 @@ const form = reactive({
   description: ''
 })
 
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
-
 const getErrorMessage = (error, fallback) => {
   if (error?.response?.data?.message) return error.response.data.message
   if (error?.message) return error.message
@@ -191,12 +303,23 @@ const getErrorMessage = (error, fallback) => {
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/v1/cmdb/databases', {
-      params: { keyword: filters.keyword, environment: filters.environment },
-      headers: authHeaders()
+    const res = await request.get('/api/v1/cmdb/databases', {
+      params: {
+        keyword: filters.keyword,
+        environment: filters.environment,
+        page: currentPage.value,
+        page_size: pageSize.value
+      }
     })
     if (res.data.code === 0) {
-      items.value = res.data.data
+      const resData = res.data.data
+      if (resData && typeof resData === 'object' && Array.isArray(resData.list)) {
+        items.value = resData.list
+        totalItems.value = resData.total || 0
+      } else {
+        items.value = Array.isArray(resData) ? resData : []
+        totalItems.value = items.value.length
+      }
     }
   } catch (error) {
     ElMessage.error(getErrorMessage(error, '加载失败'))
@@ -229,9 +352,7 @@ const openEdit = async (row) => {
   isEdit.value = true
   currentId.value = row.id
   try {
-    const res = await axios.get(`/api/v1/cmdb/databases/${row.id}`, {
-      headers: authHeaders()
-    })
+    const res = await request.get(`/api/v1/cmdb/databases/${row.id}`)
     if (res.data.code === 0) {
       Object.assign(form, res.data.data || {})
       dialogVisible.value = true
@@ -250,11 +371,10 @@ const saveItem = async () => {
   try {
     const url = isEdit.value ? `/api/v1/cmdb/databases/${currentId.value}` : '/api/v1/cmdb/databases'
     const method = isEdit.value ? 'put' : 'post'
-    const res = await axios({
+    const res = await request({
       url,
       method,
-      data: form,
-      headers: authHeaders()
+      data: form
     })
     if (res.data.code === 0) {
       ElMessage.success(isEdit.value ? '更新成功' : '创建成功')
@@ -273,9 +393,7 @@ const handleDelete = async (row) => {
     await ElMessageBox.confirm(`确定删除资产“${row.name}”吗？`, '提示', {
       type: 'warning'
     })
-    await axios.delete(`/api/v1/cmdb/databases/${row.id}`, {
-      headers: authHeaders()
-    })
+    await request.delete(`/api/v1/cmdb/databases/${row.id}`)
     ElMessage.success('删除成功')
     await fetchData()
   } catch (error) {
@@ -292,7 +410,7 @@ const handleBatchDelete = async () => {
       type: 'warning'
     })
     for (const row of selectedRows.value) {
-      await axios.delete(`/api/v1/cmdb/databases/${row.id}`, { headers: authHeaders() })
+      await request.delete(`/api/v1/cmdb/databases/${row.id}`)
     }
     ElMessage.success('批量删除成功')
     selectedRows.value = []
@@ -335,7 +453,7 @@ const submitImport = async () => {
   try {
     for (const row of rows) {
       if (!row.name || !row.host) continue
-      await axios.post('/api/v1/cmdb/databases', {
+      await request.post('/api/v1/cmdb/databases', {
         name: row.name,
         type: row.type || 'mysql',
         host: row.host,
@@ -348,7 +466,7 @@ const submitImport = async () => {
         tags: row.tags || '',
         status: row.status ? Number(row.status) : 1,
         description: row.description || ''
-      }, { headers: authHeaders() })
+      })
     }
     ElMessage.success('导入完成')
     importVisible.value = false
@@ -384,7 +502,7 @@ const submitTest = async () => {
   if (!testRow.value) return
   testLoading.value = true
   try {
-    const res = await axios.post(`/api/v1/cmdb/databases/${testRow.value.id}/test`, {}, { headers: authHeaders() })
+    const res = await request.post(`/api/v1/cmdb/databases/${testRow.value.id}/test`, {})
     if (res.data.code === 0) {
       testSuccess.value = res.data.message || '连接成功'
     } else {
@@ -394,6 +512,34 @@ const submitTest = async () => {
     testError.value = getErrorMessage(e, '连接失败')
   } finally {
     testLoading.value = false
+  }
+}
+
+const toggleSlowLog = async (row) => {
+  try {
+    const res = await request.post(`/api/v1/cmdb/databases/${row.id}/slowlog/toggle`, {})
+    if (res.data.code === 0) {
+      ElMessage.success(res.data.message)
+      await fetchData()
+    }
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '操作失败'))
+  }
+}
+
+const openSlowLogAnalysis = async (row) => {
+  slowLogLoading.value = true
+  slowLogDialogVisible.value = true
+  slowLogData.value = null
+  try {
+    const res = await request.get(`/api/v1/cmdb/databases/${row.id}/slowlog/analysis`)
+    if (res.data.code === 0) {
+      slowLogData.value = res.data.data
+    }
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '加载自治分析报告失败'))
+  } finally {
+    slowLogLoading.value = false
   }
 }
 
@@ -411,4 +557,5 @@ onMounted(fetchData)
 .filters .el-select { width: 160px; }
 .import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .helper-row { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.pagination-wrapper { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

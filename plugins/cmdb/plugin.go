@@ -48,6 +48,7 @@ func (p *CMDBPlugin) Start() error {
 		if _, err := handler.syncHostStatuses(nil, 2*time.Second); err != nil {
 			log.Printf("[CMDB] host status bootstrap sync failed: %v", err)
 		}
+		handler.syncDatabaseStatuses(nil, 2*time.Second)
 		for {
 			select {
 			case <-p.stopCh:
@@ -56,6 +57,7 @@ func (p *CMDBPlugin) Start() error {
 				if _, err := handler.syncHostStatuses(nil, 2*time.Second); err != nil {
 					log.Printf("[CMDB] host status auto-sync failed: %v", err)
 				}
+				handler.syncDatabaseStatuses(nil, 2*time.Second)
 			}
 		}
 	}()
@@ -177,6 +179,8 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		databases.POST("", h.CreateDatabase)
 		databases.GET("/:id", h.GetDatabase)
 		databases.POST("/:id/test", h.TestDatabase)
+		databases.POST("/:id/slowlog/toggle", h.ToggleSlowLog)
+		databases.GET("/:id/slowlog/analysis", h.GetSlowLogAnalysis)
 		databases.PUT("/:id", h.UpdateDatabase)
 		databases.DELETE("/:id", h.DeleteDatabase)
 	}

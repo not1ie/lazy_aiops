@@ -11,6 +11,27 @@
       </div>
     </div>
 
+    <el-card shadow="never" class="section-card quick-connect-card" style="margin-bottom: 20px;">
+      <template #header>
+        <div class="card-title">JumpServer / JMS SSH 链接直连</div>
+      </template>
+      <div class="quick-connect-body" style="padding: 10px 0;">
+        <el-input 
+          v-model="quickConnectLink" 
+          placeholder="请输入 JumpServer 链接或 SSH 命令行，如：ssh admin@192.168.10.101 -p 2222 或 ssh://admin@192.168.10.101:2222" 
+          clearable 
+          @keyup.enter="handleQuickConnect"
+        >
+          <template #append>
+            <el-button type="primary" icon="Connection" @click="handleQuickConnect">直连资源</el-button>
+          </template>
+        </el-input>
+        <div class="quick-connect-tip" style="margin-top: 10px; font-size: 13px; color: var(--el-text-color-secondary);">
+          💡 支持标准 JMS 协议端口转发命令。连接后，您可以在终端交互式输入 JumpServer 密码/MFA以登录资产。
+        </div>
+      </div>
+    </el-card>
+
     <el-card shadow="never" class="section-card">
       <template #header>
         <div class="card-title">在线会话</div>
@@ -242,6 +263,31 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- JumpServer Quick Connect Parameter Confirmation Dialog -->
+    <el-dialog append-to-body v-model="quickConnectVisible" title="JumpServer 直连参数确认" width="560px">
+      <el-form :model="quickConnectForm" label-width="110px">
+        <el-form-item label="JumpServer主机">
+          <el-input v-model="quickConnectForm.host" placeholder="例如 192.168.1.100" />
+        </el-form-item>
+        <el-form-item label="端口">
+          <el-input-number v-model="quickConnectForm.port" :min="1" :max="65535" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="登录用户名">
+          <el-input v-model="quickConnectForm.username" placeholder="如 admin" />
+        </el-form-item>
+        <el-form-item label="密码 (可选)">
+          <el-input v-model="quickConnectForm.password" type="password" show-password placeholder="若为空，可在终端交互式输入" />
+        </el-form-item>
+        <el-form-item label="私钥 (可选)">
+          <el-input v-model="quickConnectForm.key_auth" type="textarea" :rows="4" placeholder="若使用私钥认证，请在此粘贴" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="quickConnectVisible = false">取消</el-button>
+        <el-button type="primary" :loading="quickConnecting" @click="submitQuickConnect">确认连接</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -261,6 +307,103 @@ const sessionLoading = ref(false)
 const recordLoading = ref(false)
 const audits = ref([])
 const auditLoading = ref(false)
+
+const quickConnectLink = ref('')
+const quickConnectVisible = ref(false)
+const quickConnecting = ref(false)
+const quickConnectForm = ref({
+  host: '',
+  port: 2222,
+  username: 'admin',
+  password: '',
+  key_auth: ''
+})
+
+const handleQuickConnect = () => {
+  const link = (quickConnectLink.value || '').trim()
+  if (!link) {
+    ElMessage.warning('请输入 SSH 命令行或 JumpServer 链接')
+    return
+  }
+
+  // 1. Try parsing ssh://username@host:port
+  const urlMatch = link.match(/^ssh:\/\/([^@\s]+)@([^:\s]+):(\d+)$/i)
+  if (urlMatch) {
+    quickConnectForm.value = {
+      host: urlMatch[2],
+      port: parseInt(urlMatch[3]),
+      username: urlMatch[1],
+      password: '',
+      key_auth: ''
+    }
+    quickConnectVisible.value = true
+    return
+  }
+
+  // 2. Try parsing ssh command: ssh -p port user@host or ssh user@host -p port
+  let host = ''
+  let port = 2222 // Default JMS SSH port is usually 2222
+  let username = 'admin'
+
+  const portMatch = link.match(/-p\s+(\d+)/)
+  if (portMatch) {
+    port = parseInt(portMatch[1])
+  } else {
+    const colonPortMatch = link.match(/:(\d+)$/)
+    if (colonPortMatch) {
+      port = parseInt(colonPortMatch[1])
+    }
+  }
+
+  let clean = link.replace(/^ssh\s+/i, '').replace(/-p\s+\d+/g, '').replace(/:?(\d+)$/, '').trim()
+  const userHostMatch = clean.match(/^([^@]+)@([\w.-]+)$/)
+  if (userHostMatch) {
+    username = userHostMatch[1]
+    host = userHostMatch[2]
+  } else {
+    host = clean || '127.0.0.1'
+  }
+
+  quickConnectForm.value = {
+    host,
+    port,
+    username,
+    password: '',
+    key_auth: ''
+  }
+  quickConnectVisible.value = true
+}
+
+const submitQuickConnect = async () => {
+  if (!quickConnectForm.value.host.trim() || !quickConnectForm.value.username.trim()) {
+    ElMessage.warning('请填写 JumpServer 主机地址和用户名')
+    return
+  }
+
+  quickConnecting.value = true
+  const payload = {
+    host_id: quickConnectForm.value.host,
+    host: quickConnectForm.value.host,
+    port: quickConnectForm.value.port,
+    username: quickConnectForm.value.username,
+    password: quickConnectForm.value.password,
+    key_auth: quickConnectForm.value.key_auth
+  }
+
+  try {
+    const res = await axios.post('/api/v1/terminal/sessions', payload, { headers: authHeaders() })
+    const sess = res.data?.data
+    ElMessage.success('JMS 直连会话创建成功')
+    quickConnectVisible.value = false
+    quickConnectLink.value = ''
+    await fetchSessions()
+    if (sess?.id) openTerminal(sess)
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '创建直连会话失败'))
+  } finally {
+    quickConnecting.value = false
+  }
+}
 const sessionFilters = ref({
   keyword: '',
   status: ''

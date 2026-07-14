@@ -2,7 +2,8 @@ server:
   port: "8080"
   mode: "debug"
   cors_origins:
-    - "*"
+    - "http://localhost:8080"
+    - "http://localhost:5173"
 
 database:
   driver: "sqlite"
@@ -13,6 +14,9 @@ jwt:
   expire: 24
 
 plugins:
+  # 运营大盘
+  dashboard:
+    enabled: true
   # 资产管理
   cmdb:
     enabled: true
@@ -122,3 +126,6 @@ plugins:
     config:
       # Docker Swarm overlay 网络内，lazysre 服务名即为主机名
       sidecar_url: "http://lazysre:8000"
+  # 日志中心
+  log:
+    enabled: true

@@ -78,6 +78,7 @@ type MetricRecord struct {
 type MonitorSetting struct {
 	BaseModel
 	Name           string `gorm:"size:128" json:"name"`
+	Type           string `gorm:"size:32;default:'prometheus'" json:"type"` // prometheus, zabbix, n9e
 	PrometheusURL  string `gorm:"size:256" json:"prometheus_url"`
 	PushgatewayURL string `gorm:"size:256" json:"pushgateway_url"`
 	AuthType       string `gorm:"size:16" json:"auth_type"` // none/basic/bearer

@@ -1,0 +1,1 @@
+const c=(s,n="操作失败")=>{var a,t;return((t=(a=s==null?void 0:s.response)==null?void 0:a.data)==null?void 0:t.message)||(s==null?void 0:s.message)||n},g=s=>s==="cancel"||s==="close"||s==="abort";export{c as g,g as i};

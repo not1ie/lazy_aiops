@@ -189,7 +189,7 @@ func resolveCORSOrigins(origins []string) []string {
 		}
 	}
 	if len(resolved) == 0 {
-		return []string{"*"}
+		return []string{}
 	}
 	return resolved
 }

@@ -97,11 +97,38 @@ func (h *JumpHandler) ListAssets(c *gin.Context) {
 		}
 	}
 
+	var total int64
+	if err := query.Model(&JumpAsset{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("page_size")
+	if pageStr != "" && pageSizeStr != "" {
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page > 0 && pageSize > 0 {
+			query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+		}
+	}
+
 	if err := query.Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+
+	if pageStr != "" && pageSizeStr != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"list":  items,
+				"total": total,
+			},
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+	}
 }
 
 func (h *JumpHandler) CreateAsset(c *gin.Context) {

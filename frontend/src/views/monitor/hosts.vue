@@ -17,7 +17,8 @@
       <el-select v-model="envFilter" placeholder="环境" class="w-40" clearable>
         <el-option v-for="item in envs" :key="item" :label="item" :value="item" />
       </el-select>
-      <el-select v-model="instanceFilter" placeholder="选择主机" class="w-52" clearable>
+      <el-select v-model="instanceFilter" placeholder="全部主机" class="w-52" clearable>
+        <el-option label="全部主机" value="" />
         <el-option v-for="inst in filteredInstances" :key="inst" :label="inst" :value="inst" />
       </el-select>
       <el-input v-model="keyword" placeholder="搜索主机/IP" class="w-52" clearable />
@@ -147,8 +148,33 @@ import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
+import { useTheme } from '@/utils/theme'
 
 const route = useRoute()
+const { isDark } = useTheme()
+
+watch(isDark, () => {
+  // Dispose all existing chart instances to recreate them with the correct theme
+  if (cpuChart) { try { cpuChart.dispose() } catch {} }
+  cpuChart = null
+  if (memChart) { try { memChart.dispose() } catch {} }
+  memChart = null
+  if (diskChart) { try { diskChart.dispose() } catch {} }
+  diskChart = null
+  if (netChart) { try { netChart.dispose() } catch {} }
+  netChart = null
+  if (topCpuChart) { try { topCpuChart.dispose() } catch {} }
+  topCpuChart = null
+  if (topMemChart) { try { topMemChart.dispose() } catch {} }
+  topMemChart = null
+
+  nextTick(() => {
+    ensureCharts()
+    fetchCharts()
+    renderTopCharts()
+  })
+})
+
 const loading = ref(false)
 const chartLoading = ref(false)
 const keyword = ref('')
@@ -292,7 +318,7 @@ const ensureChartInstance = (instance, holderRef) => {
   }
   try {
     if (!instance) {
-      instance = echarts.init(el, null, { renderer: 'svg' })
+      instance = echarts.init(el, isDark.value ? 'dark' : null, { renderer: 'svg' })
     }
   } catch {
     if (instance) {
@@ -346,7 +372,7 @@ const renderChart = (chart, title, labels, series, unit) => {
     try {
       chart.dispose()
       if (!dom) return null
-      const recreated = echarts.init(dom, null, { renderer: 'svg' })
+      const recreated = echarts.init(dom, isDark.value ? 'dark' : null, { renderer: 'svg' })
       recreated.setOption(option, true)
       recreated.resize()
       return recreated
@@ -377,7 +403,7 @@ const renderBarChart = (chart, title, items, valueKey, unit) => {
     try {
       chart.dispose()
       if (!dom) return null
-      const recreated = echarts.init(dom, null, { renderer: 'svg' })
+      const recreated = echarts.init(dom, isDark.value ? 'dark' : null, { renderer: 'svg' })
       recreated.setOption(option, true)
       recreated.resize()
       return recreated
@@ -560,9 +586,6 @@ const fetchInstances = async () => {
     companies.value = Array.from(comSet)
     envs.value = Array.from(envSet)
     instanceMeta.value = Array.from(metaMap.values())
-    if (!instanceFilter.value && instances.value.length) {
-      instanceFilter.value = instances.value[0]
-    }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '获取主机列表失败'))
   }

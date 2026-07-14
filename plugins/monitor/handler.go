@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -146,6 +147,7 @@ func (h *MonitorHandler) UpdateSetting(c *gin.Context) {
 	}
 	updates := map[string]interface{}{
 		"name":            req.Name,
+		"type":            req.Type,
 		"prometheus_url":  req.PrometheusURL,
 		"pushgateway_url": req.PushgatewayURL,
 		"auth_type":       req.AuthType,
@@ -209,13 +211,60 @@ func (h *MonitorHandler) TestSetting(c *gin.Context) {
 		return
 	}
 	if setting.PrometheusURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "Prometheus 地址为空"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "地址为空"})
 		return
 	}
 	if err := h.decryptSettingSecrets(&setting); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "配置解密失败"})
 		return
 	}
+
+	if setting.Type == "zabbix" {
+		payload := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "apiinfo.version",
+			"params":  map[string]interface{}{},
+			"id":      1,
+		}
+		bodyBytes, _ := json.Marshal(payload)
+		req, err := http.NewRequest("POST", setting.PrometheusURL, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := h.httpClient.Do(req)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		c.Data(resp.StatusCode, "application/json", body)
+		return
+	}
+
+	if setting.Type == "n9e" {
+		url := setting.PrometheusURL + "/api/n9e/busi-groups"
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+		if setting.Token != "" {
+			req.Header.Set("Authorization", "Bearer " + setting.Token)
+		}
+		resp, err := h.httpClient.Do(req)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "无法连接到目标监控服务，请确认地址和端口配置无误且服务正在运行"})
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		c.Data(resp.StatusCode, "application/json", body)
+		return
+	}
+
 	reqURL, _ := url.Parse(setting.PrometheusURL + "/api/v1/query")
 	params := reqURL.Query()
 	params.Set("query", "up")
@@ -692,7 +741,7 @@ func (h *MonitorHandler) proxyPromGet(c *gin.Context, url, authType, username, p
 	}
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "无法连接到 Prometheus 服务，请确认服务地址配置正确且服务正在运行"})
 		return
 	}
 	defer resp.Body.Close()

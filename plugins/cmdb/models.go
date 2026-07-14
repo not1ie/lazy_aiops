@@ -109,8 +109,11 @@ type DatabaseAsset struct {
 	Environment string `gorm:"size:32" json:"environment"` // dev, test, prod
 	Owner       string `gorm:"size:64" json:"owner"`
 	Tags        string `gorm:"size:256" json:"tags"`
-	Status      int    `gorm:"default:1" json:"status"` // 1:正常 0:禁用
-	Description string `gorm:"size:512" json:"description"`
+	Status          int        `gorm:"default:1" json:"status"` // 1:正常 2:不可用 0:禁用
+	StatusReason    string     `gorm:"size:256" json:"status_reason"`
+	LastCheckAt     *time.Time `json:"last_check_at,omitempty"`
+	SlowLogEnabled  bool       `gorm:"default:false" json:"slow_log_enabled"`
+	Description     string     `gorm:"size:512" json:"description"`
 }
 
 // CloudAccount 云账号

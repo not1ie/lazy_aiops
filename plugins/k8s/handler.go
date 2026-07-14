@@ -2195,6 +2195,9 @@ func (h *K8sHandler) StreamPodLogs(c *gin.Context) {
 		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	}
 	if token == "" {
+		token = c.Query("token")
+	}
+	if token == "" {
 		if cookieToken, err := c.Cookie("token"); err == nil {
 			token = strings.TrimSpace(cookieToken)
 		}

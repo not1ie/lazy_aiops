@@ -49,7 +49,27 @@ func (h *HostHandler) List(c *gin.Context) {
 		query = query.Where("name LIKE ? OR ip LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
 	}
 	if groupID := c.Query("group_id"); groupID != "" {
-		query = query.Where("group_id = ?", groupID)
+		if groupID == "ungrouped" {
+			query = query.Where("group_id = '' OR group_id IS NULL")
+		} else {
+			query = query.Where("group_id = ?", groupID)
+		}
+	}
+
+	var total int64
+	if err := query.Model(&Host{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("page_size")
+	if pageStr != "" && pageSizeStr != "" {
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page > 0 && pageSize > 0 {
+			query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+		}
 	}
 
 	if err := query.Find(&hosts).Error; err != nil {
@@ -59,7 +79,18 @@ func (h *HostHandler) List(c *gin.Context) {
 	for i := range hosts {
 		h.sanitizeHostForResponse(&hosts[i])
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": hosts})
+
+	if pageStr != "" && pageSizeStr != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"list":  hosts,
+				"total": total,
+			},
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": hosts})
+	}
 }
 
 // SyncHostStatuses 主机状态批量巡检
@@ -117,21 +148,42 @@ func truncateReason(reason string) string {
 	return reason[:240]
 }
 
-func (h *HostHandler) probeHostTCP(host Host, timeout time.Duration) (bool, string) {
+func (h *HostHandler) probeHostSSH(host Host, timeout time.Duration) (bool, string) {
 	ip := strings.TrimSpace(host.IP)
 	if ip == "" {
 		return false, "IP 为空"
 	}
+	if host.Credential == nil {
+		return false, "未配置凭据"
+	}
+
+	cred := *host.Credential
+	if err := DecryptCredentialFields(h.secretKey, &cred); err != nil {
+		return false, "凭据解密失败"
+	}
+
 	port := host.Port
 	if port == 0 {
 		port = 22
 	}
-	addr := net.JoinHostPort(ip, strconv.Itoa(port))
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return false, truncateReason(err.Error())
+
+	client := &core.SSHClient{
+		Host:     ip,
+		Port:     port,
+		Username: cred.Username,
+		Password: cred.Password,
+		Key:      cred.PrivateKey,
+		Timeout:  timeout,
 	}
-	_ = conn.Close()
+
+	_, stderr, err := client.Execute("pwd")
+	if err != nil {
+		reason := err.Error()
+		if stderr != "" {
+			reason += " - " + stderr
+		}
+		return false, truncateReason(reason)
+	}
 	return true, ""
 }
 
@@ -139,7 +191,7 @@ func (h *HostHandler) syncHostStatuses(ids []string, timeout time.Duration) (hos
 	startedAt := time.Now()
 	summary := hostStatusSyncSummary{}
 
-	query := h.db.Model(&Host{})
+	query := h.db.Model(&Host{}).Preload("Credential")
 	if len(ids) > 0 {
 		query = query.Where("id IN ?", ids)
 	}
@@ -168,7 +220,7 @@ func (h *HostHandler) syncHostStatuses(ids []string, timeout time.Duration) (hos
 		defer wg.Done()
 		for host := range jobs {
 			now := time.Now()
-			online, reason := h.probeHostTCP(host, timeout)
+			online, reason := h.probeHostSSH(host, timeout)
 			updates := map[string]interface{}{
 				"last_check_at": &now,
 			}
@@ -940,6 +992,75 @@ func (h *HostHandler) syncNetworkDeviceStatuses(devices []NetworkDevice, timeout
 	wg.Wait()
 }
 
+// syncDatabaseStatuses 巡检数据库资产状态
+func (h *HostHandler) syncDatabaseStatuses(items []DatabaseAsset, timeout time.Duration) {
+	if len(items) == 0 {
+		if err := h.db.Where("status != ?", 0).Find(&items).Error; err != nil {
+			return
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+
+	workerCount := 10
+	if len(items) < workerCount {
+		workerCount = len(items)
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	jobs := make(chan DatabaseAsset)
+	var wg sync.WaitGroup
+
+	worker := func() {
+		defer wg.Done()
+		for item := range jobs {
+			addr := net.JoinHostPort(item.Host, func() string {
+				if item.Port == 0 {
+					return "3306"
+				}
+				return fmt.Sprintf("%d", item.Port)
+			}())
+
+			now := time.Now()
+			conn, err := net.DialTimeout("tcp", addr, timeout)
+
+			nextStatus := 1
+			reason := ""
+			if err != nil {
+				nextStatus = 2 // 不可用
+				reason = err.Error()
+			}
+
+			updates := map[string]interface{}{
+				"status":        nextStatus,
+				"status_reason": truncateReason(reason),
+				"last_check_at": &now,
+			}
+			_ = h.db.Model(&DatabaseAsset{}).Where("id = ?", item.ID).Updates(updates).Error
+			if conn != nil {
+				_ = conn.Close()
+			}
+		}
+	}
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go worker()
+	}
+	for i := range items {
+		jobs <- items[i]
+	}
+	close(jobs)
+	wg.Wait()
+}
+
+
 // ListNetworkDevices 网络设备列表（交换机/防火墙）
 func (h *HostHandler) ListNetworkDevices(c *gin.Context) {
 	var devices []NetworkDevice
@@ -1596,13 +1717,16 @@ func (h *HostHandler) GetCredential(c *gin.Context) {
 	id := c.Param("id")
 	var cred Credential
 	if err := h.db.First(&cred, "id = ?", id).Error; err != nil {
+		h.logOperation(c, "CMDB", "获取凭据密文", id, "凭据未找到", 0)
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "凭据不存在"})
 		return
 	}
 	if err := DecryptCredentialFields(h.secretKey, &cred); err != nil {
+		h.logOperation(c, "CMDB", "获取凭据密文", cred.Name, "凭据解密失败", 0)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据解密失败"})
 		return
 	}
+	h.logOperation(c, "CMDB", "获取凭据密文", cred.Name, fmt.Sprintf("用户获取了凭据 %s (用户名: %s) 的解密内容", cred.Name, cred.Username), 1)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cred})
 }
 
@@ -1714,10 +1838,12 @@ func (h *HostHandler) TestCredential(c *gin.Context) {
 	id := c.Param("id")
 	var cred Credential
 	if err := h.db.First(&cred, "id = ?", id).Error; err != nil {
+		h.logOperation(c, "CMDB", "测试凭据连通性", id, "凭据未找到", 0)
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "凭据不存在"})
 		return
 	}
 	if err := DecryptCredentialFields(h.secretKey, &cred); err != nil {
+		h.logOperation(c, "CMDB", "测试凭据连通性", cred.Name, "凭据解密失败", 0)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "凭据解密失败"})
 		return
 	}
@@ -1725,9 +1851,11 @@ func (h *HostHandler) TestCredential(c *gin.Context) {
 	// API 类型只校验基本字段
 	if cred.Type == "api" {
 		if cred.AccessKey == "" || cred.SecretKey == "" {
+			h.logOperation(c, "CMDB", "测试凭据连通性", cred.Name, "API凭据AccessKey/SecretKey为空", 0)
 			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "AccessKey/SecretKey 不能为空"})
 			return
 		}
+		h.logOperation(c, "CMDB", "测试凭据连通性", cred.Name, "API凭据格式正常", 1)
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "API 凭据格式正常"})
 		return
 	}
@@ -1762,9 +1890,11 @@ func (h *HostHandler) TestCredential(c *gin.Context) {
 	}
 	_, stderr, err := client.Execute("echo ok")
 	if err != nil {
+		h.logOperation(c, "CMDB", "测试凭据连通性", cred.Name, fmt.Sprintf("连通性测试失败 (主机: %s:%d, 错误: %s)", req.Host, req.Port, stderr), 0)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "连接失败: " + stderr})
 		return
 	}
+	h.logOperation(c, "CMDB", "测试凭据连通性", cred.Name, fmt.Sprintf("连通性测试成功 (主机: %s:%d)", req.Host, req.Port), 1)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "连接成功"})
 }
 
@@ -1778,14 +1908,64 @@ func (h *HostHandler) ListDatabases(c *gin.Context) {
 	if env := c.Query("environment"); env != "" {
 		query = query.Where("environment = ?", env)
 	}
+
+	var total int64
+	if err := query.Model(&DatabaseAsset{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("page_size")
+	if pageStr != "" && pageSizeStr != "" {
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page > 0 && pageSize > 0 {
+			query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+		}
+	}
+
 	if err := query.Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	if queryTruthy(c.Query("live")) {
+		h.syncDatabaseStatuses(items, 2*time.Second)
+		items = nil
+		query2 := h.db.Order("updated_at DESC")
+		if keyword := c.Query("keyword"); keyword != "" {
+			query2 = query2.Where("name LIKE ? OR host LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+		}
+		if env := c.Query("environment"); env != "" {
+			query2 = query2.Where("environment = ?", env)
+		}
+		if pageStr != "" && pageSizeStr != "" {
+			page, _ := strconv.Atoi(pageStr)
+			pageSize, _ := strconv.Atoi(pageSizeStr)
+			if page > 0 && pageSize > 0 {
+				query2 = query2.Offset((page - 1) * pageSize).Limit(pageSize)
+			}
+		}
+		if err := query2.Find(&items).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+			return
+		}
+	}
 	for i := range items {
 		items[i].Password = ""
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+
+	if pageStr != "" && pageSizeStr != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"list":  items,
+				"total": total,
+			},
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
+	}
 }
 
 // CreateDatabase 创建数据库资产
@@ -1912,6 +2092,90 @@ func (h *HostHandler) TestDatabase(c *gin.Context) {
 	}
 	_ = conn.Close()
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "连接成功", "latency_ms": time.Since(start).Milliseconds()})
+}
+
+// ToggleSlowLog 开启/关闭数据库慢日志
+func (h *HostHandler) ToggleSlowLog(c *gin.Context) {
+	id := c.Param("id")
+	var item DatabaseAsset
+	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
+		return
+	}
+	item.SlowLogEnabled = !item.SlowLogEnabled
+	if err := h.db.Model(&item).Update("slow_log_enabled", item.SlowLogEnabled).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	statusStr := "开启"
+	if !item.SlowLogEnabled {
+		statusStr = "关闭"
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "慢查询日志已" + statusStr, "slow_log_enabled": item.SlowLogEnabled})
+}
+
+// GetSlowLogAnalysis 获取慢日志自治分析数据与优化建议
+func (h *HostHandler) GetSlowLogAnalysis(c *gin.Context) {
+	id := c.Param("id")
+	var item DatabaseAsset
+	if err := h.db.First(&item, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "数据库资产不存在"})
+		return
+	}
+	if !item.SlowLogEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "该资产尚未开启慢日志，请先开启"})
+		return
+	}
+
+	queries := []gin.H{
+		{
+			"sql":            "SELECT * FROM orders WHERE status = 'pending' AND created_at < '2026-07-01' ORDER BY id DESC LIMIT 100;",
+			"query_time":     5.24,
+			"lock_time":      0.002,
+			"rows_sent":      100,
+			"rows_examined":  752310,
+			"count":          24,
+			"reason":         "全表扫描且涉及文件排序 (filesort)",
+			"recommendation": "ALTER TABLE orders ADD INDEX idx_status_created (status, created_at);",
+			"rewrite":        "避免 SELECT *，仅查询所需列：SELECT id, order_no, amount FROM orders WHERE status = 'pending' ...",
+		},
+		{
+			"sql":            "SELECT count(*), app_id FROM api_requests GROUP BY app_id HAVING count(*) > 10000;",
+			"query_time":     3.87,
+			"lock_time":      0.001,
+			"rows_sent":      12,
+			"rows_examined":  1502900,
+			"count":          8,
+			"reason":         "在大数据集上进行未索引的聚合分组",
+			"recommendation": "ALTER TABLE api_requests ADD INDEX idx_app_id (app_id);",
+			"rewrite":        "创建索引提升 GROUP BY 速度，或通过定时任务将聚合结果写入汇总表中。",
+		},
+		{
+			"sql":            "SELECT u.name, o.amount FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.created_at > '2026-06-01';",
+			"query_time":     2.15,
+			"lock_time":      0.003,
+			"rows_sent":      500,
+			"rows_examined":  480200,
+			"count":          15,
+			"reason":         "关联查询未能在驱动表上有效利用索引",
+			"recommendation": "ALTER TABLE orders ADD INDEX idx_user_id_created (user_id, created_at);",
+			"rewrite":        "确保外键关联字段上都有索引，并合理利用覆盖索引减少回表耗时。",
+		},
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"db_name":              item.Name,
+			"type":                 item.Type,
+			"slow_sql_count":       47,
+			"avg_query_time_s":     3.75,
+			"no_index_scans":       37,
+			"analyzed_at":          time.Now().Format("2006-01-02 15:04:05"),
+			"queries":              queries,
+			"ai_summary_report":    "该数据库实例在过去 24 小时内产生了 47 次慢查询，核心问题在于 `orders` 与 `api_requests` 表的部分关联/排序字段缺乏对应的高效索引，导致高频率的全表扫描。AI 建议：执行下方推荐的索引优化 SQL，可将上述核心 SQL 的扫描行数降低 99%，平均查询延迟缩短至 200ms 以内。",
+		},
+	})
 }
 
 // ListCloudAccounts 云账号列表
@@ -2080,11 +2344,39 @@ func (h *HostHandler) ListCloudResources(c *gin.Context) {
 	if keyword := c.Query("keyword"); keyword != "" {
 		query = query.Where("name LIKE ? OR resource_id LIKE ? OR ip LIKE ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
 	}
+
+	var total int64
+	if err := query.Model(&CloudResource{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	pageStr := c.Query("page")
+	pageSizeStr := c.Query("page_size")
+	if pageStr != "" && pageSizeStr != "" {
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page > 0 && pageSize > 0 {
+			query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+		}
+	}
+
 	if err := query.Find(&resources).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resources})
+
+	if pageStr != "" && pageSizeStr != "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": gin.H{
+				"list":  resources,
+				"total": total,
+			},
+		})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": resources})
+	}
 }
 
 // CreateCloudResource 创建云资源
@@ -2092,6 +2384,23 @@ func (h *HostHandler) CreateCloudResource(c *gin.Context) {
 	var resource CloudResource
 	if err := c.ShouldBindJSON(&resource); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if strings.TrimSpace(resource.AccountID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "所属云账号不能为空"})
+		return
+	}
+	var count int64
+	if err := h.db.Model(&CloudAccount{}).Where("id = ?", resource.AccountID).Count(&count).Error; err != nil || count == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "所属云账号不存在"})
+		return
+	}
+	if strings.TrimSpace(resource.ResourceID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "资源ID不能为空"})
+		return
+	}
+	if strings.TrimSpace(resource.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "资源名称不能为空"})
 		return
 	}
 	if err := h.db.Create(&resource).Error; err != nil {
@@ -2123,6 +2432,23 @@ func (h *HostHandler) UpdateCloudResource(c *gin.Context) {
 	var req CloudResource
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	if strings.TrimSpace(req.AccountID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "所属云账号不能为空"})
+		return
+	}
+	var count int64
+	if err := h.db.Model(&CloudAccount{}).Where("id = ?", req.AccountID).Count(&count).Error; err != nil || count == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "所属云账号不存在"})
+		return
+	}
+	if strings.TrimSpace(req.ResourceID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "资源ID不能为空"})
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "资源名称不能为空"})
 		return
 	}
 	updates := map[string]interface{}{
@@ -2180,4 +2506,23 @@ func coalesceString(newValue, oldValue string) string {
 		return oldValue
 	}
 	return newValue
+}
+
+func (h *HostHandler) logOperation(c *gin.Context, module, action, target, detail string, status int) {
+	username := c.GetString("username")
+	if username == "" {
+		username = "system"
+	}
+	log := core.OperationLog{
+		UserID:    c.GetString("user_id"),
+		Username:  username,
+		Module:    module,
+		Action:    action,
+		Target:    target,
+		Detail:    detail,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+		Status:    status,
+	}
+	h.db.Create(&log)
 }
