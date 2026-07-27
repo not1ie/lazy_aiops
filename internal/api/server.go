@@ -135,6 +135,10 @@ func (s *Server) setupRoutes() {
 		pluginGroup := auth.Group("/" + p.Name())
 		p.RegisterRoutes(pluginGroup)
 	}
+
+	// API v2 路由预留
+	v2 := s.engine.Group("/api/v2")
+	s.setupV2Routes(v2)
 }
 
 func (s *Server) setupPublicRoutes(g *gin.RouterGroup) {
@@ -241,4 +245,13 @@ func (s *Server) recordLoginLog(c *gin.Context, username string, status int, mes
 		Message:   message,
 		LoginAt:   time.Now(),
 	}).Error
+}
+
+func (s *Server) setupV2Routes(g *gin.RouterGroup) {
+	g.GET("/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"version": "2.0.0-alpha",
+			"status":  "planning",
+		})
+	})
 }

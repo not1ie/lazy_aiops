@@ -234,8 +234,7 @@ const fetchData = async () => {
       headers: authHeaders(),
       params: {
         keyword: keyword.value || undefined,
-        device_type: deviceType.value || undefined,
-        live: 1
+        device_type: deviceType.value || undefined
       }
     })
     if (res.data?.code === 0) {

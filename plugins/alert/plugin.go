@@ -63,7 +63,7 @@ func (p *AlertPlugin) Start() error { return nil }
 func (p *AlertPlugin) Stop() error  { return nil }
 
 func (p *AlertPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&AlertRule{}, &Alert{}, &AlertSilence{}, &AlertHistory{})
+	return p.core.DB.AutoMigrate(&AlertRule{}, &Alert{}, &AlertSilence{}, &AlertHistory{}, &AlertAggregation{})
 }
 
 func (p *AlertPlugin) RegisterRoutes(g *gin.RouterGroup) {
@@ -79,6 +79,7 @@ func (p *AlertPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		rules.POST("", h.CreateRule)
 		rules.PUT("/:id", h.UpdateRule)
 		rules.DELETE("/:id", h.DeleteRule)
+		rules.POST("/:id/test", h.TestRule)
 	}
 
 	// 告警
@@ -94,8 +95,9 @@ func (p *AlertPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	// Webhook接收
 	g.POST("/webhook", h.ReceiveAlert)
 
-	// 统计
+	// 统计与 SLA 指标
 	g.GET("/stats", h.GetStats)
+	g.GET("/sla-stats", h.GetSLAStats)
 
 	// 静默
 	silences := g.Group("/silences")

@@ -37,6 +37,49 @@ func (h *WorkOrderHandler) ListTypes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": types})
 }
 
+// ListServiceCatalog 运维自助服务目录列表
+func (h *WorkOrderHandler) ListServiceCatalog(c *gin.Context) {
+	catalog := []gin.H{
+		{
+			"id":             "cat-ssh-01",
+			"name":           "临时 SSH 访问权限申请",
+			"category":       "权限管理",
+			"icon":           "Key",
+			"description":    "申请线上堡垒机或主机的临时 2 小时 SSH 调试权限，审批通过自动授权。",
+			"type_code":      "ssh_access",
+			"auto_provision": true,
+		},
+		{
+			"id":             "cat-db-02",
+			"name":           "开发/测试环境 MySQL 实例申请",
+			"category":       "数据库资源",
+			"icon":           "Coin",
+			"description":    "自助申请隔离的全新 MySQL 库与初始账号密码，审批通过后自动配置。",
+			"type_code":      "db_provision",
+			"auto_provision": true,
+		},
+		{
+			"id":             "cat-k8s-03",
+			"name":           "K8s 命名空间 (Namespace) 申请",
+			"category":       "云原生资源",
+			"icon":           "Platform",
+			"description":    "为新项目申请独立的 Kubernetes Namespace 与资源配额 (Quota)。",
+			"type_code":      "k8s_ns",
+			"auto_provision": true,
+		},
+		{
+			"id":             "cat-redis-04",
+			"name":           "Redis 缓存实例申请",
+			"category":       "中间件服务",
+			"icon":           "Box",
+			"description":    "自助申请高可用 Redis 集中缓存实例与连接串。",
+			"type_code":      "redis_instance",
+			"auto_provision": true,
+		},
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": catalog})
+}
+
 // CreateType 创建工单类型
 func (h *WorkOrderHandler) CreateType(c *gin.Context) {
 	var t WorkOrderType

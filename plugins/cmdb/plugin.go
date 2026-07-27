@@ -136,8 +136,12 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		hosts.POST("/sync-status", h.SyncHostStatuses)
 		hosts.GET("/:id", h.Get)
 		hosts.POST("/:id/test", h.TestHost)
+		hosts.POST("/:id/diagnose", h.DiagnoseHost)
 		hosts.PUT("/:id", h.Update)
 		hosts.DELETE("/:id", h.Delete)
+		hosts.POST("/batch-delete", h.BatchDelete)
+		hosts.POST("/batch-update-group", h.BatchUpdateGroup)
+		hosts.POST("/import", h.BatchImport)
 	}
 
 	// 网络设备（交换机/防火墙）
@@ -159,6 +163,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		groups.POST("", h.CreateGroup)
 		groups.PUT("/:id", h.UpdateGroup)
 		groups.DELETE("/:id", h.DeleteGroup)
+		groups.POST("/batch-delete", h.BatchDeleteGroup)
 	}
 
 	// 凭据管理
@@ -179,6 +184,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		databases.POST("", h.CreateDatabase)
 		databases.GET("/:id", h.GetDatabase)
 		databases.POST("/:id/test", h.TestDatabase)
+		databases.POST("/:id/query", h.ExecuteDatabaseSQL)
 		databases.POST("/:id/slowlog/toggle", h.ToggleSlowLog)
 		databases.GET("/:id/slowlog/analysis", h.GetSlowLogAnalysis)
 		databases.PUT("/:id", h.UpdateDatabase)
@@ -192,6 +198,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		cloudAccounts.POST("", h.CreateCloudAccount)
 		cloudAccounts.GET("/:id", h.GetCloudAccount)
 		cloudAccounts.POST("/:id/test", h.TestCloudAccount)
+		cloudAccounts.POST("/:id/sync", h.SyncCloudAccountResources)
 		cloudAccounts.PUT("/:id", h.UpdateCloudAccount)
 		cloudAccounts.DELETE("/:id", h.DeleteCloudAccount)
 	}

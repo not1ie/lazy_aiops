@@ -10,6 +10,25 @@
       </div>
     </div>
 
+    <el-alert
+      v-if="runtimeConfig"
+      :type="runtimeConfig.has_api_key || runtimeConfig.provider === 'ollama' ? 'success' : 'warning'"
+      :closable="false"
+      class="mb-12"
+    >
+      <template #title>
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%">
+          <span>
+            🤖 <strong>当前活跃 LLM：</strong> {{ runtimeConfig.provider || '未接入' }} · <code>{{ runtimeConfig.model || '未选择模型' }}</code>
+            <el-tag size="small" :type="runtimeConfig.has_api_key ? 'success' : (runtimeConfig.provider === 'ollama' ? 'info' : 'warning')" style="margin-left: 8px">
+              {{ runtimeConfig.has_api_key ? 'API Key 已连通' : (runtimeConfig.provider === 'ollama' ? 'Ollama 本地运行' : '未填入 API Key') }}
+            </el-tag>
+          </span>
+          <el-button size="small" type="primary" plain @click="activeTab = 'config'">⚙️ 接入 / 切换大模型</el-button>
+        </div>
+      </template>
+    </el-alert>
+
     <el-tabs v-model="activeTab">
       <el-tab-pane label="智能问答" name="chat">
         <div class="chat-workspace">
@@ -492,6 +511,20 @@
 
     <el-dialog append-to-body v-model="configDialogVisible" :title="configEditing ? '编辑模型配置' : '新增模型配置'" width="700px" @closed="handleConfigDialogClosed">
       <el-form :model="configForm" label-width="110px">
+        <el-form-item label="快捷预设">
+          <div style="display: flex; flex-wrap: wrap; gap: 6px">
+            <el-tag
+              v-for="p in presetModels"
+              :key="p.name"
+              type="primary"
+              effect="plain"
+              style="cursor: pointer"
+              @click="applyPreset(p)"
+            >
+              ⚡ {{ p.name }}
+            </el-tag>
+          </div>
+        </el-form-item>
         <el-form-item label="配置名称" required>
           <el-input v-model="configForm.name" placeholder="如：OpenAI-Prod" />
         </el-form-item>
@@ -556,10 +589,13 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import AIOpsLoopPanel from '@/components/ai/AIOpsLoopPanel.vue'
+
+const route = useRoute()
 
 const activeTab = ref('chat')
 const chatting = ref(false)
@@ -643,6 +679,25 @@ const configForm = reactive({
   extra_headers: '{}',
   description: ''
 })
+
+const presetModels = [
+  { name: 'DeepSeek (推荐/国内高性价比)', provider: 'openai', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', auth_type: 'bearer', description: 'DeepSeek 官方大模型，高性价比与强逻辑运维推导' },
+  { name: 'OpenAI (GPT-4o Mini)', provider: 'openai', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini', auth_type: 'bearer', description: 'OpenAI 官方通用大模型' },
+  { name: 'Qwen / 通义千问 (阿里云)', provider: 'openai', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-max', auth_type: 'bearer', description: '阿里云通义千问 OpenAI 兼容端点' },
+  { name: 'Kimi / 月之暗面', provider: 'openai', base_url: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', auth_type: 'bearer', description: 'Moonshot 长上下文分析模型' },
+  { name: 'Ollama 本地私有化模型', provider: 'ollama', base_url: 'http://localhost:11434/api', model: 'qwen2.5:7b', auth_type: 'none', description: '私有部署 Ollama 本地运行模型' },
+  { name: 'Google Gemini', provider: 'gemini', base_url: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash', auth_type: 'x-api-key', description: 'Google 官方 Gemini 端点' }
+]
+
+const applyPreset = (preset) => {
+  configForm.name = preset.name
+  configForm.provider = preset.provider
+  configForm.base_url = preset.base_url
+  configForm.model = preset.model
+  configForm.auth_type = preset.auth_type
+  configForm.description = preset.description
+  ElMessage.success(`已应用预设【${preset.name}】，请输入对应 API Key 保持或保存`)
+}
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
 
@@ -1476,6 +1531,13 @@ watch(autoContextEnabled, async (value) => {
 })
 
 onMounted(() => {
+  if (route.path.endsWith('/config') || route.query.tab === 'config') {
+    activeTab.value = 'config'
+  } else if (route.query.tab === 'analyze') {
+    activeTab.value = 'analyze'
+  } else if (route.query.tab === 'ops') {
+    activeTab.value = 'ops'
+  }
   refreshAll()
   // 从其他页面跳转过来时，自动带上上下文作为首次提问
   const ctxHint = sessionStorage.getItem('ai_context_hint')

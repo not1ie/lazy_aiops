@@ -119,15 +119,31 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	mustChangePassword := isDefaultAdminPassword(&user)
 
 	// 生成Token
-	expire := time.Now().Add(time.Duration(s.config.Expire) * time.Hour)
 	roleCode := ""
 	if user.Role != nil {
 		roleCode = user.Role.Code
 	}
 
+	tokenStr, expireUnix, err := s.GenerateToken(user.ID, user.Username, roleCode, mustChangePassword)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LoginResponse{
+		Token:                   tokenStr,
+		Expire:                  expireUnix,
+		UserInfo:                &user,
+		RecommendChangePassword: mustChangePassword,
+		MustChangePassword:      mustChangePassword,
+	}, nil
+}
+
+// GenerateToken 为用户生成 JWT Token
+func (s *AuthService) GenerateToken(userID, username, roleCode string, mustChangePassword bool) (string, int64, error) {
+	expire := time.Now().Add(time.Duration(s.config.Expire) * time.Hour)
 	claims := Claims{
-		UserID:              user.ID,
-		Username:            user.Username,
+		UserID:              userID,
+		Username:            username,
 		RoleCode:            roleCode,
 		ForcePasswordChange: mustChangePassword,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -135,20 +151,12 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString([]byte(s.config.Secret))
 	if err != nil {
-		return nil, err
+		return "", 0, err
 	}
-
-	return &LoginResponse{
-		Token:                   tokenStr,
-		Expire:                  expire.Unix(),
-		UserInfo:                &user,
-		RecommendChangePassword: mustChangePassword,
-		MustChangePassword:      mustChangePassword,
-	}, nil
+	return tokenStr, expire.Unix(), nil
 }
 
 // ValidateToken 验证Token

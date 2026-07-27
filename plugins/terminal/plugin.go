@@ -31,7 +31,55 @@ func (p *TerminalPlugin) Start() error { return nil }
 func (p *TerminalPlugin) Stop() error  { return nil }
 
 func (p *TerminalPlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&TerminalSession{}, &TerminalRecord{})
+	if err := p.core.DB.AutoMigrate(&TerminalSession{}, &TerminalRecord{}, &jumpCommandAudit{}, &jumpCommandRule{}); err != nil {
+		return err
+	}
+	var count int64
+	p.core.DB.Model(&jumpCommandRule{}).Count(&count)
+	if count == 0 {
+		rules := []jumpCommandRule{
+			{
+				ID:        "rule-block-rm",
+				Name:      "高危删除命令拦截 (rm -rf)",
+				Pattern:   `rm\s+-[a-zA-Z]*r[a-zA-Z]*f\s+.*|rm\s+-[a-zA-Z]*f[a-zA-Z]*r\s+.*`,
+				MatchType: "regex",
+				RuleKind:  "risk",
+				Protocol:  "ssh",
+				Severity:  "critical",
+				Action:    "block",
+				Priority:  100,
+				Enabled:   true,
+			},
+			{
+				ID:        "rule-block-db-drop",
+				Name:      "高危删库删表指令拦截 (DROP/TRUNCATE)",
+				Pattern:   `(?i)drop\s+(database|table)|truncate\s+table`,
+				MatchType: "regex",
+				RuleKind:  "risk",
+				Protocol:  "ssh",
+				Severity:  "critical",
+				Action:    "block",
+				Priority:  90,
+				Enabled:   true,
+			},
+			{
+				ID:        "rule-block-mkfs",
+				Name:      "高危磁盘格式化拦截 (mkfs)",
+				Pattern:   `mkfs.*|dd\s+if=.*of=/dev/.*`,
+				MatchType: "regex",
+				RuleKind:  "risk",
+				Protocol:  "ssh",
+				Severity:  "critical",
+				Action:    "block",
+				Priority:  80,
+				Enabled:   true,
+			},
+		}
+		for _, r := range rules {
+			p.core.DB.Create(&r)
+		}
+	}
+	return nil
 }
 
 func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
@@ -43,6 +91,7 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/sessions", h.CreateSession)
 	g.POST("/sessions/precheck", h.PrecheckConnection)
 	g.PUT("/sessions/:id", h.UpdateSession)
+	g.POST("/sessions/:id/share", h.ShareSession)
 	g.DELETE("/sessions/:id", h.CloseSession)
 	g.DELETE("/sessions/:id/purge", h.DeleteSession)
 

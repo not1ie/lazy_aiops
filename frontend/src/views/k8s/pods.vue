@@ -125,16 +125,18 @@
       </el-table>
     </div>
 
-    <el-dialog append-to-body v-model="logVisible" title="Pod 日志" width="880px">
+    <el-dialog append-to-body v-model="logVisible" title="Pod 运行日志" width="920px">
       <div class="log-controls">
-        <el-select v-model="logContainer" placeholder="容器" class="w-52">
+        <el-select v-model="logContainer" placeholder="容器" class="w-48">
           <el-option v-for="c in logContainers" :key="c" :label="c" :value="c" />
         </el-select>
         <el-input-number v-model="logTail" :min="10" :max="1000" />
-        <el-checkbox v-model="logFollow" style="margin-left: 12px;">实时滚动 (Follow)</el-checkbox>
-        <el-button type="primary" @click="fetchLogs">获取日志</el-button>
+        <el-input v-model="logKeyword" placeholder="🔍 关键词过滤" class="w-48" clearable style="margin-left: 8px;" />
+        <el-checkbox v-model="logFollow" style="margin-left: 12px;">实时 (Follow)</el-checkbox>
+        <el-button type="primary" @click="fetchLogs">刷新日志</el-button>
+        <el-button type="success" plain icon="Download" @click="downloadLogs">导出文件</el-button>
       </div>
-      <el-input v-model="logText" class="log-dialog-textarea" type="textarea" :rows="18" readonly />
+      <el-input v-model="filteredLogText" class="log-dialog-textarea" type="textarea" :rows="18" readonly />
       <template #footer>
         <el-button @click="logVisible = false">关闭</el-button>
       </template>
@@ -178,7 +180,33 @@ const logContainer = ref('')
 const logContainers = ref([])
 const logPod = ref(null)
 const logFollow = ref(false)
+const logKeyword = ref('')
 let logEventSource = null
+
+const filteredLogText = computed(() => {
+  if (!logText.value) return ''
+  if (!logKeyword.value.trim()) return logText.value
+  const kw = logKeyword.value.trim().toLowerCase()
+  return logText.value
+    .split('\n')
+    .filter(line => line.toLowerCase().includes(kw))
+    .join('\n')
+})
+
+const downloadLogs = () => {
+  if (!logText.value) {
+    ElMessage.warning('无日志可导出')
+    return
+  }
+  const blob = new Blob([logText.value], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${logPod.value?.name || 'pod'}-${logContainer.value || 'container'}.log`
+  link.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('已成功导出日志文件')
+}
 
 const closeLogStream = () => {
   if (logEventSource) {

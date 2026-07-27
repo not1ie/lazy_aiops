@@ -44,18 +44,19 @@
       <el-table-column prop="database" label="库名" min-width="140" />
       <el-table-column prop="environment" label="环境" width="100" />
       <el-table-column prop="owner" label="负责人" width="120" />
-      <el-table-column prop="status" label="状态" width="120">
+      <el-table-column prop="status" label="实时状态" min-width="150">
         <template #default="{ row }">
-          <el-tooltip v-if="row.status === 2" :content="row.status_reason || '连接失败'" placement="top">
-            <el-tag type="danger" style="cursor: pointer">不可用</el-tag>
+          <el-tooltip v-if="row.status === 2" :content="row.status_reason || '无法连通/认证失败'" placement="top">
+            <el-tag type="danger" style="cursor: pointer">● 无法连接</el-tag>
           </el-tooltip>
-          <el-tag v-else-if="row.status === 1" type="success">正常</el-tag>
-          <el-tag v-else type="info">禁用</el-tag>
+          <el-tag v-else-if="row.status === 1" type="success">● 连通正常</el-tag>
+          <el-tag v-else type="info">● 禁用</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="420" fixed="right">
         <template #default="{ row }">
           <el-space wrap :size="[8, 8]">
+            <el-button size="small" type="success" plain icon="Coin" @click="openSqlConsole(row)">执行 SQL</el-button>
             <el-button size="small" type="warning" plain icon="FirstAidKit" @click="openTest(row)">测试</el-button>
             <el-button size="small" :type="row.slow_log_enabled ? 'danger' : 'success'" plain @click="toggleSlowLog(row)">
               {{ row.slow_log_enabled ? '关闭慢查询' : '开启慢查询' }}
@@ -235,14 +236,205 @@
       <el-button type="primary" @click="slowLogDialogVisible = false">完成优化</el-button>
     </template>
   </el-dialog>
+
+  <!-- Web SQL 控制台 / Navicat 风格 Console Dialog -->
+  <el-dialog
+    append-to-body
+    v-model="sqlConsoleVisible"
+    :title="`SQL 控制台 - ${currentDb?.name || ''} (${currentDb?.host}:${currentDb?.port || 3306}/${currentDb?.database || ''})`"
+    width="980px"
+  >
+    <div class="sql-console-wrapper">
+      <!-- 快捷 SQL 贴片 -->
+      <div class="quick-sql-bar" style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span class="quick-title" style="font-size: 13px; color: #909399; font-weight: 500;">快捷语句：</span>
+        <el-button size="small" plain @click="setQuickSql('SHOW DATABASES;')">SHOW DATABASES</el-button>
+        <el-button size="small" plain @click="setQuickSql('SHOW TABLES;')">SHOW TABLES</el-button>
+        <el-button size="small" plain @click="setQuickSql('SHOW PROCESSLIST;')">SHOW PROCESSLIST</el-button>
+        <el-button size="small" plain @click="setQuickSql('SELECT VERSION(), NOW(), DATABASE();')">SELECT VERSION()</el-button>
+        <el-button size="small" plain @click="setQuickSql('SHOW STATUS LIKE \'Threads_connected\';')">连接数</el-button>
+      </div>
+
+      <!-- 单体式内联高亮代码编辑器 (Inline Syntax Highlighting Code Editor) -->
+      <div class="sql-editor-container" style="display: flex; flex-direction: column; gap: 8px;">
+        <div class="inline-code-editor-wrapper" style="position: relative; background: #0f172a; border: 1px solid #334155; border-radius: 8px; overflow: hidden; display: flex; min-height: 160px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);">
+          <!-- 代码边栏行号 -->
+          <div class="editor-gutter" style="width: 42px; background: #1e293b; color: #64748b; padding: 12px 0; text-align: right; padding-right: 10px; font-family: SFMono-Regular, Consolas, Monaco, monospace; font-size: 13px; line-height: 1.6; user-select: none; border-right: 1px solid #334155;">
+            <div v-for="n in lineCount" :key="n">{{ n }}</div>
+          </div>
+
+          <!-- 主编辑区域舞台 -->
+          <div class="editor-stage" style="position: relative; flex: 1; height: 180px;">
+            <!-- 背景语法高亮渲染图层 (Syntax Highlight Layer) -->
+            <pre
+              ref="highlightLayerRef"
+              class="editor-highlight-layer"
+              style="position: absolute; inset: 0; margin: 0; padding: 12px; font-family: SFMono-Regular, Consolas, Monaco, monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; pointer-events: none; overflow: auto; color: #f8fafc; background: transparent;"
+              v-html="renderHighlightedSqlHtml"
+            ></pre>
+
+            <!-- 前景输入框控制图层 (Input Layer) -->
+            <textarea
+              ref="sqlTextareaRef"
+              v-model="sqlQuery"
+              class="editor-textarea-layer"
+              style="position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 12px; font-family: SFMono-Regular, Consolas, Monaco, monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: transparent; caret-color: #38bdf8; background: transparent; border: none; outline: none; resize: none; overflow: auto;"
+              placeholder="支持多语句同时执行（用分号隔开），例如：&#10;USE lazy_aiops;&#10;SELECT * FROM users LIMIT 10;&#10;（快捷键：Ctrl + Enter 执行）"
+              @scroll="syncEditorScroll"
+              @keydown.ctrl.enter.prevent="runSql"
+            ></textarea>
+          </div>
+        </div>
+
+        <!-- 底部高亮语法识别指示状态栏 -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <el-tag v-if="recognizedKeywords.length" type="success" size="small" effect="plain">
+              🟢 输入框直接高亮中（已识别 {{ recognizedKeywords.length }} 个 SQL 关键字: {{ recognizedKeywords.slice(0, 6).join(', ') }}{{ recognizedKeywords.length > 6 ? '...' : '' }}）
+            </el-tag>
+            <el-tag v-else type="info" size="small" effect="plain">
+              💡 提示：在输入框内直接键入 SELECT / SHOW / USE / INSERT 等即可体验原生语法高亮
+            </el-tag>
+          </div>
+          <div class="sql-tips" style="font-size: 12px; color: #909399;">
+            快捷键：<kbd style="background: #f4f4f5; border: 1px solid #dcdfe6; padding: 1px 5px; border-radius: 3px;">Ctrl + Enter</kbd> 发送执行
+          </div>
+        </div>
+
+        <div class="sql-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+          <div style="font-size: 12px; color: #909399;">
+            支持全量多语句分析与点击【🎯 定位报错行】自动光标高亮定位。
+          </div>
+          <div class="btn-group" style="display: flex; gap: 8px;">
+            <el-button size="small" @click="sqlQuery = ''">清空</el-button>
+            <el-button size="small" type="primary" icon="VideoPlay" :loading="sqlExecuting" @click="runSql">执行 SQL</el-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navicat 统计与结果诊断面板 -->
+      <div v-if="sqlBatchResult" class="sql-result-box" style="margin-top: 16px; border: 1px solid #e4e7ed; border-radius: 8px; padding: 16px; background: #fafafa;">
+        
+        <!-- 核心反馈统计栏 (Navicat Feedback Bar) -->
+        <div class="batch-summary-bar" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed #dcdfe6;">
+          <div style="display: flex; align-items: center; gap: 12px; font-size: 13px;">
+            <el-tag type="info" size="small" effect="dark">语句总数: {{ sqlBatchResult.total_count }}</el-tag>
+            <el-tag type="success" size="small" effect="dark">成功: {{ sqlBatchResult.success_count }} 条</el-tag>
+            <el-tag v-if="sqlBatchResult.error_count > 0" type="danger" size="small" effect="dark">失败: {{ sqlBatchResult.error_count }} 条</el-tag>
+            <span style="color: #606266; font-size: 12px;">总耗时: <strong>{{ sqlBatchResult.total_duration_ms }} ms</strong></span>
+          </div>
+
+          <span v-if="sqlBatchResult.error_count > 0" style="font-size: 12px; color: #f56c6c; font-weight: bold;">
+            ⚠️ 发现 {{ sqlBatchResult.error_count }} 个错误！点击下方日志【🎯 定位报错行】光标自动定位到对应 SQL
+          </span>
+          <span v-else style="font-size: 12px; color: #67c23a; font-weight: bold;">
+            ✅ 所有 SQL 语句全量执行成功
+          </span>
+        </div>
+
+        <!-- 结果展示 Tabs (Navicat Tabbed Views) -->
+        <el-tabs v-model="activeConsoleTab" size="small">
+          
+          <!-- Tab 1: 语句日志与报错定位 -->
+          <el-tab-pane name="log">
+            <template #label>
+              <span>
+                执行日志 & 报错定位
+                <el-badge v-if="sqlBatchResult.error_count > 0" :value="sqlBatchResult.error_count" class="item" type="danger" style="margin-left: 4px;" />
+              </span>
+            </template>
+
+            <el-table :data="sqlBatchResult.statements" border stripe size="small" style="width: 100%; margin-top: 8px;" max-height="300">
+              <el-table-column prop="index" label="#" width="50" align="center" />
+              <el-table-column label="代码行" width="75" align="center">
+                <template #default="{ row }">
+                  <span style="font-family: monospace; color: #909399;">L{{ row.line_number }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="85" align="center">
+                <template #default="{ row }">
+                  <el-tag v-if="row.success" type="success" size="small">成功</el-tag>
+                  <el-tag v-else type="danger" size="small">失败</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="SQL 语句" min-width="220" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <code style="font-family: monospace; font-size: 12px; color: #303133;">{{ row.sql }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column label="耗时" width="70" align="center">
+                <template #default="{ row }">
+                  <span style="font-size: 11px; color: #909399;">{{ row.duration_ms }}ms</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="反馈与诊断" min-width="240">
+                <template #default="{ row }">
+                  <div v-if="row.success" style="color: #67c23a; font-size: 12px;">
+                    <span v-if="row.type === 'query'">查询成功，共 {{ row.count }} 行数据</span>
+                    <span v-else>执行成功，影响 {{ row.rows_affected }} 行</span>
+                  </div>
+                  <div v-else style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span style="color: #f56c6c; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px;" :title="row.error">
+                      {{ row.error }}
+                    </span>
+                    <el-button type="danger" size="small" plain icon="Position" @click="locateSqlError(row)">
+                      🎯 定位报错行
+                    </el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <!-- Tab 2+: 每一个 Query 语句的结果数据表 -->
+          <template v-for="(stmt, idx) in queryStatements" :key="stmt.index">
+            <el-tab-pane :name="'query_' + stmt.index" :label="`结果集 #${idx + 1} (${stmt.count}行)`">
+              <div style="margin-top: 8px;">
+                <div style="font-size: 12px; color: #909399; margin-bottom: 6px;">
+                  执行 SQL: <code style="font-family: monospace; color: #409eff;">{{ stmt.sql }}</code>
+                </div>
+                <el-table
+                  v-if="stmt.columns && stmt.columns.length"
+                  :data="stmt.rows"
+                  max-height="300"
+                  border
+                  stripe
+                  size="small"
+                  style="width: 100%;"
+                >
+                  <el-table-column
+                    v-for="col in stmt.columns"
+                    :key="col"
+                    :prop="col"
+                    :label="col"
+                    min-width="140"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <span :style="row[col] === null ? 'color: #c0c4cc; font-style: italic;' : ''">
+                        {{ row[col] === null ? 'NULL' : row[col] }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-else description="无返回列数据" />
+              </div>
+            </el-tab-pane>
+          </template>
+
+        </el-tabs>
+
+      </div>
+    </div>
+  </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import request from '../../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Warning } from '@element-plus/icons-vue'
+import { Warning, Position } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -273,6 +465,159 @@ const testSuccess = ref('')
 const slowLogDialogVisible = ref(false)
 const slowLogLoading = ref(false)
 const slowLogData = ref(null)
+
+const highlightLayerRef = ref(null)
+const sqlTextareaRef = ref(null)
+const sqlConsoleVisible = ref(false)
+const currentDb = ref(null)
+const sqlQuery = ref('SHOW TABLES;')
+const sqlExecuting = ref(false)
+const sqlBatchResult = ref(null)
+const activeConsoleTab = ref('log')
+
+const lineCount = computed(() => {
+  if (!sqlQuery.value) return 1
+  return sqlQuery.value.split('\n').length
+})
+
+const syncEditorScroll = () => {
+  if (sqlTextareaRef.value && highlightLayerRef.value) {
+    highlightLayerRef.value.scrollTop = sqlTextareaRef.value.scrollTop
+    highlightLayerRef.value.scrollLeft = sqlTextareaRef.value.scrollLeft
+  }
+}
+
+const sqlKeywordsSet = new Set([
+  'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON',
+  'GROUP', 'BY', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'SHOW', 'DATABASES',
+  'TABLES', 'PROCESSLIST', 'USE', 'DESC', 'DESCRIBE', 'EXPLAIN', 'CREATE',
+  'ALTER', 'DROP', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
+  'AND', 'OR', 'NOT', 'IN', 'IS', 'NULL', 'LIKE', 'AS', 'VERSION', 'NOW',
+  'DATABASE', 'STATUS', 'COUNT', 'SUM', 'AVG', 'MAX', 'MIN'
+])
+
+const recognizedKeywords = computed(() => {
+  if (!sqlQuery.value) return []
+  const words = sqlQuery.value.toUpperCase().match(/\b[A-Z]+\b/g) || []
+  return Array.from(new Set(words.filter(w => sqlKeywordsSet.has(w))))
+})
+
+const escapeHtml = (str) => {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+const renderHighlightedSqlHtml = computed(() => {
+  if (!sqlQuery.value) return ' '
+
+  const raw = sqlQuery.value
+  const tokenRegex = /('([^'\\]|\\.)*'|"([^"\\]|\\.)*")|(--.*$|\/\*[\s\S]*?\*\/)|(\b\d+\b)|(\b[A-Za-z_][A-Za-z0-9_]*\b)|([;=><\+\-\*\/,()]+)|(\s+)/gm
+
+  let html = ''
+  let match
+
+  while ((match = tokenRegex.exec(raw)) !== null) {
+    const [fullStr, strLit, , comment, num, word, op] = match
+
+    if (strLit) {
+      html += `<span style="color: #34d399; font-weight: 600;">${escapeHtml(strLit)}</span>`
+    } else if (comment) {
+      html += `<span style="color: #64748b; font-style: italic;">${escapeHtml(comment)}</span>`
+    } else if (num) {
+      html += `<span style="color: #fbbf24; font-weight: 600;">${escapeHtml(num)}</span>`
+    } else if (word) {
+      const upper = word.toUpperCase()
+      if (sqlKeywordsSet.has(upper)) {
+        html += `<span style="color: #c084fc; font-weight: bold;">${escapeHtml(word)}</span>`
+      } else {
+        html += `<span style="color: #f8fafc;">${escapeHtml(word)}</span>`
+      }
+    } else if (op) {
+      html += `<span style="color: #38bdf8; font-weight: bold;">${escapeHtml(op)}</span>`
+    } else {
+      html += escapeHtml(fullStr)
+    }
+  }
+
+  if (html.endsWith('\n')) {
+    html += ' '
+  }
+  return html || ' '
+})
+
+const queryStatements = computed(() => {
+  if (!sqlBatchResult.value || !sqlBatchResult.value.statements) return []
+  return sqlBatchResult.value.statements.filter(s => s.success && s.type === 'query')
+})
+
+const openSqlConsole = (row) => {
+  currentDb.value = row
+  if (row && row.database && row.database.trim()) {
+    sqlQuery.value = 'SHOW TABLES;'
+  } else {
+    sqlQuery.value = 'SHOW DATABASES;'
+  }
+  sqlBatchResult.value = null
+  sqlConsoleVisible.value = true
+}
+
+const setQuickSql = (sql) => {
+  sqlQuery.value = sql
+  runSql()
+}
+
+const locateSqlError = (stmt) => {
+  if (!sqlTextareaRef.value) return
+  const textarea = sqlTextareaRef.value
+
+  textarea.focus()
+  if (stmt.char_start !== undefined && stmt.char_end !== undefined) {
+    textarea.setSelectionRange(stmt.char_start, stmt.char_end)
+  }
+  ElMessage.warning({
+    message: `已自动把光标定位高亮到第 ${stmt.line_number} 行的报错语句！`,
+    duration: 4000
+  })
+}
+
+const runSql = async () => {
+  if (!sqlQuery.value || !sqlQuery.value.trim()) {
+    ElMessage.warning('请输入要执行的 SQL 语句')
+    return
+  }
+  if (!currentDb.value) return
+
+  sqlExecuting.value = true
+  sqlBatchResult.value = null
+  activeConsoleTab.value = 'log'
+  try {
+    const res = await request.post(`/api/v1/cmdb/databases/${currentDb.value.id}/query`, {
+      sql: sqlQuery.value.trim()
+    })
+
+    const body = res.data || res
+    if (body.code === 0) {
+      sqlBatchResult.value = body.data
+      if (body.data.error_count === 0) {
+        ElMessage.success(body.message || '全量 SQL 执行成功')
+        if (queryStatements.value.length > 0) {
+          activeConsoleTab.value = 'query_' + queryStatements.value[0].index
+        }
+      } else {
+        ElMessage.warning(`执行完成：成功 ${body.data.success_count} 条，失败 ${body.data.error_count} 条`)
+      }
+    } else {
+      ElMessage.error(body.message || 'SQL 执行失败')
+    }
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || '执行出错'
+    ElMessage.error('SQL 执行异常: ' + msg)
+  } finally {
+    sqlExecuting.value = false
+  }
+}
 
 const filters = reactive({
   keyword: '',
@@ -505,13 +850,17 @@ const submitTest = async () => {
     const res = await request.post(`/api/v1/cmdb/databases/${testRow.value.id}/test`, {})
     if (res.data.code === 0) {
       testSuccess.value = res.data.message || '连接成功'
+      ElMessage.success('测试成功，数据库连通正常')
     } else {
       testError.value = res.data.message || '连接失败'
+      ElMessage.error(res.data.message || '连接失败')
     }
   } catch (e) {
     testError.value = getErrorMessage(e, '连接失败')
+    ElMessage.error(getErrorMessage(e, '连接失败'))
   } finally {
     testLoading.value = false
+    await fetchData()
   }
 }
 

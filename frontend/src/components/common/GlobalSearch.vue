@@ -117,7 +117,7 @@
               <el-icon><Tickets /></el-icon>
               <span class="ri-name">{{ item.title || item.id }}</span>
               <span class="ri-ip">{{ item.creator || '' }}</span>
-              <el-tag size="small" type="warning" effect="plain">{{ item.status }}</el-tag>
+              <el-tag size="small" type="warning" effect="plain">{{ getWorkOrderStatusLabel(item.status) }}</el-tag>
             </div>
           </div>
         </div>
@@ -221,9 +221,9 @@ const performSearch = async (kw) => {
     ])
 
     const hostList = hostsRes.data?.data || []
-    const alertList = (alertsRes.data?.data || []).filter(a => a.status === 'firing')
+    const alertList = (alertsRes.data?.data || []).filter(a => a.status === 0)
     const pipelineList = pipelinesRes.data?.data || []
-    const workorderList = (workordersRes.data?.data || []).filter(w => w.status === 'pending' || w.status === 'open')
+    const workorderList = (workordersRes.data?.data || []).filter(w => w.status === 0 || w.status === 1 || w.status === 4)
 
     const lower = kw.toLowerCase()
     results.hosts = hostList.filter(h =>
@@ -246,7 +246,7 @@ const performSearch = async (kw) => {
     results.workorders = workorderList.filter(w =>
       (w.title || '').toLowerCase().includes(lower) ||
       (w.creator || '').toLowerCase().includes(lower) ||
-      (w.status || '').toLowerCase().includes(lower)
+      getWorkOrderStatusLabel(w.status).includes(lower)
     ).slice(0, 5)
   } catch (e) {
     // silent
@@ -281,6 +281,19 @@ const onOpened = () => {
   nextTick(() => {
     inputRef.value?.focus()
   })
+}
+
+const getWorkOrderStatusLabel = (status) => {
+  const map = {
+    0: '待审批',
+    1: '审批中',
+    2: '已通过',
+    3: '已拒绝',
+    4: '执行中',
+    5: '已完成',
+    6: '已取消'
+  }
+  return map[status] || '未知'
 }
 
 const onClosed = () => {

@@ -13,6 +13,9 @@ jwt:
   expire: 24
 
 plugins:
+  # 运营大盘
+  dashboard:
+    enabled: true
   # 资产管理
   cmdb:
     enabled: true
@@ -87,6 +90,9 @@ plugins:
   # Docker管理
   docker:
     enabled: true
+    config:
+      # Docker 主机状态后台检测间隔（秒），默认 60，范围 10-300
+      status_sync_interval_seconds: 60
   # Nacos配置中心
   nacos:
     enabled: true
@@ -107,6 +113,18 @@ plugins:
   # 系统管理
   system:
     enabled: true
+  # RBAC（用户/角色/权限/审计）
+  rbac:
+    enabled: true
   # 应用中心
   application:
+    enabled: true
+  # AI SRE 运维技能引擎（对接 lazysre sidecar）
+  sre:
+    enabled: true
+    config:
+      # Docker Swarm overlay 网络内，lazysre 服务名即为主机名
+      sidecar_url: "http://lazysre:8000"
+  # 日志中心
+  log:
     enabled: true

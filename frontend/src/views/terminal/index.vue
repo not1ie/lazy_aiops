@@ -705,10 +705,27 @@ const initTerminal = async () => {
     fontSize: 13,
     fontFamily: 'SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
     theme: {
-      background: '#08152f',
-      foreground: '#dbeafe',
-      cursor: '#60a5fa',
-      selectionBackground: 'rgba(96, 165, 250, 0.25)'
+      background: '#0b0f19',
+      foreground: '#e2e8f0',
+      cursor: '#38bdf8',
+      cursorAccent: '#0b0f19',
+      selectionBackground: 'rgba(56, 189, 248, 0.3)',
+      black: '#1e293b',
+      red: '#f87171',
+      green: '#34d399',
+      yellow: '#fbbf24',
+      blue: '#60a5fa',
+      magenta: '#c084fc',
+      cyan: '#38bdf8',
+      white: '#f8fafc',
+      brightBlack: '#475569',
+      brightRed: '#ef4444',
+      brightGreen: '#10b981',
+      brightYellow: '#f59e0b',
+      brightBlue: '#3b82f6',
+      brightMagenta: '#a855f7',
+      brightCyan: '#06b6d4',
+      brightWhite: '#ffffff'
     },
     scrollback: 3000
   })

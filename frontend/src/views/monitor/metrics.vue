@@ -54,17 +54,31 @@
     <el-table :fit="true" :data="settings" size="small" style="width: 100%; margin-top: 12px" :row-class-name="settingsRowClass">
       <el-table-column prop="type" label="类型" width="120">
         <template #default="scope">
-          <el-tag :type="scope.row.type === 'prometheus' ? 'warning' : scope.row.type === 'zabbix' ? 'primary' : 'success'" size="small">
-            {{ scope.row.type === 'prometheus' ? 'Prometheus' : scope.row.type === 'zabbix' ? 'Zabbix' : '夜莺 (N9e)' }}
+          <el-tag :type="scope.row.type === 'zabbix' ? 'primary' : scope.row.type === 'n9e' ? 'success' : 'warning'" size="small">
+            {{ scope.row.type === 'zabbix' ? 'Zabbix' : scope.row.type === 'n9e' ? '夜莺 (N9e)' : 'Prometheus' }}
           </el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="name" label="名称" width="160" />
       <el-table-column prop="prometheus_url" label="数据源地址" min-width="240" />
       <el-table-column prop="auth_type" label="认证方式" width="120" />
-      <el-table-column prop="active" label="当前激活" width="90">
+      <el-table-column prop="active" label="默认配置" width="105" align="center">
         <template #default="scope">
-          <el-tag v-if="scope.row.active" type="success">活动中</el-tag>
+          <el-tag v-if="scope.row.active" type="primary" effect="dark" size="small">主数据源</el-tag>
+          <span v-else style="color: #909399;">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="实时连通状态" width="135" align="center">
+        <template #default="scope">
+          <el-tag v-if="settingStatusMap[scope.row.id] === 'online'" type="success" effect="light" size="small">
+            ● 连通正常
+          </el-tag>
+          <el-tag v-else-if="settingStatusMap[scope.row.id] === 'offline'" type="danger" effect="light" size="small">
+            ● 无法连接
+          </el-tag>
+          <el-tag v-else type="info" effect="plain" size="small">
+            检测中...
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="340">
@@ -270,6 +284,30 @@ const fetchRealtime = async () => {
   lastUpdated.value = new Date().toLocaleString()
 }
 
+const settingStatusMap = ref({})
+
+const checkSingleSettingStatus = async (item) => {
+  if (!item || !item.id) return
+  settingStatusMap.value[item.id] = 'checking'
+  try {
+    const res = await axios.post(`/api/v1/monitor/settings/${item.id}/test`, {}, { headers: authHeaders(), timeout: 3000 })
+    const data = res.data || {}
+    if (data.status === 'success' || data.result || data.dat || res.status === 200) {
+      settingStatusMap.value[item.id] = 'online'
+    } else {
+      settingStatusMap.value[item.id] = 'offline'
+    }
+  } catch (err) {
+    settingStatusMap.value[item.id] = 'offline'
+  }
+}
+
+const checkAllSettingsStatus = () => {
+  (settings.value || []).forEach((item) => {
+    checkSingleSettingStatus(item)
+  })
+}
+
 const fetchSettings = async () => {
   try {
     const res = await axios.get('/api/v1/monitor/settings', { headers: authHeaders() })
@@ -277,6 +315,7 @@ const fetchSettings = async () => {
       settings.value = res.data.data || []
       const active = settings.value.find(s => s.active)
       currentProm.value = active ? (active.name || active.prometheus_url) : ''
+      checkAllSettingsStatus()
     }
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '加载 Prometheus 配置失败'))
@@ -359,16 +398,21 @@ const activateSetting = async (row) => {
 }
 
 const testSetting = async (row) => {
+  if (!row || !row.id) return
+  settingStatusMap.value[row.id] = 'checking'
   try {
     const res = await axios.post(`/api/v1/monitor/settings/${row.id}/test`, {}, { headers: authHeaders() })
     const data = res.data || {}
     if (data.status === 'success' || data.result || data.dat || res.status === 200) {
+      settingStatusMap.value[row.id] = 'online'
       ElMessage.success('连接测试成功')
     } else {
+      settingStatusMap.value[row.id] = 'offline'
       ElMessage.warning('连接测试返回值异常')
     }
   } catch (err) {
-    ElMessage.error(getErrorMessage(err, '连接失败'))
+    settingStatusMap.value[row.id] = 'offline'
+    ElMessage.error(getErrorMessage(err, '连接失败: ' + (err.response?.data?.message || err.message)))
   }
 }
 

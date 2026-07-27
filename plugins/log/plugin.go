@@ -122,6 +122,7 @@ func (p *LogPlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// 查询
 	g.GET("/query", h.QueryLogs)
+	g.GET("/query/context", h.GetLogContext)
 
 	// 告警规则
 	g.GET("/alerts", h.ListAlertRules)

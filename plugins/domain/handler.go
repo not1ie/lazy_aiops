@@ -332,37 +332,68 @@ func (h *DomainHandler) CreateCert(c *gin.Context) {
 		Domain string `json:"domain" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误，请输入正确的域名或URL"})
 		return
 	}
 
-	// 检查证书
-	certInfo, err := h.checkSSL(req.Domain)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "获取证书失败: " + err.Error()})
+	cleanedDomain, _ := cleanDomainInput(req.Domain)
+	if cleanedDomain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "请输入有效的域名"})
 		return
-	}
-
-	cert := SSLCertificate{
-		Domain:       req.Domain,
-		Issuer:       certInfo["issuer"].(string),
-		Subject:      certInfo["subject"].(string),
-		SANs:         certInfo["sans"].(string),
-		NotBefore:    certInfo["not_before"].(*time.Time),
-		NotAfter:     certInfo["not_after"].(*time.Time),
-		DaysToExpire: certInfo["days_to_expire"].(int),
-		SerialNumber: certInfo["serial_number"].(string),
-		Status:       1,
-	}
-
-	if cert.DaysToExpire <= 0 {
-		cert.Status = 0 // 已过期
-	} else if cert.DaysToExpire <= 30 {
-		cert.Status = 2 // 即将过期
 	}
 
 	now := time.Now()
-	cert.LastCheckAt = &now
+	certInfo, err := h.checkSSL(cleanedDomain)
+
+	var cert SSLCertificate
+	var noticeMsg string
+
+	if err != nil {
+		noticeMsg = "添加成功，但证书首次检测连通失败: " + err.Error()
+		future := now.AddDate(0, 1, 0)
+		cert = SSLCertificate{
+			Domain:       cleanedDomain,
+			Issuer:       "未知 (检测超时/未建连)",
+			Subject:      cleanedDomain,
+			SANs:         cleanedDomain,
+			NotBefore:    &now,
+			NotAfter:     &future,
+			DaysToExpire: 0,
+			SerialNumber: "-",
+			Status:       0,
+			LastCheckAt:  &now,
+		}
+	} else {
+		days := certInfo["days_to_expire"].(int)
+		status := 1
+		if days <= 0 {
+			status = 0
+		} else if days <= 30 {
+			status = 2
+		}
+
+		cert = SSLCertificate{
+			Domain:       cleanedDomain,
+			Issuer:       certInfo["issuer"].(string),
+			Subject:      certInfo["subject"].(string),
+			SANs:         certInfo["sans"].(string),
+			NotBefore:    certInfo["not_before"].(*time.Time),
+			NotAfter:     certInfo["not_after"].(*time.Time),
+			DaysToExpire: days,
+			SerialNumber: certInfo["serial_number"].(string),
+			Status:       status,
+			LastCheckAt:  &now,
+		}
+	}
+
+	// 幂等处理：若已存在同域名记录则更新
+	var existing SSLCertificate
+	if h.db.First(&existing, "domain = ?", cleanedDomain).Error == nil {
+		cert.ID = existing.ID
+		_ = h.db.Model(&existing).Updates(&cert).Error
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": existing, "message": "域名监控已存在，已更新最新信息"})
+		return
+	}
 
 	createTx := h.db
 	if h.certSansColumn == "" || h.certSansColumn == "s_a_ns" {
@@ -388,7 +419,7 @@ func (h *DomainHandler) CreateCert(c *gin.Context) {
 		_ = h.db.Model(&cert).Update("s_a_ns", cert.SANs).Error
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cert})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cert, "message": noticeMsg})
 }
 
 // DeleteCert 删除证书监控
@@ -410,14 +441,19 @@ func (h *DomainHandler) CheckCert(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
 	certInfo, err := h.checkSSL(cert.Domain)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "检查失败: " + err.Error()})
+		updates := map[string]interface{}{
+			"status":        0,
+			"last_check_at": now,
+		}
+		_ = h.db.Model(&cert).Updates(updates).Error
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": cert, "message": "检查完成，握手连接失败: " + err.Error()})
 		return
 	}
 
 	// 更新证书信息
-	now := time.Now()
 	updates := map[string]interface{}{
 		"issuer":         certInfo["issuer"],
 		"subject":        certInfo["subject"],
@@ -530,6 +566,10 @@ func (h *DomainHandler) checkAllCertsInternal() (int, int, int, error) {
 		certInfo, err := h.checkSSL(cert.Domain)
 		if err != nil {
 			failed++
+			_ = h.db.Model(&cert).Updates(map[string]interface{}{
+				"status":        0,
+				"last_check_at": now,
+			}).Error
 			continue
 		}
 		updates := map[string]interface{}{
@@ -663,6 +703,10 @@ func (h *DomainHandler) inspectDomainRuntime(domain string) (*domainRuntimeResul
 }
 
 func (h *DomainHandler) probeHTTP(domain string) (int, int, error) {
+	cleaned, _ := cleanDomainInput(domain)
+	if cleaned == "" {
+		cleaned = domain
+	}
 	client := &http.Client{
 		Timeout: 8 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -672,7 +716,7 @@ func (h *DomainHandler) probeHTTP(domain string) (int, int, error) {
 			return nil
 		},
 	}
-	targets := []string{"https://" + domain, "http://" + domain}
+	targets := []string{"https://" + cleaned, "http://" + cleaned}
 	var lastErr error
 	for _, target := range targets {
 		req, _ := http.NewRequest(http.MethodGet, target, nil)
@@ -729,8 +773,42 @@ func (h *DomainHandler) updateDomainRuntimeByDomain(domain string, runtime *doma
 	_ = h.db.Model(&CloudDomain{}).Where("domain = ?", domain).Updates(updates).Error
 }
 
-func (h *DomainHandler) checkSSL(domain string) (map[string]interface{}, error) {
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", domain+":443", &tls.Config{
+func cleanDomainInput(raw string) (cleanedDomain string, dialAddr string) {
+	d := strings.TrimSpace(raw)
+	d = strings.TrimPrefix(d, "https://")
+	d = strings.TrimPrefix(d, "http://")
+	if idx := strings.Index(d, "/"); idx != -1 {
+		d = d[:idx]
+	}
+	if idx := strings.Index(d, "?"); idx != -1 {
+		d = d[:idx]
+	}
+	if idx := strings.Index(d, "#"); idx != -1 {
+		d = d[:idx]
+	}
+	d = strings.TrimSpace(d)
+	if d == "" {
+		return "", ""
+	}
+	if strings.Contains(d, ":") {
+		return d, d
+	}
+	return d, d + ":443"
+}
+
+func (h *DomainHandler) checkSSL(rawDomain string) (map[string]interface{}, error) {
+	cleanedDomain, dialAddr := cleanDomainInput(rawDomain)
+	if cleanedDomain == "" {
+		return nil, fmt.Errorf("无效的域名或URL格式")
+	}
+
+	hostOnly := cleanedDomain
+	if idx := strings.Index(cleanedDomain, ":"); idx != -1 {
+		hostOnly = cleanedDomain[:idx]
+	}
+
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 8 * time.Second}, "tcp", dialAddr, &tls.Config{
+		ServerName:         hostOnly,
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
@@ -740,17 +818,37 @@ func (h *DomainHandler) checkSSL(domain string) (map[string]interface{}, error) 
 
 	certs := conn.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
-		return nil, fmt.Errorf("no certificates found")
+		return nil, fmt.Errorf("未找到有效证书")
 	}
 
 	cert := certs[0]
-	daysToExpire := int(time.Until(cert.NotAfter).Hours() / 24)
+	daysToExpire := calcDaysToExpire(&cert.NotAfter)
 
 	sans := strings.Join(cert.DNSNames, ", ")
+	if sans == "" {
+		sans = cleanedDomain
+	}
+
+	issuer := cert.Issuer.CommonName
+	if issuer == "" && len(cert.Issuer.Organization) > 0 {
+		issuer = cert.Issuer.Organization[0]
+	}
+	if issuer == "" {
+		issuer = "未知颁发者"
+	}
+
+	subject := cert.Subject.CommonName
+	if subject == "" && len(cert.Subject.Organization) > 0 {
+		subject = cert.Subject.Organization[0]
+	}
+	if subject == "" {
+		subject = cleanedDomain
+	}
 
 	return map[string]interface{}{
-		"issuer":         cert.Issuer.CommonName,
-		"subject":        cert.Subject.CommonName,
+		"cleaned_domain": cleanedDomain,
+		"issuer":         issuer,
+		"subject":        subject,
 		"sans":           sans,
 		"not_before":     &cert.NotBefore,
 		"not_after":      &cert.NotAfter,
@@ -828,6 +926,13 @@ func (h *DomainHandler) refreshCertRuntimeFields(cert *SSLCertificate) {
 		return
 	}
 	cert.DaysToExpire = calcDaysToExpire(cert.NotAfter)
+
+	// 如果证书是握手建连失败状态（序列号为 "-" 或 Issuer 包含未建连/超时），锁定 Status = 0 (不可达/异常)
+	if cert.SerialNumber == "-" || strings.Contains(cert.Issuer, "未建连") || strings.Contains(cert.Issuer, "超时") || cert.Issuer == "未知" {
+		cert.Status = 0
+		return
+	}
+
 	switch {
 	case cert.NotAfter == nil:
 		// 保持原状态

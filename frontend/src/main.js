@@ -24,7 +24,13 @@ axios.interceptors.request.use(
 )
 
 axios.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const refreshToken = response.headers['x-refresh-token'] || response.headers['X-Refresh-Token']
+    if (refreshToken) {
+      localStorage.setItem('token', refreshToken)
+    }
+    return response
+  },
   (error) => {
     if (error.response && (error.response.status === 401 || error.response.status === 403)) {
       const currentPath = window.location.pathname

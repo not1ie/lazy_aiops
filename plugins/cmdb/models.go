@@ -21,6 +21,34 @@ func (b *BaseModel) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+func (h *Host) BeforeCreate(tx *gorm.DB) error {
+	if h.ID == "" {
+		h.ID = uuid.New().String()
+	}
+	return nil
+}
+
+func (g *HostGroup) BeforeCreate(tx *gorm.DB) error {
+	if g.ID == "" {
+		g.ID = uuid.New().String()
+	}
+	return nil
+}
+
+func (c *Credential) BeforeCreate(tx *gorm.DB) error {
+	if c.ID == "" {
+		c.ID = uuid.New().String()
+	}
+	return nil
+}
+
+func (n *NetworkDevice) BeforeCreate(tx *gorm.DB) error {
+	if n.ID == "" {
+		n.ID = uuid.New().String()
+	}
+	return nil
+}
+
 // Host 主机
 type Host struct {
 	BaseModel

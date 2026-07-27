@@ -109,8 +109,9 @@ func (p *WorkOrderPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		orders.POST("/:id/comment", h.AddComment)
 	}
 
-	// 统计
+	// 统计与服务目录
 	g.GET("/stats", h.GetStats)
+	g.GET("/catalog", h.ListServiceCatalog)
 }
 
 func (p *WorkOrderPlugin) initDefaultTypes() {

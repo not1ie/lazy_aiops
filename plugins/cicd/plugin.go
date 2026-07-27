@@ -69,6 +69,7 @@ func (p *CICDPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/releases", p.handler.CreateRelease)
 	r.PUT("/releases/:id", p.handler.UpdateRelease)
 	r.DELETE("/releases/:id", p.handler.DeleteRelease)
+	r.POST("/releases/:id/rollback", p.handler.RollbackRelease)
 
 	// 镜像仓库管理
 	r.GET("/registries", p.handler.ListRegistries)

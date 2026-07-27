@@ -79,7 +79,7 @@
             <p class="panel-desc">当前 Top 容器 CPU / 内存排行。</p>
           </div>
           <div class="panel-actions">
-            <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
+            <el-button size="small" :loading="topLoading" icon="Refresh" @click="handleRefreshTop">刷新排行</el-button>
           </div>
         </div>
         <el-row :gutter="16">
@@ -624,6 +624,20 @@ const renderBarChart = (chart, title, items, valueKey, unit) => {
     } catch {
       return null
     }
+  }
+}
+
+const topLoading = ref(false)
+
+const handleRefreshTop = async () => {
+  topLoading.value = true
+  try {
+    await fetchTable()
+    ElMessage.success('容器排行指标已实时更新')
+  } catch (err) {
+    ElMessage.error('刷新排行失败: ' + (err.message || ''))
+  } finally {
+    topLoading.value = false
   }
 }
 

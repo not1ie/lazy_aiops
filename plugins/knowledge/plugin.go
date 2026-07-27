@@ -39,7 +39,7 @@ func (p *KnowledgePlugin) Start() error { return nil }
 func (p *KnowledgePlugin) Stop() error  { return nil }
 
 func (p *KnowledgePlugin) Migrate() error {
-	return p.core.DB.AutoMigrate(&Document{})
+	return p.core.DB.AutoMigrate(&Document{}, &SyncSource{})
 }
 
 func (p *KnowledgePlugin) RegisterRoutes(g *gin.RouterGroup) {
@@ -57,6 +57,12 @@ func (p *KnowledgePlugin) RegisterRoutes(g *gin.RouterGroup) {
 
 	// 智能问答
 	g.POST("/ask", h.Ask)
+
+	// 同步源管理与一键同步 API
+	g.GET("/sources", h.ListSources)
+	g.POST("/sources", h.CreateSource)
+	g.DELETE("/sources/:id", h.DeleteSource)
+	g.POST("/sources/:id/sync", h.SyncSource)
 }
 
 // Handler

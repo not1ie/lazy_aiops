@@ -36,9 +36,10 @@
             </template>
           </el-table-column>
           <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-          <el-table-column label="操作" width="240" fixed="right">
+          <el-table-column label="操作" width="310" fixed="right">
             <template #default="{ row }">
               <el-space size="8">
+                <el-button size="small" type="success" plain icon="Refresh" :loading="row.syncing" @click="handleSyncAccount(row)">自动同步资产</el-button>
                 <el-button size="small" type="warning" plain icon="FirstAidKit" @click="openTest(row)">测试</el-button>
                 <el-button size="small" type="primary" plain @click="openEdit('accounts', row)">编辑</el-button>
                 <el-button size="small" type="danger" plain @click="handleDelete('accounts', row)">删除</el-button>
@@ -94,33 +95,57 @@
   <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="600px">
     <el-form v-if="activeDialog === 'accounts'" :model="accountForm" label-width="110px">
       <el-form-item label="账号名称" required>
-        <el-input v-model="accountForm.name" />
+        <el-input v-model="accountForm.name" placeholder="如：生产环境-阿里云" />
       </el-form-item>
       <el-form-item label="云厂商" required>
         <el-select v-model="accountForm.provider" style="width: 100%">
-          <el-option label="腾讯云" value="tencent" />
-          <el-option label="百度云" value="baidu" />
           <el-option label="阿里云" value="aliyun" />
+          <el-option label="腾讯云" value="tencent" />
           <el-option label="华为云" value="huawei" />
+          <el-option label="百度云" value="baidu" />
           <el-option label="AWS" value="aws" />
         </el-select>
       </el-form-item>
-      <el-form-item label="AccessKey">
-        <el-input v-model="accountForm.access_key" />
-        <div v-if="isEdit" class="helper-row">已加载当前 AccessKey，可直接修改。</div>
+      <el-form-item label="认证模式" required>
+        <el-radio-group v-model="accountForm.auth_type">
+          <el-radio label="ak_sk">AK/SK 密钥 (RAM只读)</el-radio>
+          <el-radio label="sts_role">RAM Role 跨账号信任 (STS)</el-radio>
+          <el-radio label="instance_role">ECS 实例免密角色</el-radio>
+        </el-radio-group>
       </el-form-item>
-      <el-form-item label="SecretKey">
-        <el-input v-model="accountForm.secret_key" type="password" show-password />
-        <div v-if="isEdit" class="helper-row">已加载当前 SecretKey，可直接修改。</div>
-      </el-form-item>
-      <el-form-item label="区域">
-        <el-input v-model="accountForm.region" placeholder="如：ap-guangzhou" />
+
+      <template v-if="accountForm.auth_type === 'ak_sk'">
+        <el-form-item label="AccessKey">
+          <el-input v-model="accountForm.access_key" placeholder="LTAI5t..." />
+          <div v-if="isEdit" class="helper-row">已加载 AccessKey 密文。</div>
+        </el-form-item>
+        <el-form-item label="SecretKey">
+          <el-input v-model="accountForm.secret_key" type="password" show-password placeholder="输入 AccessKey Secret" />
+          <div v-if="isEdit" class="helper-row">已加载 SecretKey 密文。</div>
+        </el-form-item>
+      </template>
+
+      <template v-else-if="accountForm.auth_type === 'sts_role'">
+        <el-form-item label="Role ARN">
+          <el-input v-model="accountForm.role_arn" placeholder="acs:ram::123456789:role/LazyOpsRole" />
+          <div class="helper-row text-primary">无需保存私钥！向云厂商申请临时 15 分钟 STS 令牌，随时在云控制台撤销。</div>
+        </el-form-item>
+      </template>
+
+      <template v-else-if="accountForm.auth_type === 'instance_role'">
+        <el-alert type="success" :closable="false" class="mb-12">
+          🛡️ 免密模式：如果 LazyOps 部署在当前云的 ECS 上，只需给该 ECS 绑定 RAM 实例角色，无需输入任何密钥！
+        </el-alert>
+      </template>
+
+      <el-form-item label="区域 (Region)">
+        <el-input v-model="accountForm.region" placeholder="如：cn-hangzhou / ap-guangzhou" />
       </el-form-item>
       <el-form-item label="状态">
         <el-switch v-model="accountForm.status" :active-value="1" :inactive-value="0" />
       </el-form-item>
       <el-form-item label="描述">
-        <el-input v-model="accountForm.description" type="textarea" :rows="3" />
+        <el-input v-model="accountForm.description" type="textarea" :rows="3" placeholder="账号用途说明及安全备份备注" />
       </el-form-item>
     </el-form>
 
@@ -185,7 +210,7 @@
   <el-dialog append-to-body v-model="testVisible" title="云账号测试" width="560px">
     <el-alert v-if="testError" type="error" :closable="false" show-icon>{{ testError }}</el-alert>
     <el-alert v-if="testSuccess" type="success" :closable="false" show-icon>{{ testSuccess }}</el-alert>
-    <div class="test-tip">仅校验 AccessKey/SecretKey 是否填写，不调用真实云 API。</div>
+    <div class="test-tip">🚀 系统正真实向云厂商 OpenAPI 发起 HMAC-SHA1 签名与连通性校验，实时测试 Key 是否可用及账号状态。</div>
     <template #footer>
       <el-button @click="testVisible = false">关闭</el-button>
       <el-button type="primary" :loading="testLoading" @click="submitTest">测试</el-button>
@@ -251,9 +276,11 @@ const resourceFilters = reactive({
 
 const accountForm = reactive({
   name: '',
-  provider: 'tencent',
+  provider: 'aliyun',
+  auth_type: 'ak_sk',
   access_key: '',
   secret_key: '',
+  role_arn: '',
   region: '',
   status: 1,
   description: ''
@@ -320,6 +347,24 @@ const fetchResources = async () => {
     ElMessage.error(getErrorMessage(error, '加载云资源失败'))
   } finally {
     loadingResources.value = false
+  }
+}
+
+const handleSyncAccount = async (row) => {
+  row.syncing = true
+  try {
+    const res = await axios.post(`/api/v1/cmdb/cloud/accounts/${row.id}/sync`, {}, { headers: headers() })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data.message || '云资产自动发现与同步完成！')
+      fetchAccounts()
+      fetchResources()
+    } else {
+      ElMessage.error(res.data?.message || '同步失败')
+    }
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.message || '云资产检测与同步异常')
+  } finally {
+    row.syncing = false
   }
 }
 

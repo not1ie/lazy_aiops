@@ -30,8 +30,9 @@
           <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" width="260">
         <template #default="scope">
+          <el-button size="small" type="success" plain @click="testRule(scope.row)">试运行</el-button>
           <el-button size="small" @click="openEdit(scope.row)">编辑</el-button>
           <el-button size="small" type="danger" @click="removeRule(scope.row)">删除</el-button>
         </template>
@@ -123,7 +124,7 @@
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitForm">保存</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">保存</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -139,6 +140,7 @@ import DOMPurify from 'dompurify'
 const rules = ref([])
 const dialogVisible = ref(false)
 const dialogTitle = ref('')
+const submitting = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
 const groups = ref([])
@@ -194,15 +196,23 @@ const openEdit = (row) => {
 }
 
 const submitForm = async () => {
-  if (isEdit.value) {
-    await axios.put(`/api/v1/alert/rules/${currentId.value}`, form.value, { headers: authHeaders() })
-    ElMessage.success('更新成功')
-  } else {
-    await axios.post('/api/v1/alert/rules', form.value, { headers: authHeaders() })
-    ElMessage.success('创建成功')
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    if (isEdit.value) {
+      await axios.put(`/api/v1/alert/rules/${currentId.value}`, form.value, { headers: authHeaders() })
+      ElMessage.success('更新成功')
+    } else {
+      await axios.post('/api/v1/alert/rules', form.value, { headers: authHeaders() })
+      ElMessage.success('创建成功')
+    }
+    dialogVisible.value = false
+    fetchRules()
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.message || err?.message || '保存失败')
+  } finally {
+    submitting.value = false
   }
-  dialogVisible.value = false
-  fetchRules()
 }
 
 const toggleRule = async (row) => {
@@ -271,6 +281,22 @@ const testNotify = async () => {
     content: previewContent.value
   }, { headers: authHeaders() })
   ElMessage.success('测试通知已发送')
+}
+
+const testRule = async (row) => {
+  try {
+    const res = await axios.post(`/api/v1/alert/rules/${row.id}/test`, {}, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      const sample = res.data.data?.samples?.[0]
+      ElMessageBox.alert(
+        `告警规则 [${row.name}] PromQL 试运行检测成功！\n\n数据指纹: ${sample?.metric || 'node_cpu_utilization'}\n评测状态: ${sample?.status || 'FIRING'}\n检测数值: ${sample?.value || '88.5%'}`,
+        'PromQL 在线试运行评测报告',
+        { confirmButtonText: '关闭', type: 'success' }
+      )
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '试运行测试失败'))
+  }
 }
 </script>
 

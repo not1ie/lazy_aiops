@@ -14,6 +14,9 @@
           <el-button type="warning" plain icon="Edit" :disabled="selectedRows.length === 0" @click="openBatchStatus">
             批量状态
           </el-button>
+          <el-button type="primary" plain icon="Folder" :disabled="selectedRows.length === 0" @click="openBatchGroup">
+            批量分组 ({{ selectedRows.length }})
+          </el-button>
           <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
             批量删除 ({{ selectedRows.length }})
           </el-button>
@@ -99,9 +102,48 @@
               <el-option label="未分组" :value="UNGROUPED_GROUP_ID" />
               <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
             </el-select>
-            <el-tag type="info" effect="plain">总计 {{ filteredTableData.length }}</el-tag>
-            <el-tag type="success" effect="plain">在线 {{ onlineCount }}</el-tag>
-            <el-tag type="warning" effect="plain">离线 {{ offlineCount }}</el-tag>
+            <div class="status-filter-group flex items-center gap-2">
+              <el-tag
+                :type="statusFilter === 'all' ? 'primary' : 'info'"
+                :effect="statusFilter === 'all' ? 'dark' : 'plain'"
+                style="cursor: pointer; user-select: none; transition: all 0.2s;"
+                @click="toggleStatusFilter('all')"
+              >
+                总计 {{ totalCount }}
+              </el-tag>
+              <el-tag
+                type="success"
+                :effect="statusFilter === 'online' ? 'dark' : 'plain'"
+                style="cursor: pointer; user-select: none; transition: all 0.2s;"
+                @click="toggleStatusFilter('online')"
+              >
+                在线 {{ onlineCount }}
+              </el-tag>
+              <el-tag
+                type="warning"
+                :effect="statusFilter === 'offline' ? 'dark' : 'plain'"
+                style="cursor: pointer; user-select: none; transition: all 0.2s;"
+                @click="toggleStatusFilter('offline')"
+              >
+                离线 {{ offlineCount }}
+              </el-tag>
+            </div>
+            
+            <el-popover placement="bottom" title="列显示设置" :width="200" trigger="click">
+              <template #reference>
+                <el-button icon="Setting" style="margin-left: auto" circle />
+              </template>
+              <div class="column-setting-list" style="display: flex; flex-direction: column; gap: 8px;">
+                <el-checkbox v-model="showColumns.ip">IP地址</el-checkbox>
+                <el-checkbox v-model="showColumns.provider">云厂商</el-checkbox>
+                <el-checkbox v-model="showColumns.os">操作系统</el-checkbox>
+                <el-checkbox v-model="showColumns.cpu">CPU使用率</el-checkbox>
+                <el-checkbox v-model="showColumns.memory">内存使用率</el-checkbox>
+                <el-checkbox v-model="showColumns.disk">磁盘使用率</el-checkbox>
+                <el-checkbox v-model="showColumns.status">监控状态</el-checkbox>
+                <el-checkbox v-model="showColumns.desc">备注</el-checkbox>
+              </div>
+            </el-popover>
           </div>
         </div>
 
@@ -123,46 +165,46 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="ip" label="IP地址" min-width="140" />
-            <el-table-column label="云厂商" min-width="110" align="center">
+            <el-table-column prop="ip" label="IP地址" min-width="140" v-if="showColumns.ip" />
+            <el-table-column label="云厂商" min-width="110" align="center" v-if="showColumns.provider">
               <template #default="{ row }">
                 <el-tag size="small" :type="providerTagType(hostProvider(row))" effect="plain">
                   {{ providerLabel(hostProvider(row)) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="os" label="操作系统" min-width="160" show-overflow-tooltip />
-            <el-table-column label="CPU" min-width="140" align="center">
+            <el-table-column prop="os" label="操作系统" min-width="130" show-overflow-tooltip v-if="showColumns.os" />
+            <el-table-column label="CPU" min-width="145" align="center" v-if="showColumns.cpu">
               <template #default="{ row }">
-                <div class="flex flex-col items-center justify-center gap-1">
-                  <span class="font-medium" style="font-size: 13px">{{ hardwareUsageText(row, 'cpu', '核') }}</span>
-                  <el-tag v-if="hasMetricValue(row, 'cpu')" size="small" effect="light" :type="metricTagType(metricValue(row, 'cpu'))" style="font-size: 10px; padding: 0 4px; height: 20px;">
+                <div class="flex items-center justify-center gap-1.5 whitespace-nowrap" style="white-space: nowrap;">
+                  <span class="font-medium" style="font-size: 13px; white-space: nowrap;">{{ hardwareUsageText(row, 'cpu', '核') }}</span>
+                  <el-tag v-if="hasMetricValue(row, 'cpu') && hardwareUsageText(row, 'cpu', '核').includes('/')" size="small" effect="light" :type="metricTagType(metricValue(row, 'cpu'))" style="font-size: 10px; padding: 0 4px; height: 18px; line-height: 18px;">
                     {{ metricText(row, 'cpu') }}
                   </el-tag>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="内存" min-width="140" align="center">
+            <el-table-column label="内存" min-width="145" align="center" v-if="showColumns.memory">
               <template #default="{ row }">
-                <div class="flex flex-col items-center justify-center gap-1">
-                  <span class="font-medium" style="font-size: 13px">{{ hardwareUsageText(row, 'memory', 'G') }}</span>
-                  <el-tag v-if="hasMetricValue(row, 'memory')" size="small" effect="light" :type="metricTagType(metricValue(row, 'memory'))" style="font-size: 10px; padding: 0 4px; height: 20px;">
+                <div class="flex items-center justify-center gap-1.5 whitespace-nowrap" style="white-space: nowrap;">
+                  <span class="font-medium" style="font-size: 13px; white-space: nowrap;">{{ hardwareUsageText(row, 'memory', 'G') }}</span>
+                  <el-tag v-if="hasMetricValue(row, 'memory') && hardwareUsageText(row, 'memory', 'G').includes('/')" size="small" effect="light" :type="metricTagType(metricValue(row, 'memory'))" style="font-size: 10px; padding: 0 4px; height: 18px; line-height: 18px;">
                     {{ metricText(row, 'memory') }}
                   </el-tag>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="磁盘" min-width="140" align="center">
+            <el-table-column label="磁盘" min-width="145" align="center" v-if="showColumns.disk">
               <template #default="{ row }">
-                <div class="flex flex-col items-center justify-center gap-1">
-                  <span class="font-medium" style="font-size: 13px">{{ hardwareUsageText(row, 'disk', 'G') }}</span>
-                  <el-tag v-if="hasMetricValue(row, 'disk')" size="small" effect="light" :type="metricTagType(metricValue(row, 'disk'))" style="font-size: 10px; padding: 0 4px; height: 20px;">
+                <div class="flex items-center justify-center gap-1.5 whitespace-nowrap" style="white-space: nowrap;">
+                  <span class="font-medium" style="font-size: 13px; white-space: nowrap;">{{ hardwareUsageText(row, 'disk', 'G') }}</span>
+                  <el-tag v-if="hasMetricValue(row, 'disk') && hardwareUsageText(row, 'disk', 'G').includes('/')" size="small" effect="light" :type="metricTagType(metricValue(row, 'disk'))" style="font-size: 10px; padding: 0 4px; height: 18px; line-height: 18px;">
                     {{ metricText(row, 'disk') }}
                   </el-tag>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" min-width="120">
+            <el-table-column prop="status" label="状态" min-width="120" v-if="showColumns.status">
               <template #default="{ row }">
                 <StatusBadge
                   :text="hostStatusMeta(row).text"
@@ -175,18 +217,35 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column prop="last_check_at" label="最后检测" width="160">
+            <el-table-column prop="last_check_at" label="最后检测" width="160" v-if="showColumns.status">
               <template #default="{ row }">
                 {{ formatTime(hostStatusMeta(row).checkAt || row.last_check_at) }}
               </template>
             </el-table-column>
-            <el-table-column prop="status_reason" label="状态说明" min-width="200" show-overflow-tooltip>
+            <el-table-column prop="status_reason" label="状态说明" min-width="200" show-overflow-tooltip v-if="showColumns.status">
               <template #default="{ row }">
                 {{ hostStatusMeta(row).reason || '-' }}
               </template>
             </el-table-column>
             <el-table-column prop="group.name" label="分组" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">{{ row?.group?.name || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="description" label="备注 (双击编辑)" min-width="180" show-overflow-tooltip v-if="showColumns.desc">
+              <template #default="{ row }">
+                <div @dblclick.stop="startEditDescription(row)" style="min-height: 24px; display: flex; align-items: center;">
+                  <el-input
+                    v-if="editingHostId === row.id"
+                    v-model="editingDescription"
+                    size="small"
+                    :ref="(el) => { if(el) descInputRefs[row.id] = el }"
+                    @blur="saveDescription(row)"
+                    @keyup.enter="saveDescription(row)"
+                  />
+                  <span v-else style="cursor: pointer; display: inline-block; width: 100%;">
+                    {{ row.description || '—' }}
+                  </span>
+                </div>
+              </template>
             </el-table-column>
             <el-table-column label="操作" width="330" fixed="right" class-name="fixed-op-col">
               <template #default="{ row }">
@@ -201,6 +260,7 @@
                     </el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
+                        <el-dropdown-item command="diagnose">网络诊断</el-dropdown-item>
                         <el-dropdown-item command="process">进程</el-dropdown-item>
                         <el-dropdown-item command="tcp">TCP</el-dropdown-item>
                         <el-dropdown-item command="monitor">监控</el-dropdown-item>
@@ -213,11 +273,21 @@
             </el-table-column>
           </el-table>
 
-          <div class="pagination-wrapper">
+          <div class="pagination-wrapper flex items-center justify-between" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+            <div class="flex items-center gap-2">
+              <el-button
+                size="small"
+                :type="pageSize >= 1000 ? 'primary' : 'default'"
+                style="border-radius: 12px; font-size: 12px;"
+                @click="selectAllPage"
+              >
+                显示全部 (All)
+              </el-button>
+            </div>
             <el-pagination
               v-model:current-page="currentPage"
               v-model:page-size="pageSize"
-              :page-sizes="[10, 20, 50, 100]"
+              :page-sizes="[10, 20, 50, 100, 500, 1000]"
               layout="total, sizes, prev, pager, next, jumper"
               :total="totalHosts"
               @size-change="fetchData"
@@ -553,6 +623,24 @@
         <el-button type="primary" :loading="batchStatusLoading" @click="submitBatchStatus">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog append-to-body v-model="batchGroupVisible" title="批量设置分组" width="440px">
+      <el-form label-width="90px">
+        <el-form-item label="已选主机">
+          <span style="font-weight: 600; color: #409eff;">{{ selectedRows.length }} 台</span>
+        </el-form-item>
+        <el-form-item label="目标分组">
+          <el-select v-model="batchTargetGroupId" placeholder="请选择目标分组" style="width: 100%" clearable>
+            <el-option label="未分组 (清空分组)" value="" />
+            <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchGroupVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchGroupLoading" @click="submitBatchGroup">确认保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -564,23 +652,52 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { cmdbHostStatusMeta } from '@/utils/status'
+import { useHostsStore } from '@/store/hosts'
 
 const router = useRouter()
+const hostsStore = useHostsStore()
 
 const UNGROUPED_GROUP_ID = '__ungrouped__'
 const DEFAULT_HOST_PORT = 22
 
 const loading = ref(false)
 const tableData = ref([])
-const currentPage = ref(1)
-const pageSize = ref(20)
+const currentPage = computed({
+  get: () => hostsStore.currentPage,
+  set: (val) => { hostsStore.currentPage = val }
+})
+const pageSize = computed({
+  get: () => hostsStore.pageSize,
+  set: (val) => { hostsStore.pageSize = val }
+})
 const totalHosts = ref(0)
 const groups = ref([])
 const selectedRows = ref([])
-const searchKeyword = ref('')
-const activeGroupId = ref('')
+const searchKeyword = computed({
+  get: () => hostsStore.searchKeyword,
+  set: (val) => { hostsStore.searchKeyword = val }
+})
+const activeGroupId = computed({
+  get: () => hostsStore.activeGroupId,
+  set: (val) => { hostsStore.activeGroupId = val }
+})
 const groupKeyword = ref('')
 const groupTreeRef = ref(null)
+
+const showColumns = ref({
+  ip: true,
+  provider: true,
+  os: true,
+  cpu: true,
+  memory: true,
+  disk: true,
+  status: true,
+  desc: true
+})
+
+watch(showColumns, (val) => {
+  localStorage.setItem('lazy_hosts_columns', JSON.stringify(val))
+}, { deep: true })
 
 const dialogVisible = ref(false)
 const submitting = ref(false)
@@ -792,16 +909,56 @@ const metricText = (row, key) => {
 }
 
 const hardwareUsageText = (row, key, unit) => {
-  if (!row) return `- / - ${unit}`
-  const total = toNumber(row[key])
-  if (!Number.isFinite(total)) return `- / - ${unit}`
+  if (!row) return 'N/A'
   
+  // 1. 优先尝试从 CMDB 静态资产字段提取
+  let total = toNumber(row[key])
+  
+  // 2. 若静态字段未填，智能从 Prometheus / Monitor 监控指标对象中提取物理总容量
+  const metric = hostMetric(row) || {}
+  if (!Number.isFinite(total)) {
+    if (key === 'cpu') {
+      total = toNumber(metric.cpu_cores || metric.cores || metric.total_cpu || metric.cpu_total)
+    } else if (key === 'memory') {
+      total = toNumber(metric.mem_total_gb || metric.memory_total || metric.mem_total || metric.total_mem)
+    } else if (key === 'disk') {
+      total = toNumber(metric.disk_total_gb || metric.disk_total || metric.total_disk)
+    }
+  }
+
   const usagePct = metricValue(row, key)
-  if (!Number.isFinite(usagePct)) return `- / ${total}${unit}`
-  
+
+  // 如果主机未在线（离线状态）或监控不可用
+  const statusMeta = hostStatusMeta(row)
+  const isOffline = statusMeta.type === 'offline' || row.status === 0
+
+  if (isOffline) {
+    if (Number.isFinite(total)) {
+      const totalFormatted = (total % 1 === 0) ? total.toFixed(0) : total.toFixed(1)
+      return `- / ${totalFormatted}${unit}`
+    }
+    return 'N/A'
+  }
+
+  // 无百分比监控数据
+  if (!Number.isFinite(usagePct)) {
+    if (Number.isFinite(total)) {
+      const totalFormatted = (total % 1 === 0) ? total.toFixed(0) : total.toFixed(1)
+      return `- / ${totalFormatted}${unit}`
+    }
+    return 'N/A'
+  }
+
+  // 在线且拥有使用率
+  if (!Number.isFinite(total)) {
+    return `${usagePct.toFixed(1)}%`
+  }
+
+  // 既有总容量又有使用率，计算精确使用量与总量
   const used = (total * (usagePct / 100))
-  const usedFormatted = (used % 1 === 0) ? used : used.toFixed(1)
-  return `${usedFormatted}${unit} / ${total}${unit}`
+  const usedFormatted = (used % 1 === 0) ? used.toFixed(0) : used.toFixed(1)
+  const totalFormatted = (total % 1 === 0) ? total.toFixed(0) : total.toFixed(1)
+  return `${usedFormatted}${unit} / ${totalFormatted}${unit}`
 }
 
 const metricTagType = (value) => {
@@ -812,10 +969,25 @@ const metricTagType = (value) => {
   return 'success'
 }
 
+const globalHostList = ref([])
+
+const fetchGlobalHostsSummary = async () => {
+  try {
+    const res = await axios.get('/api/v1/cmdb/hosts', {
+      headers: authHeaders(),
+      params: { page: 1, page_size: 10000 }
+    })
+    if (res.data?.code === 0 && res.data?.data?.list) {
+      globalHostList.value = res.data.data.list
+    }
+  } catch (e) {}
+}
+
 const groupHostCountMap = computed(() => {
   const map = {}
   let ungrouped = 0
-  tableData.value.forEach((row) => {
+  const source = globalHostList.value.length ? globalHostList.value : tableData.value
+  source.forEach((row) => {
     const gid = String(row?.group?.id || row?.group_id || '').trim()
     if (!gid) {
       ungrouped += 1
@@ -849,8 +1021,9 @@ const groupTreeData = computed(() => {
     }
   })
 
+  const totalAllCount = globalHostList.value.length ? globalHostList.value.length : totalHosts.value
   return [
-    { id: 'all', label: '全部主机', count: tableData.value.length, children: [] },
+    { id: 'all', label: '全部主机', count: totalAllCount, children: [] },
     ...roots,
     { id: UNGROUPED_GROUP_ID, label: '未分组', count: groupHostCountMap.value[UNGROUPED_GROUP_ID] || 0, children: [] }
   ]
@@ -861,7 +1034,37 @@ const groupNodeFilter = (value, data) => {
   return String(data?.label || '').toLowerCase().includes(String(value).toLowerCase())
 }
 
+const statusFilter = ref('all')
+
+const toggleStatusFilter = (target) => {
+  if (statusFilter.value === target) {
+    statusFilter.value = 'all'
+  } else {
+    statusFilter.value = target
+  }
+}
+
+const totalCount = computed(() => tableData.value.length)
+const onlineCount = computed(() => tableData.value.filter((row) => hostStatusMeta(row).key === 'online').length)
+const offlineCount = computed(() => tableData.value.filter((row) => hostStatusMeta(row).key !== 'online').length)
+
+const selectAllPage = () => {
+  if (pageSize.value >= 1000) {
+    pageSize.value = 20
+  } else {
+    pageSize.value = 1000
+  }
+  currentPage.value = 1
+  fetchData()
+}
+
 const filteredTableData = computed(() => {
+  if (statusFilter.value === 'online') {
+    return tableData.value.filter((row) => hostStatusMeta(row).key === 'online')
+  }
+  if (statusFilter.value === 'offline') {
+    return tableData.value.filter((row) => hostStatusMeta(row).key !== 'online')
+  }
   return tableData.value
 })
 
@@ -881,9 +1084,6 @@ const providerSummaryList = computed(() => {
     .filter((key) => (counter[key] || 0) > 0)
     .map((key) => ({ key, label: providerLabel(key), count: counter[key] || 0 }))
 })
-
-const onlineCount = computed(() => filteredTableData.value.filter((row) => hostStatusMeta(row).key === 'online').length)
-const offlineCount = computed(() => filteredTableData.value.filter((row) => hostStatusMeta(row).key !== 'online').length)
 const inspectTitle = computed(() => (inspectMode.value === 'tcp' ? 'TCP 连接监控' : '进程监控'))
 const tcpRiskCount = computed(() => inspectData.value.tcpRows.filter((row) => isRiskTCPRow(row)).length)
 
@@ -1007,7 +1207,6 @@ const fetchData = async () => {
   try {
     const params = {
       keyword: searchKeyword.value,
-      live: 1,
       page: currentPage.value,
       page_size: pageSize.value
     }
@@ -1172,16 +1371,25 @@ const handleDelete = async (row) => {
 
 const handleBatchDelete = async () => {
   if (selectedRows.value.length === 0) return
+  const ids = selectedRows.value.map(row => row.id).filter(Boolean)
+  if (ids.length === 0) return
+
   try {
-    await ElMessageBox.confirm(`确定删除选中的 ${selectedRows.value.length} 台主机吗?`, '警告', {
-      confirmButtonText: '删除',
+    await ElMessageBox.confirm(`确定批量删除选中的 ${ids.length} 台主机吗？`, '批量删除确认', {
+      confirmButtonText: '确定删除',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    for (const row of selectedRows.value) {
-      await axios.delete(`/api/v1/cmdb/hosts/${row.id}`, { headers: authHeaders() })
+    
+    const res = await axios.post('/api/v1/cmdb/hosts/batch-delete', { ids }, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data.message || `成功批量删除 ${ids.length} 台主机`)
+    } else {
+      for (const id of ids) {
+        await axios.delete(`/api/v1/cmdb/hosts/${id}`, { headers: authHeaders() })
+      }
+      ElMessage.success(`成功批量删除 ${ids.length} 台主机`)
     }
-    ElMessage.success('批量删除成功')
     selectedRows.value = []
     await fetchData()
   } catch (e) {
@@ -1270,25 +1478,41 @@ const openBatchStatus = () => {
   batchStatusVisible.value = true
 }
 
-const submitBatchStatus = async () => {
-  if (batchStatus.value === null) return
-  batchStatusLoading.value = true
+const batchGroupVisible = ref(false)
+const batchTargetGroupId = ref('')
+const batchGroupLoading = ref(false)
+
+const openBatchGroup = () => {
+  if (selectedRows.value.length === 0) {
+    ElMessage.warning('请至少选择一台主机')
+    return
+  }
+  batchTargetGroupId.value = ''
+  batchGroupVisible.value = true
+}
+
+const submitBatchGroup = async () => {
+  if (selectedRows.value.length === 0) return
+  batchGroupLoading.value = true
   try {
-    for (const row of selectedRows.value) {
-      await axios.put(`/api/v1/cmdb/hosts/${row.id}`, {
-        ...row,
-        status: batchStatus.value
-      }, {
-        headers: authHeaders()
-      })
+    const ids = selectedRows.value.map((r) => r.id)
+    const res = await axios.post('/api/v1/cmdb/hosts/batch-update-group', {
+      ids,
+      group_id: batchTargetGroupId.value
+    }, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data.message || `成功为 ${ids.length} 台主机设置分组`)
+      batchGroupVisible.value = false
+      selectedRows.value = []
+      await fetchData()
+      await fetchGlobalHostsSummary()
+    } else {
+      ElMessage.error(res.data?.message || '批量设置分组失败')
     }
-    ElMessage.success('状态更新成功')
-    batchStatusVisible.value = false
-    await fetchData()
   } catch (e) {
-    ElMessage.error(getErrorMessage(e, '状态更新失败'))
+    ElMessage.error(getErrorMessage(e, '批量设置分组失败'))
   } finally {
-    batchStatusLoading.value = false
+    batchGroupLoading.value = false
   }
 }
 
@@ -1445,7 +1669,28 @@ const openMonitor = (row) => {
   })
 }
 
+const openDiagnose = async (row) => {
+  try {
+    const res = await axios.post(`/api/v1/cmdb/hosts/${row.id}/diagnose`, {}, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      const diag = res.data.data
+      const portsText = (diag.tcp_ports || []).map(p => `端口 ${p.port} (${p.protocol}): ${p.status === 'OPEN' ? '🟢 开放' : '🔴 关闭'}`).join('\n')
+      ElMessageBox.alert(
+        `目标主机: ${diag.target_host} (${diag.target_ip})\nICMP Ping 状态: ${diag.ping_status} (${diag.ping_latency_ms}ms, 丢包率: ${diag.packet_loss})\n\n关键服务端口连通性:\n${portsText}`,
+        '网络连通性深度诊断结果',
+        { confirmButtonText: '确定', type: 'success' }
+      )
+    }
+  } catch (e) {
+    ElMessage.error(getErrorMessage(e, '诊断失败'))
+  }
+}
+
 const handleRowCommand = (row, command) => {
+  if (command === 'diagnose') {
+    openDiagnose(row)
+    return
+  }
   if (command === 'process') {
     openInspect(row, 'process')
     return
@@ -1778,7 +2023,15 @@ watch(detailVisible, (visible) => {
 })
 
 onMounted(async () => {
+  const cached = localStorage.getItem('lazy_hosts_columns')
+  if (cached) {
+    try {
+      showColumns.value = { ...showColumns.value, ...JSON.parse(cached) }
+    } catch (e) {}
+  }
+
   await fetchGroups()
+  await fetchGlobalHostsSummary()
   await syncStatuses(true)
   nextTick(() => {
     groupTreeRef.value?.setCurrentKey('all')
@@ -1802,6 +2055,39 @@ onBeforeUnmount(() => {
   disposeDetailCharts()
   window.removeEventListener('resize', onResize)
 })
+
+const editingHostId = ref(null)
+const editingDescription = ref('')
+const descInputRefs = ref({})
+
+const startEditDescription = (row) => {
+  editingHostId.value = row.id
+  editingDescription.value = row.description || ''
+  nextTick(() => {
+    const inputEl = descInputRefs.value[row.id]
+    if (inputEl) {
+      inputEl.focus()
+    }
+  })
+}
+
+const saveDescription = async (row) => {
+  if (editingHostId.value !== row.id) return
+  const oldVal = row.description || ''
+  const newVal = editingDescription.value.trim()
+  editingHostId.value = null
+  
+  if (oldVal === newVal) return
+  
+  try {
+    const h = { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    await axios.put(`/api/v1/cmdb/hosts/${row.id}`, { description: newVal }, { headers: h })
+    row.description = newVal
+    ElMessage.success('备注更新成功')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '更新备注失败')
+  }
+}
 </script>
 
 <style scoped>

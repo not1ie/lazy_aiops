@@ -38,6 +38,31 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" style="margin-bottom: 16px;">
+      <template #header>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-weight: 600;">⚡ 运维自助服务目录 (Self-Service Catalog)</span>
+          <el-tag type="info" size="small">审批通过自动触发编排交付</el-tag>
+        </div>
+      </template>
+      <el-row :gutter="12">
+        <el-col v-for="item in serviceCatalog" :key="item.id" :xs="24" :sm="12" :md="6" style="margin-bottom: 8px;">
+          <el-card shadow="hover" style="cursor: pointer;" @click="applyCatalogItem(item)">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <span style="font-weight: 600; font-size: 14px; color: #409eff;">{{ item.name }}</span>
+              <el-tag type="success" size="small">{{ item.category }}</el-tag>
+            </div>
+            <div style="font-size: 12px; color: #94a3b8; height: 36px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+              {{ item.description }}
+            </div>
+            <div style="margin-top: 10px; text-align: right;">
+              <el-button type="primary" size="small" plain>一键申请</el-button>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <div class="filter-row">
       <el-select v-model="statusFilter" clearable placeholder="状态" class="w-40">
         <el-option v-for="opt in statusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
@@ -249,6 +274,22 @@ const createForm = ref({
   content: '',
   priority: 3
 })
+
+const serviceCatalog = ref([])
+const fetchServiceCatalog = async () => {
+  try {
+    const res = await axios.get('/api/v1/workorder/catalog', { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      serviceCatalog.value = res.data.data || []
+    }
+  } catch (e) {}
+}
+
+const applyCatalogItem = (item) => {
+  createForm.value.title = `【自助申请】${item.name}`
+  createForm.value.content = `申请项目: ${item.name}\n资源类型: ${item.category}\n业务用途说明: ${item.description}\n自动编排交付: 是`
+  createVisible.value = true
+}
 
 const approveVisible = ref(false)
 const approveOrderId = ref('')
@@ -621,6 +662,7 @@ const submitComment = async () => {
 
 onMounted(async () => {
   await reloadAll()
+  await fetchServiceCatalog()
   await maybeOpenDetailFromQuery()
 })
 onUnmounted(() => {

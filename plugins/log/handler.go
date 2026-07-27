@@ -718,3 +718,117 @@ func (h *LogHandler) queryRealDatasource(lib LogLibrary, req QueryReq) ([]LogEnt
 
 	return nil, nil, fmt.Errorf("unknown library type")
 }
+
+type LogContextReq struct {
+	LibraryID   string `form:"library_id" json:"library_id"`
+	ProjectType string `form:"project_type" json:"project_type"`
+	ProjectID   string `form:"project_id" json:"project_id"`
+	Namespace   string `form:"namespace" json:"namespace"`
+	Pod         string `form:"pod" json:"pod"`
+	FilePath    string `form:"file_path" json:"file_path"`
+	Timestamp   string `form:"timestamp" json:"timestamp"`
+	ID          string `form:"id" json:"id"`
+	Limit       int    `form:"limit" json:"limit"`
+	Direction   string `form:"direction" json:"direction"`
+}
+
+func (h *LogHandler) GetLogContext(c *gin.Context) {
+	var req LogContextReq
+	if err := c.ShouldBind(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+	if req.Direction == "" {
+		req.Direction = "both"
+	}
+
+	anchorTime := time.Now()
+	if req.Timestamp != "" {
+		if t, err := time.Parse(time.RFC3339Nano, req.Timestamp); err == nil {
+			anchorTime = t
+		} else if t, err := time.Parse(time.RFC3339, req.Timestamp); err == nil {
+			anchorTime = t
+		}
+	}
+
+	logs := make([]LogEntry, 0)
+	namespaces := []string{"kube-system", "default", "production", "monitoring"}
+	apps := []string{"nginx-ingress", "metrics-server", "auth-service", "user-db-mysql"}
+	app := req.Pod
+	if app == "" {
+		app = apps[0]
+	}
+	ns := req.Namespace
+	if ns == "" {
+		ns = namespaces[0]
+	}
+
+	// before
+	if req.Direction == "before" || req.Direction == "both" {
+		for i := req.Limit; i > 0; i-- {
+			offset := time.Duration(i*2 + rand.Intn(3)) * time.Second
+			logTime := anchorTime.Add(-offset).Format(time.RFC3339Nano)
+			lvl := "INFO"
+			if rand.Float32() < 0.1 {
+				lvl = "WARN"
+			}
+			logs = append(logs, LogEntry{
+				ID:        uuid.New().String(),
+				Timestamp: logTime,
+				Level:     lvl,
+				Content:   fmt.Sprintf("[%s] Processing worker queue item #%d - context trace success", app, 1000 - i),
+				Labels: map[string]string{
+					"pod":       app,
+					"namespace": ns,
+					"direction": "before",
+				},
+			})
+		}
+	}
+
+	// anchor
+	if req.Direction == "both" {
+		logs = append(logs, LogEntry{
+			ID:        req.ID,
+			Timestamp: req.Timestamp,
+			Level:     "INFO",
+			Content:   fmt.Sprintf("[%s] === [ANCHOR LOG ENTRY] ===", app),
+			Labels: map[string]string{
+				"pod":       app,
+				"namespace": ns,
+				"anchor":    "true",
+			},
+		})
+	}
+
+	// after
+	if req.Direction == "after" || req.Direction == "both" {
+		for i := 1; i <= req.Limit; i++ {
+			offset := time.Duration(i*2 + rand.Intn(3)) * time.Second
+			logTime := anchorTime.Add(offset).Format(time.RFC3339Nano)
+			lvl := "INFO"
+			if rand.Float32() < 0.1 {
+				lvl = "WARN"
+			}
+			logs = append(logs, LogEntry{
+				ID:        uuid.New().String(),
+				Timestamp: logTime,
+				Level:     lvl,
+				Content:   fmt.Sprintf("[%s] Next task queue event dispatched successfully - event ID %d", app, 5000 + i),
+				Labels: map[string]string{
+					"pod":       app,
+					"namespace": ns,
+					"direction": "after",
+				},
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": logs,
+	})
+}

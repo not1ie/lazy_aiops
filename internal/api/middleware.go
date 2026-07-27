@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -79,6 +81,18 @@ func AuthMiddleware(auth *core.AuthService) gin.HandlerFunc {
 			return
 		}
 
+		// Sliding expiration: if token is close to expiry (less than half duration, e.g. 12 hours remaining for 24h expire), renew it
+		if claims.ExpiresAt != nil {
+			remaining := time.Until(claims.ExpiresAt.Time)
+			if remaining < 12*time.Hour {
+				newToken, _, err := auth.GenerateToken(claims.UserID, claims.Username, claims.RoleCode, claims.ForcePasswordChange)
+				if err == nil {
+					c.Header("X-Refresh-Token", newToken)
+					c.Header("Access-Control-Expose-Headers", "X-Refresh-Token")
+				}
+			}
+		}
+
 		// 将用户信息存入上下文
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
@@ -155,8 +169,12 @@ func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestOrigin := strings.TrimSpace(c.GetHeader("Origin"))
 		originAllowed := allowAny
-		if !allowAny && requestOrigin != "" {
-			_, originAllowed = originMap[requestOrigin]
+		if !originAllowed && requestOrigin != "" {
+			_, isMapped := originMap[requestOrigin]
+			host := c.Request.Host
+			if isMapped || requestOrigin == "http://"+host || requestOrigin == "https://"+host {
+				originAllowed = true
+			}
 		}
 
 		if allowAny {
@@ -226,6 +244,22 @@ func RBACMiddleware(db *gorm.DB) gin.HandlerFunc {
 func OperationLogMiddleware(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+
+		var payload string
+		if c.Request.Body != nil && shouldLogRequest(c) {
+			bodyBytes, err := io.ReadAll(c.Request.Body)
+			if err == nil {
+				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				if len(bodyBytes) > 0 {
+					limit := 1024
+					if len(bodyBytes) < limit {
+						limit = len(bodyBytes)
+					}
+					payload = string(bodyBytes[:limit])
+				}
+			}
+		}
+
 		c.Next()
 
 		if db == nil || !shouldLogRequest(c) {
@@ -233,13 +267,23 @@ func OperationLogMiddleware(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		module, action := parseModuleAction(c)
+		detail := c.Request.Method + " " + c.Request.URL.Path
+		if payload != "" {
+			detail += "\nPayload: " + payload
+		}
+		if diff, ok := c.Get("audit_diff"); ok {
+			if diffStr, ok := diff.(string); ok && diffStr != "" {
+				detail += "\nDiff: " + diffStr
+			}
+		}
+
 		log := core.OperationLog{
 			UserID:    c.GetString("user_id"),
 			Username:  c.GetString("username"),
 			Module:    module,
 			Action:    action,
 			Target:    c.Request.URL.Path,
-			Detail:    c.Request.Method + " " + c.Request.URL.Path,
+			Detail:    detail,
 			IP:        c.ClientIP(),
 			UserAgent: c.GetHeader("User-Agent"),
 			Status:    1,

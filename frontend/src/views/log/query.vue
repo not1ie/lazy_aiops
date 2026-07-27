@@ -258,6 +258,7 @@
                 <div class="line-actions">
                   <el-button link type="primary" size="small">详情</el-button>
                   <el-button link type="primary" size="small" @click="copyLog(log.content)">复制</el-button>
+                  <el-button link type="success" size="small" @click="showLogContext(log)">上下文</el-button>
                   <el-button link type="primary" size="small">筛选</el-button>
                   <el-button link type="primary" size="small">排除</el-button>
                   <el-button link type="danger" size="small">告警</el-button>
@@ -277,8 +278,6 @@
             </div>
             <div v-if="logs.length === 0" class="no-logs">未搜索到符合条件的日志数据</div>
           </div>
-
-          <!-- Table View Mode -->
           <div class="log-table-wrapper" v-else-if="displayMode === 'table'">
             <el-table :data="logs" style="width: 100%" size="small" stripe>
               <el-table-column type="index" label="#" width="50" />
@@ -296,6 +295,11 @@
               <el-table-column label="元数据" min-width="200">
                 <template #default="{ row }">
                   <span style="font-size: 11px; color: #8f959e">{{ JSON.stringify(row.labels) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="100">
+                <template #default="{ row }">
+                  <el-button link type="success" size="small" @click="showLogContext(row)">上下文</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -322,6 +326,37 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- 日志上下文对话框 -->
+    <el-dialog title="日志上下文浏览" v-model="contextVisible" width="900px" append-to-body destroy-on-close>
+      <div class="context-dialog-body" v-loading="contextLoading">
+        <div class="context-load-more" style="text-align: center; margin-bottom: 12px;">
+          <el-button size="small" @click="loadMoreContext('before')" :loading="contextBeforeLoading">
+            向上加载更多 (前50行)
+          </el-button>
+        </div>
+        
+        <div class="context-logs-list" style="max-height: 500px; overflow-y: auto; background-color: #1e1e1e; color: #d4d4d4; font-family: monospace; padding: 12px; border-radius: 4px;">
+          <div 
+            v-for="log in contextLogs" 
+            :key="log.id" 
+            class="context-log-item"
+            :class="{ 'is-anchor': log.id === selectedLogForContext?.id || log.labels?.anchor === 'true' }"
+            style="padding: 4px 8px; line-height: 1.4; white-space: pre-wrap; font-size: 12px;"
+          >
+            <span class="c-time" style="color: #858585; margin-right: 12px;">{{ formatTime(log.timestamp) }}</span>
+            <span class="c-level" :class="log.level.toLowerCase()" style="font-weight: bold; margin-right: 12px; display: inline-block; width: 50px;">{{ log.level }}</span>
+            <span class="c-content">{{ log.content }}</span>
+          </div>
+        </div>
+        
+        <div class="context-load-more" style="text-align: center; margin-top: 12px;">
+          <el-button size="small" @click="loadMoreContext('after')" :loading="contextAfterLoading">
+            向下加载更多 (后50行)
+          </el-button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -338,6 +373,13 @@ const route = useRoute()
 const loading = ref(false)
 const searchLoading = ref(false)
 const hasSearched = ref(false)
+
+const contextVisible = ref(false)
+const contextLoading = ref(false)
+const contextBeforeLoading = ref(false)
+const contextAfterLoading = ref(false)
+const contextLogs = ref([])
+const selectedLogForContext = ref(null)
 
 const selectedProject = ref('local-simulation')
 const projectOptions = ref([
@@ -659,6 +701,94 @@ onBeforeUnmount(() => {
     myChart = null
   }
 })
+
+const showLogContext = async (log) => {
+  selectedLogForContext.value = log
+  contextVisible.value = true
+  contextLoading.value = true
+  try {
+    const res = await axios.get('/api/v1/log/query/context', {
+      headers: authHeaders(),
+      params: {
+        library_id: datasource.value || undefined,
+        project_type: projectType.value || undefined,
+        project_id: selectedProject.value || undefined,
+        namespace: k8sNamespace.value || undefined,
+        pod: k8sPod.value || undefined,
+        file_path: hostFilePath.value || undefined,
+        timestamp: log.timestamp,
+        id: log.id,
+        limit: 50,
+        direction: 'both'
+      }
+    })
+    if (res.data?.code === 0) {
+      contextLogs.value = res.data.data || []
+    }
+  } catch (err) {
+    ElMessage.error('加载日志上下文失败')
+  } finally {
+    contextLoading.value = false
+  }
+}
+
+const loadMoreContext = async (direction) => {
+  if (contextLogs.value.length === 0) return
+  
+  if (direction === 'before') {
+    contextBeforeLoading.value = true
+    const anchor = contextLogs.value[0]
+    try {
+      const res = await axios.get('/api/v1/log/query/context', {
+        headers: authHeaders(),
+        params: {
+          library_id: datasource.value || undefined,
+          project_type: projectType.value || undefined,
+          project_id: selectedProject.value || undefined,
+          namespace: k8sNamespace.value || undefined,
+          pod: k8sPod.value || undefined,
+          file_path: hostFilePath.value || undefined,
+          timestamp: anchor.timestamp,
+          limit: 50,
+          direction: 'before'
+        }
+      })
+      if (res.data?.code === 0) {
+        contextLogs.value = [...res.data.data, ...contextLogs.value]
+      }
+    } catch (err) {
+      ElMessage.error('加载更多日志失败')
+    } finally {
+      contextBeforeLoading.value = false
+    }
+  } else {
+    contextAfterLoading.value = true
+    const anchor = contextLogs.value[contextLogs.value.length - 1]
+    try {
+      const res = await axios.get('/api/v1/log/query/context', {
+        headers: authHeaders(),
+        params: {
+          library_id: datasource.value || undefined,
+          project_type: projectType.value || undefined,
+          project_id: selectedProject.value || undefined,
+          namespace: k8sNamespace.value || undefined,
+          pod: k8sPod.value || undefined,
+          file_path: hostFilePath.value || undefined,
+          timestamp: anchor.timestamp,
+          limit: 50,
+          direction: 'after'
+        }
+      })
+      if (res.data?.code === 0) {
+        contextLogs.value = [...contextLogs.value, ...res.data.data]
+      }
+    } catch (err) {
+      ElMessage.error('加载更多日志失败')
+    } finally {
+      contextAfterLoading.value = false
+    }
+  }
+}
 </script>
 
 <style scoped>

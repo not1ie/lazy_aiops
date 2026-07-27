@@ -8,12 +8,16 @@
         </div>
         <div class="actions">
           <el-button type="primary" icon="Plus" @click="openCreate">新增分组</el-button>
+          <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
+            批量删除 ({{ selectedRows.length }})
+          </el-button>
           <el-button icon="Refresh" @click="fetchData">刷新</el-button>
         </div>
       </div>
     </template>
 
-    <el-table :fit="true" :data="groups" v-loading="loading" stripe>
+    <el-table :fit="true" :data="groups" v-loading="loading" stripe @selection-change="selectedRows = $event">
+      <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="分组名称" min-width="200" />
       <el-table-column prop="description" label="描述" min-width="240" />
       <el-table-column prop="parent_id" label="父级ID" min-width="200" />
@@ -53,6 +57,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const loading = ref(false)
 const saving = ref(false)
 const groups = ref([])
+const selectedRows = ref([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const currentId = ref('')
@@ -145,6 +150,35 @@ const handleDelete = async (row) => {
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
+}
+
+const handleBatchDelete = async () => {
+  if (selectedRows.value.length === 0) return
+  const ids = selectedRows.value.map(row => row.id).filter(Boolean)
+  if (ids.length === 0) return
+
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${ids.length} 个分组吗？`, '批量删除分组确认', {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const res = await axios.post('/api/v1/cmdb/groups/batch-delete', { ids }, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data.message || `成功批量删除 ${ids.length} 个分组`)
+    } else {
+      for (const id of ids) {
+        await axios.delete(`/api/v1/cmdb/groups/${id}`, { headers: authHeaders() })
+      }
+      ElMessage.success(`成功批量删除 ${ids.length} 个分组`)
+    }
+    selectedRows.value = []
+    await fetchData()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(getErrorMessage(error, '批量删除失败'))
     }
   }
 }

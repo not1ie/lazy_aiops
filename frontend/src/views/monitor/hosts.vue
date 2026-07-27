@@ -55,6 +55,18 @@
       </div>
     </div>
 
+    <div class="layout-bar motion-up delay-3" style="margin-top: 10px;">
+      <div class="layout-title">列隐藏设置</div>
+      <div class="layout-items" style="display: flex; gap: 16px;">
+        <el-checkbox v-model="columns.cpu">CPU</el-checkbox>
+        <el-checkbox v-model="columns.memory">内存</el-checkbox>
+        <el-checkbox v-model="columns.disk">磁盘</el-checkbox>
+        <el-checkbox v-model="columns.load1">Load1</el-checkbox>
+        <el-checkbox v-model="columns.network">网络</el-checkbox>
+        <el-checkbox v-model="columns.uptime">运行时长</el-checkbox>
+      </div>
+    </div>
+
     <el-row :gutter="16" class="summary-row motion-up delay-4">
       <el-col :span="6"><el-card class="summary-card"><div class="card-title">主机数</div><div class="card-value">{{ summary.total }}</div></el-card></el-col>
       <el-col :span="6">
@@ -100,7 +112,7 @@
             <p class="panel-desc">当前 CPU / 内存 Top 主机。</p>
           </div>
           <div class="panel-actions">
-            <el-button size="small" @click="renderTopCharts">刷新排行</el-button>
+            <el-button size="small" :loading="topLoading" icon="Refresh" @click="handleRefreshTop">刷新排行</el-button>
           </div>
         </div>
         <el-row :gutter="16">
@@ -131,13 +143,32 @@
     </template>
 
     <el-table :fit="true" class="motion-up delay-8" :data="filteredRows" v-loading="loading" style="width: 100%; margin-top: 12px" @row-click="selectInstance">
-      <el-table-column prop="instance" label="主机" min-width="200" />
-      <el-table-column prop="cpu" label="CPU(%)" width="120" sortable />
-      <el-table-column prop="memory" label="内存(%)" width="120" sortable />
-      <el-table-column prop="disk" label="磁盘(%)" width="120" sortable />
-      <el-table-column prop="load1" label="Load1" width="120" sortable />
-      <el-table-column prop="network" label="网络(MB/s)" width="140" sortable />
-      <el-table-column prop="uptime" label="运行时长" width="160" />
+        <el-table-column label="主机 / 实例" min-width="240">
+        <template #default="{ row }">
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-weight: 600; color: var(--el-text-color-primary)">{{ formatHostDisplayName(row.instance) }}</span>
+            <span style="font-size: 11px; color: var(--el-text-color-secondary)">{{ row.instance }}</span>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column v-slot="scope" v-if="columns.cpu" label="CPU(%)" width="120" sortable>
+        <span>{{ scope.row.cpu }}</span>
+      </el-table-column>
+      <el-table-column v-slot="scope" v-if="columns.memory" label="内存(%)" width="120" sortable>
+        <span>{{ scope.row.memory }}</span>
+      </el-table-column>
+      <el-table-column v-slot="scope" v-if="columns.disk" label="磁盘(%)" width="120" sortable>
+        <span>{{ scope.row.disk }}</span>
+      </el-table-column>
+      <el-table-column v-slot="scope" v-if="columns.load1" label="Load1" width="120" sortable>
+        <span>{{ scope.row.load1 }}</span>
+      </el-table-column>
+      <el-table-column v-slot="scope" v-if="columns.network" label="网络(MB/s)" width="140" sortable>
+        <span>{{ scope.row.network }}</span>
+      </el-table-column>
+      <el-table-column v-slot="scope" v-if="columns.uptime" label="运行时长" width="160">
+        <span>{{ scope.row.uptime }}</span>
+      </el-table-column>
     </el-table>
   </el-card>
 </template>
@@ -178,6 +209,20 @@ watch(isDark, () => {
 const loading = ref(false)
 const chartLoading = ref(false)
 const keyword = ref('')
+
+const savedCols = localStorage.getItem('hosts_table_columns')
+const columns = ref(savedCols ? JSON.parse(savedCols) : {
+  cpu: true,
+  memory: true,
+  disk: true,
+  load1: true,
+  network: true,
+  uptime: true
+})
+
+watch(columns, (newVal) => {
+  localStorage.setItem('hosts_table_columns', JSON.stringify(newVal))
+}, { deep: true })
 const instanceFilter = ref('')
 const instances = ref([])
 const instanceMeta = ref([])
@@ -382,17 +427,94 @@ const renderChart = (chart, title, labels, series, unit) => {
   }
 }
 
+const cmdbHostsMap = ref(new Map())
+
+const fetchCmdbHosts = async () => {
+  try {
+    const res = await axios.get('/api/v1/cmdb/hosts', { headers: authHeaders() })
+    const list = res.data?.data?.list || res.data?.data || []
+    const map = new Map()
+    list.forEach(h => {
+      if (h.ip) map.set(h.ip.trim(), h)
+      if (h.name) map.set(h.name.trim(), h)
+    })
+    cmdbHostsMap.value = map
+  } catch (err) {
+    // fallback
+  }
+}
+
+const formatHostDisplayName = (rawInstance) => {
+  if (!rawInstance) return '-'
+  const inst = String(rawInstance).trim()
+
+  // 1. 从 instance 提取 IP 并尝试与 CMDB 关联匹配
+  const ipMatch = inst.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/)
+  if (ipMatch && cmdbHostsMap.value.has(ipMatch[0])) {
+    const h = cmdbHostsMap.value.get(ipMatch[0])
+    if (h && h.name) return h.name
+  }
+
+  // 2. 匹配 CMDB 主机名
+  for (const [key, h] of cmdbHostsMap.value.entries()) {
+    if (h.name && inst.toLowerCase().includes(h.name.toLowerCase())) {
+      return h.name
+    }
+  }
+
+  // 3. 无 CMDB 匹配时，清理冗长网络后缀与端口 (如 sdcc2-baoshengkeji.netbird.cxist:9100 -> sdcc2-baoshengkeji)
+  let cleaned = inst
+    .replace(/:\d+$/, '')                       // 移除 :9100 / :9090 端口号
+    .replace(/\.netbird\.cxist$/i, '')          // 移除 .netbird.cxist 等内部网络域名后缀
+    .replace(/\.netbird\.cloud$/i, '')
+    .replace(/\.local(domain)?$/i, '')
+    .replace(/\.internal$/i, '')
+
+  return cleaned
+}
+
 const renderBarChart = (chart, title, items, valueKey, unit) => {
   if (!chart) return chart
-  const labels = items.map(item => item.instance)
+  const labels = items.map(item => formatHostDisplayName(item.instance))
+  const rawInstances = items.map(item => item.instance)
   const data = items.map(item => Number(item[valueKey] || 0))
+
   const option = {
-    title: { text: title, left: 'left', textStyle: { fontSize: 12 } },
-    tooltip: { trigger: 'axis', valueFormatter: (val) => `${Number(val).toFixed(2)} ${unit}` },
-    grid: { left: 120, right: 20, top: 40, bottom: 20 },
-    xAxis: { type: 'value' },
-    yAxis: { type: 'category', data: labels, axisLabel: { width: 180, overflow: 'truncate' } },
-    series: [{ type: 'bar', data }]
+    title: { text: title, left: 'left', textStyle: { fontSize: 13, fontWeight: '600' } },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        if (!params || !params.length) return ''
+        const p = params[0]
+        const idx = p.dataIndex
+        const rawInst = rawInstances[idx] || ''
+        const val = Number(p.value).toFixed(2)
+        return `<div style="font-size:12px; padding:4px 6px;">
+                  <strong style="color: #409EFF">${p.name}</strong><br/>
+                  <span style="color:#909399; font-size:11px;">实例: ${rawInst}</span><br/>
+                  <span>${title.replace(/\s*Top\s*10.*/i, '')}: <b>${val} ${unit}</b></span>
+                </div>`
+      }
+    },
+    grid: { left: 160, right: 30, top: 40, bottom: 25 },
+    xAxis: { type: 'value', axisLabel: { formatter: `{value}${unit}` } },
+    yAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: {
+        fontSize: 11,
+        width: 145,
+        overflow: 'truncate',
+        interval: 0
+      }
+    },
+    series: [{
+      type: 'bar',
+      data,
+      itemStyle: {
+        borderRadius: [0, 4, 4, 0]
+      }
+    }]
   }
   try {
     chart.setOption(option, true)
@@ -410,6 +532,20 @@ const renderBarChart = (chart, title, items, valueKey, unit) => {
     } catch {
       return null
     }
+  }
+}
+
+const topLoading = ref(false)
+
+const handleRefreshTop = async () => {
+  topLoading.value = true
+  try {
+    await fetchTable()
+    ElMessage.success('主机排行指标已实时更新')
+  } catch (err) {
+    ElMessage.error('刷新排行失败: ' + (err.message || ''))
+  } finally {
+    topLoading.value = false
   }
 }
 
@@ -793,6 +929,7 @@ onMounted(() => {
   const seedInstance = String(route.query?.instance || '').trim()
   if (seedKeyword) keyword.value = seedKeyword
   if (seedInstance) instanceFilter.value = seedInstance
+  fetchCmdbHosts()
   fetchLayouts()
   refreshAll().then(() => {
     if (!instanceFilter.value && keyword.value) {

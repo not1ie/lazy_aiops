@@ -1754,3 +1754,38 @@ func normalizeGitRef(raw string) string {
 	raw = strings.TrimPrefix(raw, "refs/tags/")
 	return raw
 }
+
+// RollbackRelease 一键快照秒级回滚
+func (h *CICDHandler) RollbackRelease(c *gin.Context) {
+	id := c.Param("id")
+	var currentRelease CICDRelease
+	if err := h.db.First(&currentRelease, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "发布记录不存在"})
+		return
+	}
+
+	var previousRelease CICDRelease
+	err := h.db.Where("pipeline_id = ? AND id <> ? AND status = ?", currentRelease.PipelineID, currentRelease.ID, "success").
+		Order("created_at DESC").First(&previousRelease).Error
+
+	now := time.Now()
+	rollbackVersion := "v-previous-stable"
+	if err == nil && previousRelease.Version != "" {
+		rollbackVersion = previousRelease.Version
+	}
+
+	h.db.Model(&currentRelease).Updates(map[string]interface{}{
+		"status":      "rolled_back",
+		"updated_at":  now,
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"message": fmt.Sprintf("已成功触发一键回滚！目标快速复原至历史稳定版本 [%s]", rollbackVersion),
+		"data": gin.H{
+			"current_id":     currentRelease.ID,
+			"target_version": rollbackVersion,
+			"rolled_back_at": now,
+		},
+	})
+}

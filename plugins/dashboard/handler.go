@@ -41,6 +41,7 @@ type overviewResponse struct {
 	Quality         overviewQuality   `json:"quality"`
 	Snapshots       overviewSnapshots `json:"snapshots"`
 	SourceErrors    map[string]string `json:"source_errors"`
+	IsSqlite        bool              `json:"is_sqlite"`
 }
 
 type statusContract struct {
@@ -367,6 +368,7 @@ func (h *DashboardHandler) GetOverview(c *gin.Context) {
 			Quality:         quality,
 			Snapshots:       snapshots,
 			SourceErrors:    sourceErrors,
+			IsSqlite:        h.db != nil && h.db.Dialector != nil && h.db.Dialector.Name() == "sqlite",
 		},
 	})
 }

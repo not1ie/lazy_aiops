@@ -66,6 +66,8 @@ const routes = [
       { path: 'task/schedules', name: 'TaskSchedules', component: () => import('@/views/task/schedules.vue'), meta: { title: '任务调度', perm: 'task' } },
       
       // AIOps智能
+      { path: 'ai/assistant', name: 'AIAssistant', component: () => import('@/views/ai/index.vue'), meta: { title: 'AI智能助手', perm: 'ai' } },
+      { path: 'ai/config', name: 'AIConfig', component: () => import('@/views/ai/index.vue'), meta: { title: '模型接入配置', perm: 'ai' } },
       { path: 'ai/ops', name: 'AIOps', component: () => import('@/views/ai/ops.vue'), meta: { title: '故障诊断', perm: 'ai' } },
       { path: 'ai-skills', name: 'AISkills', component: () => import('@/views/hub/ai-skills.vue'), meta: { title: 'AI技能管理', perm: 'ai' } },
       
@@ -142,12 +144,21 @@ const hasPerm = (code) => {
   if (!code) return true
   const roleCode = localStorage.getItem('role_code')
   if (roleCode === 'admin') return true
-  const perms = JSON.parse(localStorage.getItem('permissions') || '[]')
-  if (perms.includes(code)) return true
-  const parts = code.split(':')
-  while (parts.length > 1) {
-    parts.pop()
-    if (perms.includes(parts.join(':'))) return true
+  try {
+    const userStr = localStorage.getItem('user_info')
+    if (userStr) {
+      const user = JSON.parse(userStr)
+      if (user?.role === 'admin' || user?.username === 'admin') return true
+    }
+    const perms = JSON.parse(localStorage.getItem('permissions') || '[]')
+    if (Array.isArray(perms) && (perms.includes('*') || perms.includes('all') || perms.includes(code))) return true
+    const parts = code.split(':')
+    while (parts.length > 1) {
+      parts.pop()
+      if (Array.isArray(perms) && perms.includes(parts.join(':'))) return true
+    }
+  } catch (e) {
+    return true
   }
   return false
 }

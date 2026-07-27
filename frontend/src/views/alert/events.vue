@@ -88,18 +88,29 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { monitorAlertStatusMeta } from '@/utils/status'
+import { useAlertsStore } from '@/store/alerts'
 
+const alertsStore = useAlertsStore()
 const alerts = ref([])
-const status = ref('')
-const severity = ref('')
-const target = ref('')
+const status = computed({
+  get: () => alertsStore.status,
+  set: (val) => { alertsStore.status = val }
+})
+const severity = computed({
+  get: () => alertsStore.severity,
+  set: (val) => { alertsStore.severity = val }
+})
+const target = computed({
+  get: () => alertsStore.target,
+  set: (val) => { alertsStore.target = val }
+})
 const router = useRouter()
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })

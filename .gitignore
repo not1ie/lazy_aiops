@@ -31,6 +31,8 @@ configs/config.local.yaml
 
 # Temporary
 tmp/
+scratch/
+deploy*.tar.gz
 docs/session_exports/*.jsonl
 
 # Local binaries (build artifacts)

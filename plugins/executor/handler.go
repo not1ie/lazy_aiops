@@ -13,10 +13,29 @@ import (
 	"gorm.io/gorm"
 )
 
+type logBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (b *logBuffer) Write(p []byte) (n int, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf = append(b.buf, p...)
+	return len(p), nil
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.buf)
+}
+
 type ExecutorHandler struct {
 	db         *gorm.DB
 	secretKey  string
 	executions sync.Map // executionID -> cancel chan
+	logsCache  sync.Map // executionID_hostID_stream -> *logBuffer
 }
 
 func NewExecutorHandler(db *gorm.DB, secretKey string) *ExecutorHandler {
@@ -207,13 +226,26 @@ func (h *ExecutorHandler) executeOnHost(execution *BatchExecution, host hostInfo
 		Timeout:  time.Duration(execution.Timeout) * time.Second,
 	}
 
-	stdout, stderr, err := client.Execute(execution.Content)
+	keyStdout := execution.ID + "_" + host.ID + "_stdout"
+	keyStderr := execution.ID + "_" + host.ID + "_stderr"
+
+	stdoutBuf := &logBuffer{}
+	stderrBuf := &logBuffer{}
+
+	h.logsCache.Store(keyStdout, stdoutBuf)
+	h.logsCache.Store(keyStderr, stderrBuf)
+	defer func() {
+		h.logsCache.Delete(keyStdout)
+		h.logsCache.Delete(keyStderr)
+	}()
+
+	err := client.ExecuteStream(execution.Content, stdoutBuf, stderrBuf)
 
 	finishedAt := time.Now()
 	result.FinishedAt = &finishedAt
 	result.Duration = int(finishedAt.Sub(now).Seconds())
-	result.Stdout = stdout
-	result.Stderr = stderr
+	result.Stdout = stdoutBuf.String()
+	result.Stderr = stderrBuf.String()
 
 	if err != nil {
 		result.Status = 3
@@ -293,6 +325,17 @@ func (h *ExecutorHandler) StreamResults(c *gin.Context) {
 
 			var results []BatchExecutionResult
 			h.db.Where("execution_id = ?", id).Find(&results)
+
+			for idx := range results {
+				keyStdout := id + "_" + results[idx].HostID + "_stdout"
+				keyStderr := id + "_" + results[idx].HostID + "_stderr"
+				if val, ok := h.logsCache.Load(keyStdout); ok {
+					results[idx].Stdout = val.(*logBuffer).String()
+				}
+				if val, ok := h.logsCache.Load(keyStderr); ok {
+					results[idx].Stderr = val.(*logBuffer).String()
+				}
+			}
 
 			data, _ := json.Marshal(gin.H{
 				"execution": execution,

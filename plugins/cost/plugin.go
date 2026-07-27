@@ -66,4 +66,5 @@ func (p *CostPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/optimizations", p.handler.ListOptimizations)
 	r.PUT("/optimizations/:id", p.handler.UpdateOptimization)
 	r.POST("/optimizations/analyze", p.handler.AnalyzeOptimization)
+	r.GET("/idle-optimization", p.handler.GetIdleOptimizationAdvice)
 }

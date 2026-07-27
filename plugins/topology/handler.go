@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"github.com/lazyautoops/lazy-auto-ops/plugins/docker"
 	k8splugin "github.com/lazyautoops/lazy-auto-ops/plugins/k8s"
 	"gorm.io/gorm"
@@ -93,6 +94,204 @@ func (h *TopologyHandler) GetTopology(c *gin.Context) {
 	h.db.Find(&nodes)
 	h.db.Find(&edges)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"nodes": nodes, "edges": edges}})
+}
+
+type relationNode struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`   // host, database, service, k8s_cluster
+	Status int    `json:"status"` // 1:ok 2:warn 3:fail 0:unknown
+	IP     string `json:"ip,omitempty"`
+}
+
+type relationEdge struct {
+	ID       string `json:"id"`
+	SourceID string `json:"source_id"`
+	TargetID string `json:"target_id"`
+	Type     string `json:"type"`  // runs_on, depends_on, belongs_to
+	Label    string `json:"label"` // runs_on: "部署宿主机", depends_on: protocol, belongs_to: "属于集群"
+}
+
+func (h *TopologyHandler) GetAssetRelations(c *gin.Context) {
+	var hosts []cmdb.Host
+	h.db.Find(&hosts)
+
+	var databases []cmdb.DatabaseAsset
+	h.db.Find(&databases)
+
+	var serviceNodes []ServiceNode
+	h.db.Find(&serviceNodes)
+
+	var serviceEdges []ServiceEdge
+	h.db.Find(&serviceEdges)
+
+	var k8sClusters []k8splugin.Cluster
+	h.db.Find(&k8sClusters)
+
+	// 1. 构建节点列表
+	nodes := make([]relationNode, 0)
+	nodeMap := make(map[string]bool)
+
+	// 记录 Host
+	hostIPMap := make(map[string]string) // IP -> ID
+	for _, host := range hosts {
+		nodes = append(nodes, relationNode{
+			ID:     "host_" + host.ID,
+			Name:   host.Name + " (" + host.IP + ")",
+			Type:   "host",
+			Status: host.Status,
+			IP:     host.IP,
+		})
+		hostIPMap[host.IP] = "host_" + host.ID
+		nodeMap["host_"+host.ID] = true
+	}
+
+	// 记录 Database
+	dbMap := make(map[string]string) // Name -> ID
+	for _, db := range databases {
+		nodes = append(nodes, relationNode{
+			ID:     "db_" + db.ID,
+			Name:   db.Name + " (" + db.Type + ")",
+			Type:   "database",
+			Status: db.Status,
+			IP:     db.Host,
+		})
+		dbMap[strings.ToLower(db.Name)] = "db_" + db.ID
+		nodeMap["db_"+db.ID] = true
+	}
+
+	// 记录 K8s Cluster
+	clusterMap := make(map[string]string) // Name -> ID
+	for _, cluster := range k8sClusters {
+		nodes = append(nodes, relationNode{
+			ID:     "cluster_" + cluster.ID,
+			Name:   cluster.DisplayName + " (" + cluster.Name + ")",
+			Type:   "k8s_cluster",
+			Status: cluster.Status,
+		})
+		clusterMap[strings.ToLower(cluster.Name)] = "cluster_" + cluster.ID
+		clusterMap[strings.ToLower(cluster.DisplayName)] = "cluster_" + cluster.ID
+		nodeMap["cluster_"+cluster.ID] = true
+	}
+
+	// 记录 Service (剔除虚的数据库类型节点，因为会被映射到真实的 DB 上)
+	serviceNodeMap := make(map[string]ServiceNode)
+	for _, sNode := range serviceNodes {
+		serviceNodeMap[sNode.ID] = sNode
+		if sNode.Type == "database" || sNode.Type == "cache" {
+			name := strings.ToLower(sNode.Name)
+			matched := false
+			for dbName := range dbMap {
+				if strings.Contains(name, dbName) || strings.Contains(dbName, name) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				continue
+			}
+		}
+		nodes = append(nodes, relationNode{
+			ID:     "service_" + sNode.ID,
+			Name:   sNode.Name,
+			Type:   "service",
+			Status: sNode.Status,
+		})
+		nodeMap["service_"+sNode.ID] = true
+	}
+
+	// 2. 构建连线
+	edges := make([]relationEdge, 0)
+	edgeCount := 0
+	addEdge := func(src, tgt, edgeType, label string) {
+		edgeCount++
+		edges = append(edges, relationEdge{
+			ID:       fmt.Sprintf("edge_%d", edgeCount),
+			SourceID: src,
+			TargetID: tgt,
+			Type:     edgeType,
+			Label:    label,
+		})
+	}
+
+	// 边 1: DB 运行于 Host 上
+	for _, db := range databases {
+		if hostID, ok := hostIPMap[db.Host]; ok {
+			addEdge("db_"+db.ID, hostID, "runs_on", "部署宿主机")
+		} else {
+			for ip, hostID := range hostIPMap {
+				if strings.Contains(db.Host, ip) {
+					addEdge("db_"+db.ID, hostID, "runs_on", "部署宿主机")
+					break
+				}
+			}
+		}
+	}
+
+	// 边 2: 微服务属于 K8s 集群
+	for _, sNode := range serviceNodes {
+		if sNode.Cluster != "" {
+			if clusterID, ok := clusterMap[strings.ToLower(sNode.Cluster)]; ok {
+				if _, ok := nodeMap["service_"+sNode.ID]; ok {
+					addEdge("service_"+sNode.ID, clusterID, "belongs_to", "属于集群")
+				}
+			}
+		}
+	}
+
+	// 边 3: 提取 endpoints 匹配运行于 Host
+	for _, sNode := range serviceNodes {
+		if _, ok := nodeMap["service_"+sNode.ID]; !ok {
+			continue
+		}
+		endpoints := sNode.Endpoints
+		for ip, hostID := range hostIPMap {
+			if strings.Contains(endpoints, ip) {
+				addEdge("service_"+sNode.ID, hostID, "runs_on", "宿主机")
+				break
+			}
+		}
+	}
+
+	// 边 4: 微服务调用关系 (包括重定向到真实数据库)
+	for _, sEdge := range serviceEdges {
+		srcID := "service_" + sEdge.SourceID
+		tgtID := "service_" + sEdge.TargetID
+
+		srcExists := nodeMap[srcID]
+		tgtExists := nodeMap[tgtID]
+
+		if !srcExists {
+			continue
+		}
+
+		if !tgtExists {
+			targetNode, ok := serviceNodeMap[sEdge.TargetID]
+			if ok {
+				name := strings.ToLower(targetNode.Name)
+				matchedDBID := ""
+				for dbName, dbID := range dbMap {
+					if strings.Contains(name, dbName) || strings.Contains(dbName, name) {
+						matchedDBID = dbID
+						break
+					}
+				}
+				if matchedDBID != "" {
+					addEdge(srcID, matchedDBID, "depends_on", sEdge.Type)
+				}
+			}
+		} else {
+			addEdge(srcID, tgtID, "depends_on", sEdge.Type)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"nodes": nodes,
+			"edges": edges,
+		},
+	})
 }
 
 func (h *TopologyHandler) ListNodes(c *gin.Context) {

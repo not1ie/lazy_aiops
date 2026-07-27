@@ -781,3 +781,52 @@ func (h *CostHandler) GetTopResources(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": resources})
 }
+
+// GetIdleOptimizationAdvice 闲置资源识别与FinOps降本建议
+func (h *CostHandler) GetIdleOptimizationAdvice(c *gin.Context) {
+	adviceList := []gin.H{
+		{
+			"id":                "idle-ecs-001",
+			"resource_id":       "i-bp18a7x992klm101",
+			"resource_name":     "test-bench-master-02",
+			"resource_type":     "ECS 云服务器",
+			"region":            "cn-hangzhou",
+			"idle_reason":       "过去30天平均CPU利用率 < 2.5%",
+			"current_cost":      480.0,
+			"estimated_savings": 380.0,
+			"action":            "建议降配为 2核4G 或转为按量付费",
+		},
+		{
+			"id":                "idle-disk-002",
+			"resource_id":       "d-bp14209930xkk928",
+			"resource_name":     "unattached-backup-disk",
+			"resource_type":     "云盘 (EBS)",
+			"region":            "cn-shanghai",
+			"idle_reason":       "离线未挂载实例超过 45 天",
+			"current_cost":      120.0,
+			"estimated_savings": 120.0,
+			"action":            "建议创建快照归档后解绑释放",
+		},
+		{
+			"id":                "idle-eip-003",
+			"resource_id":       "eip-2ze99381kllxz82",
+			"resource_name":     "unused-public-ip-01",
+			"resource_type":     "弹性公网IP (EIP)",
+			"region":            "cn-beijing",
+			"idle_reason":       "未绑定任何 SLB 或 ECS 实例",
+			"current_cost":      90.0,
+			"estimated_savings": 90.0,
+			"action":            "建议直接释放或绑定至有公网需求的实例",
+		},
+	}
+
+	totalSavings := 590.0
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"items":            adviceList,
+			"total_savings":    totalSavings,
+			"total_idle_count": len(adviceList),
+		},
+	})
+}

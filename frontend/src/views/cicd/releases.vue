@@ -25,8 +25,9 @@
       </el-table-column>
       <el-table-column prop="release_at" label="发布时间" width="180" />
       <el-table-column prop="operator" label="操作人" width="120" />
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
+          <el-button size="small" type="warning" plain @click="handleRollback(row)">一键回滚</el-button>
           <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
           <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
         </template>
@@ -200,6 +201,25 @@ const handleDelete = async (row) => {
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(getErrorMessage(error, '删除失败'))
+    }
+  }
+}
+
+const handleRollback = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认要将 [${row.name || row.version}] 一键秒级回滚至上一个稳定版本吗？`, '一键回滚确认', {
+      confirmButtonText: '确认回滚',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const res = await axios.post(`/api/v1/cicd/releases/${row.id}/rollback`, {}, { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data.message || '已成功触发回滚')
+      await fetchData()
+    }
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error(e?.response?.data?.message || '触发回滚失败')
     }
   }
 }

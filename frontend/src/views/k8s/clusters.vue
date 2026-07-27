@@ -39,7 +39,23 @@
       </el-table>
     </div>
 
-    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="640px">
+    <el-dialog append-to-body v-model="dialogVisible" :title="dialogTitle" width="680px">
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px"
+        title="K8s 集群接入指南"
+      >
+        <template #default>
+          <div style="font-size: 12px; line-height: 1.6; margin-top: 4px">
+            <strong>推荐获取完整内嵌证书配置的 3 种方式：</strong><br />
+            1. <strong>独立文件</strong>：复制 K8s Master 节点上的 <code>/etc/kubernetes/admin.conf</code> 内容并粘贴；<br />
+            2. <strong>导出为内嵌证书 YAML</strong>：在节点执行 <code>kubectl config view --flatten</code> 导出包含证书数据的文本粘贴；<br />
+            3. <strong>Token 模式</strong>：在 API Server 填入集群 URL（如 <code>https://192.168.10.100:6443</code>），并在 KubeConfig 框内直接粘贴 ServiceAccount 的 Bearer Token。
+          </div>
+        </template>
+      </el-alert>
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="例如: prod" />
@@ -48,10 +64,10 @@
           <el-input v-model="form.display_name" placeholder="例如: 生产集群" />
         </el-form-item>
         <el-form-item label="API Server">
-          <el-input v-model="form.api_server" placeholder="https://x.x.x.x:6443" />
+          <el-input v-model="form.api_server" placeholder="https://192.168.10.100:6443 (若配置中为 localhost 请务必在此填写)" />
         </el-form-item>
         <el-form-item label="KubeConfig">
-          <el-input v-model="form.kubeconfig" type="textarea" :rows="6" placeholder="粘贴 kubeconfig 内容" />
+          <el-input v-model="form.kubeconfig" type="textarea" :rows="7" placeholder="粘贴 admin.conf、flatten kubeconfig 内容或 Bearer Token" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />

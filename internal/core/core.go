@@ -1,6 +1,8 @@
 package core
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -106,8 +108,28 @@ func (c *Core) initDB() error {
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger: logger.Default.LogMode(logLevel),
 	})
-	if err != nil {
-		return err
+
+	var pingErr error
+	if err == nil {
+		if sqlDB, errDB := db.DB(); errDB == nil {
+			pingErr = sqlDB.Ping()
+		}
+	}
+
+	if err != nil || pingErr != nil {
+		log.Printf("[HIGH-AVAILABILITY WARNING] Primary DB (%s) connection/ping failed (err: %v, ping: %v). Falling back to local SQLite DB!", c.Config.Database.Driver, err, pingErr)
+		sqliteDir := "data"
+		_ = os.MkdirAll(sqliteDir, 0755)
+		sqlitePath := filepath.Join(sqliteDir, "lazy_aiops.db")
+		fallbackDB, fallbackErr := gorm.Open(sqlite.Open(sqlitePath), &gorm.Config{
+			Logger: logger.Default.LogMode(logLevel),
+		})
+		if fallbackErr != nil {
+			return fmt.Errorf("both primary DB and fallback SQLite DB failed: primary err: %v, ping: %v, fallback err: %v", err, pingErr, fallbackErr)
+		}
+		c.DB = fallbackDB
+		c.Config.Database.Driver = "sqlite"
+		return nil
 	}
 
 	// Configure connection pooling for production-grade databases

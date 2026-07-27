@@ -120,7 +120,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -147,7 +147,14 @@ const loadingResults = ref(false)
 
 const outputVisible = ref(false)
 const outputTab = ref('stdout')
-const selectedOutput = ref({ stdout: '', stderr: '' })
+const selectedResultId = ref(null)
+const selectedOutput = computed(() => {
+  const row = results.value.find(r => r.id === selectedResultId.value)
+  return {
+    stdout: row?.stdout || '',
+    stderr: row?.stderr || ''
+  }
+})
 
 let eventSource = null
 
@@ -288,7 +295,7 @@ const cancelExecution = async (row) => {
 }
 
 const openOutput = (row) => {
-  selectedOutput.value = { stdout: row.stdout, stderr: row.stderr }
+  selectedResultId.value = row.id
   outputTab.value = 'stdout'
   outputVisible.value = true
 }

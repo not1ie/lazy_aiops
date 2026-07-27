@@ -48,15 +48,6 @@ func (h *MonitorHandler) ListSettings(c *gin.Context) {
 	for i := range list {
 		h.sanitizeSettingSecrets(&list[i])
 	}
-	if len(list) == 0 && h.promURL != "" {
-		list = append(list, MonitorSetting{
-			Name:           "default",
-			PrometheusURL:  h.promURL,
-			PushgatewayURL: h.pushURL,
-			AuthType:       "none",
-			Active:         true,
-		})
-	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": list})
 }
 

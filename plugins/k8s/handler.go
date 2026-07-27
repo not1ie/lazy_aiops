@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -63,13 +64,90 @@ func k8sQueryTruthy(raw string) bool {
 
 var ingressHostPattern = regexp.MustCompile(`^\*\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
+func buildRESTConfigFromCluster(cluster *Cluster) (*rest.Config, error) {
+	rawConfig := strings.TrimSpace(cluster.KubeConfig)
+
+	// 1. 拦截本地路径文件引用 (如 /var/lib/kubelet/pki/kubelet-client-current.pem)
+	if strings.Contains(rawConfig, "client-certificate:") && !strings.Contains(rawConfig, "client-certificate-data:") {
+		lines := strings.Split(rawConfig, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "client-certificate:") || strings.Contains(line, "client-key:") {
+				parts := strings.Split(line, ":")
+				if len(parts) >= 2 {
+					filePath := strings.TrimSpace(parts[1])
+					if filePath != "" && !strings.HasPrefix(filePath, "data:") {
+						if _, err := os.Stat(filePath); os.IsNotExist(err) {
+							return nil, fmt.Errorf("KubeConfig 引用了节点本地文件路径 (%s)。当前服务器无法访问该节点文件，请从 Master 节点复制包含内嵌证书数据 (client-certificate-data) 的 /etc/kubernetes/admin.conf 文件重新粘贴接入", filePath)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	var config *rest.Config
+	var err error
+
+	if rawConfig != "" {
+		// 判断是否直接粘贴的是 Bearer Token
+		if !strings.Contains(rawConfig, "apiVersion:") && !strings.Contains(rawConfig, "kind:") && len(rawConfig) > 10 {
+			apiServer := strings.TrimSpace(cluster.APIServer)
+			if apiServer == "" {
+				return nil, fmt.Errorf("使用 Bearer Token 方式接入时必须填写 API Server 地址 (如 https://x.x.x.x:6443)")
+			}
+			config = &rest.Config{
+				Host:        apiServer,
+				BearerToken: rawConfig,
+				TLSClientConfig: rest.TLSClientConfig{
+					Insecure: true,
+				},
+			}
+		} else {
+			clientConfig, loadErr := clientcmd.NewClientConfigFromBytes([]byte(rawConfig))
+			if loadErr != nil {
+				return nil, fmt.Errorf("解析 KubeConfig 语法失败: %v", loadErr)
+			}
+			config, err = clientConfig.ClientConfig()
+			if err != nil {
+				return nil, fmt.Errorf("生成 K8s 客户端配置失败: %v", err)
+			}
+		}
+	} else if strings.TrimSpace(cluster.APIServer) != "" {
+		config = &rest.Config{
+			Host: strings.TrimSpace(cluster.APIServer),
+			TLSClientConfig: rest.TLSClientConfig{
+				Insecure: true,
+			},
+		}
+	} else {
+		return nil, fmt.Errorf("请提供有效的 KubeConfig 内容或 API Server 地址与 Token")
+	}
+
+	// 如果填入了可达的外部 APIServer 地址，覆盖可能为 127.0.0.1 / localhost 的 Host
+	if strings.TrimSpace(cluster.APIServer) != "" {
+		config.Host = strings.TrimSpace(cluster.APIServer)
+	}
+
+	// 如果配置启用了 Insecure = true，必须清空 CA 根证书，符合 client-go 校验规范
+	if len(config.TLSClientConfig.CAData) == 0 && config.TLSClientConfig.CAFile == "" {
+		config.TLSClientConfig.Insecure = true
+	}
+	if config.TLSClientConfig.Insecure {
+		config.TLSClientConfig.CAData = nil
+		config.TLSClientConfig.CAFile = ""
+	}
+	config.Timeout = 5 * time.Second
+
+	return config, nil
+}
+
 func (h *K8sHandler) getClient(clusterID string) (*kubernetes.Clientset, error) {
 	var cluster Cluster
 	if err := h.db.First(&cluster, "id = ?", clusterID).Error; err != nil {
 		return nil, err
 	}
 
-	config, err := clientcmd.RESTConfigFromKubeConfig([]byte(cluster.KubeConfig))
+	config, err := buildRESTConfigFromCluster(&cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +160,7 @@ func (h *K8sHandler) getRestConfig(clusterID string) (*rest.Config, error) {
 	if err := h.db.First(&cluster, "id = ?", clusterID).Error; err != nil {
 		return nil, err
 	}
-	return clientcmd.RESTConfigFromKubeConfig([]byte(cluster.KubeConfig))
+	return buildRESTConfigFromCluster(&cluster)
 }
 
 // ListClusters 集群列表
@@ -124,6 +202,8 @@ func (h *K8sHandler) CreateCluster(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_, _ = h.syncClusterStatusByID(cluster.ID)
+	_ = h.db.First(&cluster, "id = ?", cluster.ID).Error
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": cluster})
 }
 
@@ -185,6 +265,7 @@ func (h *K8sHandler) UpdateCluster(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
+	_, _ = h.syncClusterStatusByID(cluster.ID)
 	if err := h.db.First(&cluster, "id = ?", id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return

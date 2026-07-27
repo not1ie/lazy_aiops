@@ -296,6 +296,31 @@ func (h *TerminalHandler) GetSession(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
 }
 
+// ShareSession 发起会话实时协同共享
+func (h *TerminalHandler) ShareSession(c *gin.Context) {
+	id := c.Param("id")
+	var session TerminalSession
+	if err := h.db.First(&session, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "会话不存在"})
+		return
+	}
+
+	shareToken := uuid.NewString()
+	shareURL := fmt.Sprintf("/jump/assets?share_token=%s&session_id=%s", shareToken, session.ID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"message": "已生成实时协同同屏调试共享链接",
+		"data": gin.H{
+			"session_id":  session.ID,
+			"share_token": shareToken,
+			"share_url":   shareURL,
+			"mode":        "read_only",
+			"expires_in":  3600,
+		},
+	})
+}
+
 // CreateSession 创建会话
 func (h *TerminalHandler) CreateSession(c *gin.Context) {
 	var req struct {

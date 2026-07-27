@@ -36,8 +36,8 @@
           </el-table-column>
           <el-table-column label="状态" width="120">
             <template #default="{ row }">
-              <el-tag :type="certStatusTag(row.status, certDays(row))">
-                {{ certStatusText(row.status, certDays(row)) }}
+              <el-tag :type="certStatusTag(row)">
+                {{ certStatusText(row) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -204,15 +204,26 @@ const formatTime = (value) => {
   return date.toLocaleString()
 }
 
-const certStatusText = (status, days) => {
-  if (status === 0 || Number(days) <= 0) return '已过期'
-  if (status === 2 || Number(days) <= 30) return '即将过期'
+const isCertFailed = (row) => {
+  if (!row) return false
+  if (row.serial_number === '-' || row.status === 0) return true
+  const issuer = String(row.issuer || '')
+  return issuer.includes('未建连') || issuer.includes('超时') || issuer === '未知'
+}
+
+const certStatusText = (row) => {
+  if (isCertFailed(row)) return '建连失败'
+  const days = certDays(row)
+  if (Number(days) <= 0) return '已过期'
+  if (Number(days) <= 30) return '即将过期'
   return '正常'
 }
 
-const certStatusTag = (status, days) => {
-  if (status === 0 || Number(days) <= 0) return 'danger'
-  if (status === 2 || Number(days) <= 30) return 'warning'
+const certStatusTag = (row) => {
+  if (isCertFailed(row)) return 'danger'
+  const days = certDays(row)
+  if (Number(days) <= 0) return 'danger'
+  if (Number(days) <= 30) return 'warning'
   return 'success'
 }
 
@@ -244,9 +255,9 @@ const healthTag = (status) => {
 
 const certSummary = computed(() => {
   const total = certs.value.length
-  const expired = certs.value.filter(item => certDays(item) <= 0 || item.status === 0).length
-  const expiring = certs.value.filter(item => certDays(item) > 0 && certDays(item) <= 30).length
-  const ok = total - expired - expiring
+  const expired = certs.value.filter(item => isCertFailed(item) || certDays(item) <= 0).length
+  const expiring = certs.value.filter(item => !isCertFailed(item) && certDays(item) > 0 && certDays(item) <= 30).length
+  const ok = certs.value.filter(item => !isCertFailed(item) && certDays(item) > 30).length
   return { total, expired, expiring, ok }
 })
 
@@ -361,8 +372,12 @@ const inspectCert = (row) => {
 
 const checkCert = async (row) => {
   try {
-    await axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
-    ElMessage.success('检查完成')
+    const res = await axios.post(`/api/v1/domain/certs/${row.id}/check`, {}, { headers: authHeaders() })
+    if (res.data?.message && (res.data.message.includes('失败') || res.data.message.includes('超时'))) {
+      ElMessage.warning(res.data.message)
+    } else {
+      ElMessage.success('检查完成')
+    }
     await fetchCerts()
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '检查失败'))

@@ -29,3 +29,17 @@ type QAResponse struct {
 	Answer     string     `json:"answer"`
 	References []Document `json:"references"`
 }
+
+// SyncSource 知识同步数据源
+type SyncSource struct {
+	ID           string         `gorm:"primaryKey;size:36" json:"id"`
+	Name         string         `gorm:"size:100;not null" json:"name"`
+	Type         string         `gorm:"size:50;not null" json:"type"` // confluence, jira, gitlab, notion
+	URL          string         `gorm:"size:255;not null" json:"url"`
+	Token        string         `gorm:"size:255" json:"token"`
+	SyncStatus   string         `gorm:"size:20;default:'idle'" json:"sync_status"` // idle, syncing, success, failed
+	LastSyncedAt *time.Time     `json:"last_synced_at"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
+}

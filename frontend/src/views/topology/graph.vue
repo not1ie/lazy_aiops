@@ -100,12 +100,16 @@
         <div class="section-header">
           <span>拓扑画布</span>
           <div class="canvas-actions">
-            <el-select v-model="canvasMode" size="small" class="canvas-select">
+            <el-radio-group v-model="topologyType" size="small" style="margin-right: 16px;" @change="handleTypeChange">
+              <el-radio-button label="service">服务依赖</el-radio-button>
+              <el-radio-button label="asset">资产网络</el-radio-button>
+            </el-radio-group>
+            <el-select v-model="canvasMode" size="small" class="canvas-select" :disabled="topologyType === 'asset'">
               <el-option label="按集群泳道" value="lane" />
               <el-option label="按布局坐标" value="manual" />
             </el-select>
             <el-button
-              v-if="canvasMode === 'manual'"
+              v-if="canvasMode === 'manual' && topologyType !== 'asset'"
               size="small"
               type="primary"
               :loading="savingLayout"
@@ -161,13 +165,13 @@
           v-for="item in graphNodes"
           :key="item.id"
           class="graph-node"
-          :class="{ selected: selectedNode?.id === item.id, critical: criticalNodeNames.has(item.name), draggable: canvasMode === 'manual' }"
-          :style="{ left: `${item.left}px`, top: `${item.top}px`, borderColor: sourceColor(item.source), animationDelay: `${item.delay}ms` }"
+          :class="{ selected: selectedNode?.id === item.id, critical: criticalNodeNames.has(item.name), draggable: canvasMode === 'manual' && topologyType !== 'asset' }"
+          :style="{ left: `${item.left}px`, top: `${item.top}px`, borderColor: topologyType === 'asset' ? assetColor(item.type) : sourceColor(item.source), animationDelay: `${item.delay}ms` }"
           @mousedown.stop="startNodeDrag($event, item)"
           @click="selectNode(item.raw)"
         >
           <div class="graph-node-title">{{ item.name }}</div>
-          <div class="graph-node-meta">{{ item.source }} | {{ item.type }}</div>
+          <div class="graph-node-meta">{{ topologyType === 'asset' ? item.type.toUpperCase() : item.source + ' | ' + item.type }}</div>
         </div>
       </div>
     </el-card>
@@ -386,6 +390,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 
 const loading = ref(false)
+const topologyType = ref('service')
 const nodeSaving = ref(false)
 const edgeSaving = ref(false)
 const importing = ref(false)
@@ -617,10 +622,19 @@ const graphNodes = computed(() => {
   }
   const sorted = [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
   return sorted.map((raw, index) => {
-    const x = Math.max(0, Number(raw.x || 0))
-    const y = Math.max(0, Number(raw.y || 0))
-    const left = 36 + x
-    const top = 64 + y
+    let x = Math.max(0, Number(raw.x || 0))
+    let y = Math.max(0, Number(raw.y || 0))
+    let left = 36 + x
+    let top = 64 + y
+    if (topologyType.value === 'asset') {
+      const colWidth = 260
+      const rowHeight = 120
+      const cols = 4
+      const col = index % cols
+      const row = Math.floor(index / cols)
+      left = 36 + col * colWidth
+      top = 64 + row * rowHeight
+    }
     const override = dragOverrideMap.value[raw.id]
     return {
       id: raw.id,
@@ -721,7 +735,8 @@ const statusType = (status) => {
 const fetchTopology = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/v1/topology/data', { headers: authHeaders() })
+    const url = topologyType.value === 'asset' ? '/api/v1/topology/asset-relations' : '/api/v1/topology/data'
+    const res = await axios.get(url, { headers: authHeaders() })
     if (res.data?.code === 0) {
       nodes.value = res.data.data?.nodes || []
       edges.value = res.data.data?.edges || []
@@ -734,6 +749,26 @@ const fetchTopology = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleTypeChange = async () => {
+  if (topologyType.value === 'asset') {
+    canvasMode.value = 'manual'
+  } else {
+    canvasMode.value = 'lane'
+  }
+  selectedNode.value = null
+  await fetchTopology()
+}
+
+const assetColor = (type) => {
+  const map = {
+    host: '#0071e3',          // 蓝色
+    database: '#af52de',      // 紫色
+    service: '#34c759',       // 绿色
+    k8s_cluster: '#ff9500'    // 橙色
+  }
+  return map[type] || '#909399'
 }
 
 const fetchViews = async () => {

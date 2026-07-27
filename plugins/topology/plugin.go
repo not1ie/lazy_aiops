@@ -58,6 +58,7 @@ func (p *TopologyPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	p.handler = NewTopologyHandler(p.core.DB, p.core.Config.JWT.Secret)
 
 	r.GET("/data", p.handler.GetTopology)
+	r.GET("/asset-relations", p.handler.GetAssetRelations)
 	r.GET("/nodes", p.handler.ListNodes)
 	r.POST("/nodes", p.handler.CreateNode)
 	r.PUT("/nodes/:id", p.handler.UpdateNode)

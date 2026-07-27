@@ -6,7 +6,7 @@
         <p class="page-desc">资源趋势、告警汇总与在线状态。</p>
       </div>
       <div class="page-actions">
-        <el-button icon="Refresh" @click="refreshAll">刷新</el-button>
+        <el-button icon="Refresh" :loading="refreshing" @click="handleRefresh">刷新</el-button>
       </div>
     </div>
 
@@ -209,8 +209,22 @@ const renderTrend = (records) => {
   })
 }
 
+const refreshing = ref(false)
+
 const refreshAll = async () => {
   await Promise.all([fetchRealtime(), fetchHistory(), fetchAlerts(), fetchAgents(), fetchTopNodes()])
+}
+
+const handleRefresh = async () => {
+  refreshing.value = true
+  try {
+    await refreshAll()
+    ElMessage.success('监控概览数据已更新')
+  } catch (err) {
+    ElMessage.error('刷新失败: ' + (err.message || ''))
+  } finally {
+    refreshing.value = false
+  }
 }
 
 onMounted(() => {

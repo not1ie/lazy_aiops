@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -95,12 +96,16 @@ func (s *SSHClient) getPooledClient() (*ssh.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	if config.Timeout > 0 {
+		_ = conn.SetDeadline(time.Now().Add(config.Timeout))
+	}
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
+	_ = conn.SetDeadline(time.Time{})
 	client := ssh.NewClient(sshConn, chans, reqs)
 
 	poolMu.Lock()
@@ -166,10 +171,15 @@ func (s *SSHClient) Execute(command string) (string, string, error) {
 	}
 	defer conn.Close()
 
+	if config.Timeout > 0 {
+		_ = conn.SetDeadline(time.Now().Add(config.Timeout))
+	}
+
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		return "", "", err
 	}
+	_ = conn.SetDeadline(time.Time{})
 	client := ssh.NewClient(sshConn, chans, reqs)
 	defer client.Close()
 
@@ -185,4 +195,49 @@ func (s *SSHClient) Execute(command string) (string, string, error) {
 
 	err = session.Run(command)
 	return stdout.String(), stderr.String(), err
+}
+
+// ExecuteStream 执行远程命令并将输出实时写入传入的 Writer
+func (s *SSHClient) ExecuteStream(command string, stdoutWriter, stderrWriter io.Writer) error {
+	config := &ssh.ClientConfig{
+		User: s.Username,
+		Auth: []ssh.AuthMethod{},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         s.Timeout,
+	}
+
+	if s.Password != "" {
+		config.Auth = append(config.Auth, ssh.Password(s.Password))
+	}
+	if s.Key != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(s.Key))
+		if err == nil {
+			config.Auth = append(config.Auth, ssh.PublicKeys(signer))
+		}
+	}
+
+	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
+	conn, err := net.DialTimeout("tcp", addr, config.Timeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		return err
+	}
+	client := ssh.NewClient(sshConn, chans, reqs)
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	session.Stdout = stdoutWriter
+	session.Stderr = stderrWriter
+
+	return session.Run(command)
 }

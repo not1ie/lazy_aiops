@@ -70,6 +70,43 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="section-card" style="margin-top: 16px;">
+      <template #header>
+        <div class="section-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 600;">FinOps 闲置资源识别与降本建议</span>
+            <el-tag type="success" size="small">预计可节省 ¥{{ totalIdleSavings }}/月</el-tag>
+          </div>
+          <el-button icon="Refresh" size="small" @click="fetchIdleOptimizations">刷新分析</el-button>
+        </div>
+      </template>
+
+      <el-table :data="idleOptimizations" stripe style="width: 100%">
+        <el-table-column prop="resource_name" label="资源名称" min-width="180">
+          <template #default="{ row }">
+            <div style="font-weight: 600;">{{ row.resource_name }}</div>
+            <div style="font-size: 11px; color: #94a3b8;">{{ row.resource_id }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="resource_type" label="资源类型" width="140" />
+        <el-table-column prop="region" label="地域" width="120" />
+        <el-table-column prop="idle_reason" label="闲置触发原因" min-width="220">
+          <template #default="{ row }">
+            <el-tag type="warning" size="small">{{ row.idle_reason }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="current_cost" label="当前月消费" width="120">
+          <template #default="{ row }">¥{{ row.current_cost }}</template>
+        </el-table-column>
+        <el-table-column prop="estimated_savings" label="预计节省" width="120">
+          <template #default="{ row }">
+            <span style="color: #22c55e; font-weight: 600;">¥{{ row.estimated_savings }}/月</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="action" label="优化建议与操作" min-width="200" />
+      </el-table>
+    </el-card>
+
     <el-card shadow="never" class="section-card">
       <template #header>
         <div class="section-header">
@@ -204,6 +241,19 @@ const trendChartRef = ref(null)
 const productChartRef = ref(null)
 let trendChart = null
 let productChart = null
+
+const idleOptimizations = ref([])
+const totalIdleSavings = ref(0)
+
+const fetchIdleOptimizations = async () => {
+  try {
+    const res = await axios.get('/api/v1/cost/idle-optimization', { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      idleOptimizations.value = res.data.data?.items || []
+      totalIdleSavings.value = res.data.data?.total_savings || 0
+    }
+  } catch(e) {}
+}
 
 const accountDialogVisible = ref(false)
 const accountDialogTitle = ref('新增云账号')
@@ -445,6 +495,7 @@ onMounted(async () => {
   dateRange.value = [start.toISOString().slice(0, 10), now.toISOString().slice(0, 10)]
   await fetchAccounts()
   await reloadAll()
+  await fetchIdleOptimizations()
   window.addEventListener('resize', handleResize)
 })
 

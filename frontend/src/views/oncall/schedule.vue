@@ -75,13 +75,19 @@
 
     <el-card class="mt-12">
       <template #header>
-        <div class="section-header">
-          <span>班次明细</span>
-          <span class="muted">{{ selectedSchedule ? `排班：${selectedSchedule.name}` : '请选择排班' }}</span>
+        <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <div>
+            <span>班次明细</span>
+            <span class="muted" style="margin-left: 8px;">{{ selectedSchedule ? `排班：${selectedSchedule.name}` : '请选择排班' }}</span>
+          </div>
+          <el-radio-group v-model="viewMode" size="small">
+            <el-radio-button label="table">列表视图</el-radio-button>
+            <el-radio-button label="calendar">日历视图</el-radio-button>
+          </el-radio-group>
         </div>
       </template>
 
-      <el-table :fit="true" :data="shifts" v-loading="shiftLoading" stripe>
+      <el-table v-if="viewMode === 'table'" :fit="true" :data="shifts" v-loading="shiftLoading" stripe>
         <el-table-column prop="username" label="值班人" width="140" />
         <el-table-column prop="phone" label="电话" width="130" />
         <el-table-column prop="email" label="邮箱" min-width="180" />
@@ -102,6 +108,23 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-else v-loading="shiftLoading" style="padding: 10px;">
+        <el-calendar>
+          <template #date-cell="{ data }">
+            <div class="calendar-day-cell">
+              <span class="day-number">{{ data.day.split('-').slice(2).join('') }}</span>
+              <div class="day-shifts" style="margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
+                <div v-for="shift in getShiftsForDay(data.day)" :key="shift.id">
+                  <el-tag size="small" :type="getShiftTagType(shift.username)" style="cursor: pointer; width: 100%; text-align: center;" @click="openSwapDialog(shift)">
+                    {{ shift.username }} (换班)
+                  </el-tag>
+                </div>
+              </div>
+            </div>
+          </template>
+        </el-calendar>
+      </div>
     </el-card>
 
     <el-dialog append-to-body v-model="scheduleDialogVisible" :title="scheduleEditing ? '编辑排班' : '新增排班'" width="700px" @closed="handleScheduleDialogClosed">
@@ -221,6 +244,15 @@ const teams = ref([])
 const shifts = ref([])
 const currentOncall = ref([])
 const selectedSchedule = ref(null)
+const viewMode = ref('table')
+
+const getShiftsForDay = (dayString) => {
+  return shifts.value.filter(s => {
+    if (!s.start_at) return false
+    const sDate = s.start_at.substring(0, 10)
+    return sDate === dayString
+  })
+}
 
 const saving = ref(false)
 const teamSaving = ref(false)
@@ -576,6 +608,13 @@ const swapShift = async () => {
   }
 }
 
+const getShiftTagType = (username) => {
+  if (!username) return 'info'
+  const hash = [...username].reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  const types = ['primary', 'success', 'warning', 'danger', 'info']
+  return types[hash % types.length]
+}
+
 onMounted(refreshAll)
 </script>
 
@@ -594,4 +633,20 @@ onMounted(refreshAll)
 .mt-12 { margin-top: 12px; }
 .mr-6 { margin-right: 6px; }
 .mb-6 { margin-bottom: 6px; }
+.calendar-day-cell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.day-number {
+  font-weight: bold;
+}
+.day-shifts {
+  flex: 1;
+  overflow-y: auto;
+}
+:deep(.el-calendar-table .el-calendar-day) {
+  height: 110px;
+  padding: 6px;
+}
 </style>
