@@ -30,9 +30,10 @@ var upgrader = websocket.Upgrader{
 }
 
 type TerminalHandler struct {
-	db       *gorm.DB
-	auth     *core.AuthService
-	sessions sync.Map // sessionID -> *SSHSession
+	db        *gorm.DB
+	auth      *core.AuthService
+	secretKey string
+	sessions  sync.Map // sessionID -> *SSHSession
 }
 
 type SSHSession struct {
@@ -186,8 +187,8 @@ type jumpRuleHit struct {
 	Pattern  string `json:"pattern"`
 }
 
-func NewTerminalHandler(db *gorm.DB, auth *core.AuthService) *TerminalHandler {
-	return &TerminalHandler{db: db, auth: auth}
+func NewTerminalHandler(db *gorm.DB, auth *core.AuthService, secretKey string) *TerminalHandler {
+	return &TerminalHandler{db: db, auth: auth, secretKey: secretKey}
 }
 
 func normalizeConnectPayload(req *terminalConnectPayload) error {
@@ -387,6 +388,7 @@ func (h *TerminalHandler) QuickConnectHost(c *gin.Context) {
 	privateKey := ""
 
 	if host.Credential != nil {
+		_ = cmdb.DecryptCredentialFields(h.secretKey, host.Credential)
 		if strings.TrimSpace(host.Credential.Username) != "" {
 			username = strings.TrimSpace(host.Credential.Username)
 		}

@@ -83,7 +83,11 @@ func (p *TerminalPlugin) Migrate() error {
 }
 
 func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
-	h := NewTerminalHandler(p.core.DB, p.core.Auth)
+	secretKey := ""
+	if p.core != nil && p.core.Config != nil {
+		secretKey = p.core.Config.JWT.Secret
+	}
+	h := NewTerminalHandler(p.core.DB, p.core.Auth, secretKey)
 
 	// 会话管理
 	g.GET("/sessions", h.ListSessions)
