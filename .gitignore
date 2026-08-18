@@ -2,6 +2,7 @@
 bin/
 lazy-auto-ops
 main
+server
 
 # Data and Logs
 data/
