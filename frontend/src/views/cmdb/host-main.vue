@@ -247,7 +247,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="370" fixed="right" class-name="fixed-op-col">
+            <el-table-column label="操作" width="410" min-width="410" fixed="right" class-name="fixed-op-col">
               <template #default="{ row }">
                 <div class="op-row">
                   <el-button size="small" type="primary" plain icon="Monitor" @click="openWebTerminal(row)">终端</el-button>
@@ -2240,8 +2240,19 @@ const saveDescription = async (row) => {
 .op-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
+  white-space: nowrap !important;
+  flex-wrap: nowrap !important;
+}
+
+.op-row :deep(.el-button) {
+  margin-left: 0 !important;
+  padding: 5px 8px;
+  height: 28px;
+  font-size: 12px;
+  flex-shrink: 0;
+  white-space: nowrap !important;
 }
 
 :deep(.fixed-op-col) {
