@@ -112,6 +112,7 @@ func (p *JumpPlugin) RegisterRoutes(r *gin.RouterGroup) {
 	// 资产
 	r.GET("/assets", p.handler.ListAssets)
 	r.POST("/assets", p.handler.CreateAsset)
+	r.POST("/assets/batch", p.handler.BatchAssets)
 	r.GET("/assets/:id", p.handler.GetAsset)
 	r.PUT("/assets/:id", p.handler.UpdateAsset)
 	r.DELETE("/assets/:id", p.handler.DeleteAsset)

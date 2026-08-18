@@ -195,6 +195,27 @@ html[data-theme='dark'] .el-input__wrapper {
 .el-table__row:hover > td {
   background: rgba(37, 99, 235, 0.04) !important;
 }
+/* Fixed columns opaque background to prevent text overlay bleed-through */
+.el-table .el-table__fixed-right,
+.el-table .el-table__fixed-left,
+.el-table .el-table-fixed-column--right,
+.el-table .el-table-fixed-column--left,
+.el-table th.el-table-fixed-column--right,
+.el-table th.el-table-fixed-column--left,
+.el-table td.el-table-fixed-column--right,
+.el-table td.el-table-fixed-column--left {
+  background-color: #ffffff !important;
+}
+.dark .el-table .el-table__fixed-right,
+.dark .el-table .el-table__fixed-left,
+.dark .el-table .el-table-fixed-column--right,
+.dark .el-table .el-table-fixed-column--left,
+.dark .el-table th.el-table-fixed-column--right,
+.dark .el-table th.el-table-fixed-column--left,
+.dark .el-table td.el-table-fixed-column--right,
+.dark .el-table td.el-table-fixed-column--left {
+  background-color: #1e293b !important;
+}
 
 /* Tags */
 .el-tag {

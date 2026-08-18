@@ -18,6 +18,11 @@
       </div>
     </template>
 
+    <div v-if="selectedAssets.length > 0" class="batch-toolbar" style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px; background: #f0f9eb; padding: 8px 16px; border-radius: 4px;">
+      <span style="font-size: 14px; color: #67c23a;">已选 {{ selectedAssets.length }} 项</span>
+      <el-button type="danger" size="small" @click="batchDelete">批量删除</el-button>
+    </div>
+
     <div class="toolbar">
       <el-input v-model="filters.keyword" clearable placeholder="搜索名称/IP/来源ID" class="filter-item" @change="fetchAssets" />
       <el-select v-model="filters.asset_type" clearable placeholder="资产类型" class="filter-item" @change="fetchAssets">
@@ -35,7 +40,8 @@
     </div>
 
     <div class="table-scroll">
-      <el-table :fit="true" :data="assets" v-loading="loading" stripe style="width: 100%; min-width: 1420px">
+      <el-table :fit="true" :data="assets" v-loading="loading" stripe style="width: 100%; min-width: 1420px" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="50" />
         <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
         <el-table-column prop="asset_type" label="类型" width="100" />
         <el-table-column prop="protocol" label="协议" width="110" />
@@ -60,8 +66,16 @@
             {{ assetRuntimeByID[row.id]?.reason || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
+            <el-button
+              v-if="row.asset_type === 'host' && ['ssh', 'docker'].includes(row.protocol)"
+              size="small" type="success" @click="openConnectDialog(row)"
+            >连接</el-button>
+            <el-button
+              v-if="['mysql', 'postgres'].includes(row.protocol)"
+              size="small" type="success" @click="openConnectDialog(row)"
+            >SQL控制台</el-button>
             <el-button size="small" type="primary" plain @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="danger" plain @click="removeAsset(row)">删除</el-button>
           </template>
@@ -191,6 +205,18 @@
       <el-button type="primary" :loading="savingIntegration" @click="saveIntegrationConfig">保存</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog append-to-body v-model="accountDialogVisible" title="选择登录账号" width="480px">
+    <el-table :data="accountList" v-loading="loadingAccounts">
+      <el-table-column prop="name" label="名称" />
+      <el-table-column prop="username" label="用户名" />
+      <el-table-column label="操作" width="100">
+        <template #default="{ row }">
+          <el-button size="small" type="primary" :loading="connecting" @click="startConnection(row.id)">选择</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </el-dialog>
   </div>
 </template>
 
@@ -220,6 +246,13 @@ const dialogVisible = ref(false)
 const integrationVisible = ref(false)
 const editing = ref(false)
 const currentID = ref('')
+
+const selectedAssets = ref([])
+const accountDialogVisible = ref(false)
+const accountList = ref([])
+const loadingAccounts = ref(false)
+const connecting = ref(false)
+const currentConnectAssetId = ref('')
 
 const protocols = ['ssh', 'docker', 'k8s', 'mysql', 'postgres', 'redis', 'mongodb']
 
@@ -480,7 +513,7 @@ const loadIntegrationConfig = async () => {
     org_id: data.org_id || '00000000-0000-0000-0000-000000000002',
     auth_type: data.auth_type || 'bearer_token',
     auth_username: data.auth_username || '',
-    auth_secret: '',
+    auth_secret: data.auth_secret || '',
     has_auth_secret: data.has_auth_secret === true,
     verify_tls: data.verify_tls !== false,
     auto_sync: data.auto_sync === true,
@@ -571,6 +604,67 @@ const removeAsset = async (row) => {
   }
 }
 
+const handleSelectionChange = (val) => {
+  selectedAssets.value = val
+}
+
+const batchDelete = async () => {
+  if (selectedAssets.value.length === 0) return
+  try {
+    await ElMessageBox.confirm(`确认删除选中的 ${selectedAssets.value.length} 项资产吗？`, '提示', { type: 'warning' })
+    const ids = selectedAssets.value.map(item => item.id)
+    const res = await axios.post('/api/v1/jump/assets/batch', { action: 'delete', ids }, { headers: authHeaders() })
+    if (res.data.code === 0) {
+      ElMessage.success(res.data.message || '批量删除成功')
+      await fetchAssets()
+    }
+  } catch (error) {
+    if (!isCancelError(error)) ElMessage.error(getErrorMessage(error, '批量删除失败'))
+  }
+}
+
+const openConnectDialog = async (row) => {
+  currentConnectAssetId.value = row.id
+  accountDialogVisible.value = true
+  loadingAccounts.value = true
+  try {
+    const res = await axios.get('/api/v1/jump/accounts', { headers: authHeaders() })
+    if (res.data.code === 0) {
+      accountList.value = safeArrayData(res)
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载账号列表失败'))
+  } finally {
+    loadingAccounts.value = false
+  }
+}
+
+const startConnection = async (accountId) => {
+  if (!currentConnectAssetId.value || !accountId) return
+  connecting.value = true
+  try {
+    const startRes = await axios.post('/api/v1/jump/sessions/start', {
+      asset_id: currentConnectAssetId.value,
+      account_id: accountId
+    }, { headers: authHeaders() })
+
+    if (startRes.data.code === 0) {
+      const sessionId = startRes.data.data.id
+      const connectRes = await axios.post(`/api/v1/jump/sessions/${sessionId}/connect`, {}, { headers: authHeaders() })
+      if (connectRes.data.code === 0 && connectRes.data.data?.url) {
+        window.open(connectRes.data.data.url, '_blank')
+        accountDialogVisible.value = false
+      } else {
+        ElMessage.error(connectRes.data.message || '连接失败，未返回URL')
+      }
+    }
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '启动会话失败'))
+  } finally {
+    connecting.value = false
+  }
+}
+
 const runSync = async (url, okText = '同步成功') => {
   try {
     const res = await axios.post(url, {}, { headers: authHeaders() })
@@ -619,8 +713,15 @@ const saveIntegrationConfig = async () => {
     }
     const res = await axios.put('/api/v1/jump/integration/config', payload, { headers: authHeaders() })
     if (res.data?.code === 0) {
-      ElMessage.success('接入配置已保存')
+      integrationVisible.value = false
       await loadIntegrationConfig()
+      if (integrationForm.enabled) {
+        ElMessage.success('接入配置已保存，已为您自动同步 JumpServer 资产')
+        await syncJumpServer()
+      } else {
+        ElMessage.success('接入配置已保存')
+        await fetchAssets()
+      }
     }
   } catch (error) {
     ElMessage.error(getErrorMessage(error, '保存接入配置失败'))
@@ -632,9 +733,24 @@ const saveIntegrationConfig = async () => {
 const testIntegration = async () => {
   testingIntegration.value = true
   try {
-    const res = await axios.post('/api/v1/jump/integration/test', {}, { headers: authHeaders() })
-    if (res.data?.code === 0) {
-      ElMessage.success(res.data?.message || '连接成功')
+    const payload = {
+      enabled: integrationForm.enabled,
+      base_url: integrationForm.base_url,
+      org_id: integrationForm.org_id,
+      auth_type: integrationForm.auth_type,
+      auth_username: integrationForm.auth_username,
+      auth_secret: integrationForm.auth_secret,
+      verify_tls: integrationForm.verify_tls
+    }
+    const res = await axios.post('/api/v1/jump/integration/test', payload, { headers: authHeaders() })
+    const code = res.data?.code
+    const msg = res.data?.message || '未返回响应结果'
+    if (code === 0) {
+      ElMessage.success(msg)
+    } else if (code === 403 || code === 206) {
+      ElMessage.warning(toFriendlyJumpError(msg, '部分权限缺失'))
+    } else {
+      ElMessage.error(toFriendlyJumpError(msg, '连接测试失败'))
     }
   } catch (error) {
     ElMessage.error(toFriendlyJumpError(error, '连接测试失败'))

@@ -14,25 +14,25 @@
     </div>
 
     <el-row :gutter="12" class="mb-12">
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6">
         <el-card class="motion-card delay-1">
           <div class="k">节点数(可见/总数)</div>
           <div class="v">{{ filteredNodes.length }} / {{ nodes.length }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6">
         <el-card class="motion-card delay-2">
           <div class="k">依赖边(可见/总数)</div>
           <div class="v">{{ filteredEdges.length }} / {{ edges.length }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6">
         <el-card class="motion-card delay-3">
           <div class="k">视图数</div>
           <div class="v">{{ views.length }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6">
         <el-card class="motion-card delay-4">
           <div class="k">异常节点</div>
           <div class="v danger">{{ unhealthyCount }}</div>
@@ -131,7 +131,7 @@
         <div v-if="canvasMode === 'lane'" class="lane-header">
           <div v-for="lane in laneColumns" :key="lane" class="lane-item">{{ lane || '-' }}</div>
         </div>
-        <svg class="edge-layer" :viewBox="`0 0 ${canvasSize.width} ${canvasSize.height}`" preserveAspectRatio="none">
+        <svg class="edge-layer" :width="canvasSize.width" :height="canvasSize.height" :viewBox="`0 0 ${canvasSize.width} ${canvasSize.height}`" preserveAspectRatio="xMinYMin meet">
           <defs>
             <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path d="M0,0 L8,4 L0,8 Z" fill="#9ca3af" />
@@ -211,26 +211,26 @@
             <el-checkbox v-model="nodeFilter.neighbor_only" class="filter-toggle">一跳邻居</el-checkbox>
           </div>
           <el-table :fit="true" :data="filteredNodes" v-loading="loading" stripe @row-click="selectNode" :row-class-name="nodeRowClassName">
-            <el-table-column prop="name" label="名称" min-width="160" />
-            <el-table-column label="来源" width="120">
+            <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+            <el-table-column label="来源" width="90">
               <template #default="{ row }">
                 <el-tag size="small" effect="plain" :color="sourceColor(nodeSource(row))" :style="{ color: '#fff', borderColor: 'transparent' }">
                   {{ nodeSource(row) }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="type" label="类型" width="110" />
-            <el-table-column prop="namespace" label="命名空间" width="120" />
-            <el-table-column prop="cluster" label="集群" width="120" />
-            <el-table-column label="状态" width="90">
+            <el-table-column prop="type" label="类型" width="80" />
+            <el-table-column prop="namespace" label="命名空间" width="100" show-overflow-tooltip />
+            <el-table-column prop="cluster" label="集群" width="90" show-overflow-tooltip />
+            <el-table-column label="状态" width="75">
               <template #default="{ row }">
                 <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="坐标" width="120">
+            <el-table-column label="坐标" width="100">
               <template #default="{ row }">({{ row.x || 0 }}, {{ row.y || 0 }})</template>
             </el-table-column>
-            <el-table-column label="操作" width="190" fixed="right">
+            <el-table-column label="操作" width="130">
               <template #default="{ row }">
                 <el-button size="small" @click.stop="openNodeDialog(row)">编辑</el-button>
                 <el-button size="small" type="danger" plain @click.stop="removeNode(row)">删除</el-button>
@@ -470,7 +470,7 @@ const nodeFilter = reactive({
   neighbor_only: false
 })
 
-const GRAPH_NODE_WIDTH = 190
+const GRAPH_NODE_WIDTH = 220
 const GRAPH_NODE_HEIGHT = 56
 
 const unhealthyCount = computed(() => nodes.value.filter(item => Number(item.status) === 2 || Number(item.status) === 3).length)
@@ -606,7 +606,7 @@ const graphNodes = computed(() => {
       const row = laneOrder.get(lane) || 0
       laneOrder.set(lane, row + 1)
       const left = 36 + col * 260
-      const top = 64 + row * 84
+      const top = 64 + row * 120
       const override = dragOverrideMap.value[raw.id]
       return {
         id: raw.id,
@@ -624,6 +624,10 @@ const graphNodes = computed(() => {
   return sorted.map((raw, index) => {
     let x = Math.max(0, Number(raw.x || 0))
     let y = Math.max(0, Number(raw.y || 0))
+    if (x === 0 && y === 0) {
+      x = (index % 4) * 260
+      y = Math.floor(index / 4) * 120
+    }
     let left = 36 + x
     let top = 64 + y
     if (topologyType.value === 'asset') {
@@ -832,16 +836,20 @@ const startNodeDrag = (event, item) => {
   dragState.originTop = item.top
 }
 
+let rafId = null
 const onMouseMove = (event) => {
   if (!dragState.nodeID) return
-  const dx = event.clientX - dragState.startX
-  const dy = event.clientY - dragState.startY
-  const nextLeft = Math.max(10, Math.round(dragState.originLeft + dx))
-  const nextTop = Math.max(10, Math.round(dragState.originTop + dy))
-  dragOverrideMap.value = {
-    ...dragOverrideMap.value,
-    [dragState.nodeID]: { left: nextLeft, top: nextTop }
-  }
+  if (rafId) cancelAnimationFrame(rafId)
+  rafId = requestAnimationFrame(() => {
+    const dx = event.clientX - dragState.startX
+    const dy = event.clientY - dragState.startY
+    const nextLeft = Math.max(10, Math.round(dragState.originLeft + dx))
+    const nextTop = Math.max(10, Math.round(dragState.originTop + dy))
+    dragOverrideMap.value = {
+      ...dragOverrideMap.value,
+      [dragState.nodeID]: { left: nextLeft, top: nextTop }
+    }
+  })
 }
 
 const onMouseUp = () => {
@@ -1296,7 +1304,7 @@ onBeforeUnmount(() => {
 .mb-12 { margin-bottom: 12px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .sub-title { font-size: 13px; color: #606266; margin-bottom: 8px; }
-.table-filters { display: flex; gap: 8px; margin-bottom: 8px; }
+.table-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .filter-input { flex: 1; }
 .filter-select { width: 140px; }
 .filter-toggle { display: flex; align-items: center; padding: 0 6px; border: 1px solid #ebeef5; border-radius: 6px; background: #fff; }
@@ -1314,18 +1322,18 @@ onBeforeUnmount(() => {
 .canvas-select { width: 140px; }
 .canvas-empty { min-height: 220px; display: flex; align-items: center; justify-content: center; }
 .topology-canvas { position: relative; min-height: 360px; border: 1px solid #ebeef5; border-radius: 8px; overflow: auto; background: linear-gradient(180deg, #fcfdff 0%, #f8f9fb 100%); }
-.lane-header { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; padding: 10px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(2px); border-bottom: 1px solid #ebeef5; }
-.lane-item { background: #f5f7fa; color: #606266; border: 1px solid #e9edf3; border-radius: 6px; padding: 6px 8px; font-size: 12px; text-align: center; font-weight: 600; }
-.edge-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.lane-header { position: sticky; top: 0; z-index: 2; display: grid; grid-auto-columns: 260px; grid-auto-flow: column; justify-content: start; gap: 0; padding: 10px 0 10px 36px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(2px); border-bottom: 1px solid #ebeef5; }
+.lane-item { width: 220px; background: #f5f7fa; color: #606266; border: 1px solid #e9edf3; border-radius: 6px; padding: 6px 8px; font-size: 12px; text-align: center; font-weight: 600; box-sizing: border-box; }
+.edge-layer { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; }
 .edge-line { opacity: 0; stroke-dasharray: 9 8; animation: edge-in 0.45s ease forwards; }
 .edge-label { fill: #6b7280; font-size: 11px; text-anchor: middle; dominant-baseline: middle; }
-.graph-node { position: absolute; width: 190px; min-height: 56px; border: 2px solid #dcdfe6; border-radius: 10px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04); padding: 8px 10px; z-index: 3; cursor: pointer; transition: left 0.24s ease, top 0.24s ease, box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease; opacity: 0; animation: node-in 0.34s ease forwards; }
+.graph-node { position: absolute; width: 220px; min-height: 56px; border: 2px solid #dcdfe6; border-radius: 10px; background: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04); padding: 8px 10px; z-index: 3; cursor: pointer; transition: left 0.24s ease, top 0.24s ease, box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease; opacity: 0; animation: node-in 0.34s ease forwards; }
 .graph-node.draggable { cursor: grab; }
 .graph-node.draggable:active { cursor: grabbing; }
 .graph-node:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08); }
 .graph-node.selected { box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.25), 0 10px 20px rgba(64, 158, 255, 0.16); }
 .graph-node.critical { background: #fff7f7; animation: node-in 0.34s ease forwards, critical-pulse 2.8s ease-in-out infinite; }
-.graph-node-title { font-size: 13px; font-weight: 600; color: #303133; line-height: 1.35; word-break: break-all; }
+.graph-node-title { font-size: 13px; font-weight: 600; color: #303133; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .graph-node-meta { margin-top: 4px; font-size: 11px; color: #909399; text-transform: lowercase; }
 :deep(.critical-node-row > td) { background: #fff8f8 !important; }
 @keyframes fade-in-up {

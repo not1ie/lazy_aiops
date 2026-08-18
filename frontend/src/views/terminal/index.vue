@@ -702,37 +702,75 @@ const initTerminal = async () => {
 
   term = new Terminal({
     cursorBlink: true,
-    fontSize: 13,
-    fontFamily: 'SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+    cursorStyle: 'block',
+    fontSize: 13.5,
+    fontFamily: 'Consolas, "Fira Code", Monaco, Menlo, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", monospace',
+    lineHeight: 1.22,
+    letterSpacing: 0,
+    allowProposedApi: true,
     theme: {
-      background: '#0b0f19',
-      foreground: '#e2e8f0',
-      cursor: '#38bdf8',
-      cursorAccent: '#0b0f19',
-      selectionBackground: 'rgba(56, 189, 248, 0.3)',
-      black: '#1e293b',
-      red: '#f87171',
-      green: '#34d399',
-      yellow: '#fbbf24',
-      blue: '#60a5fa',
-      magenta: '#c084fc',
-      cyan: '#38bdf8',
-      white: '#f8fafc',
-      brightBlack: '#475569',
-      brightRed: '#ef4444',
-      brightGreen: '#10b981',
-      brightYellow: '#f59e0b',
-      brightBlue: '#3b82f6',
-      brightMagenta: '#a855f7',
-      brightCyan: '#06b6d4',
-      brightWhite: '#ffffff'
+      background: '#0d1117',
+      foreground: '#e6edf3',
+      cursor: '#58a6ff',
+      cursorAccent: '#0d1117',
+      selectionBackground: 'rgba(88, 166, 255, 0.35)',
+      black: '#484f58',
+      red: '#ff7b72',
+      green: '#3fb950',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#b1bac4',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#f0f6fc'
     },
-    scrollback: 3000
+    scrollback: 10000
   })
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(terminalRef.value)
   fitAddon.fit()
+
+  // 1. 选中即复制 (Copy on Select)
+  term.onSelectionChange(() => {
+    const selection = term.getSelection()?.trim()
+    if (selection) {
+      navigator.clipboard?.writeText(selection).catch(() => {})
+    }
+  })
+
+  // 2. 快捷键拦截适配 (Ctrl+C / Ctrl+V / Cmd+C / Cmd+V)
+  term.attachCustomKeyEventHandler((e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      if (term.hasSelection()) {
+        const text = term.getSelection()
+        navigator.clipboard?.writeText(text).catch(() => {})
+        return false // 阻止向终端发送 SIGINT，完成复制
+      }
+      return true // 无选区，向终端发送 SIGINT (\x03)
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      if (e.type === 'keydown') {
+        navigator.clipboard?.readText().then(text => {
+          if (text && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(text)
+          }
+        }).catch(() => {})
+      }
+      return false
+    }
+
+    return true
+  })
+
   terminalDataListener = term.onData((data) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data)
@@ -874,8 +912,10 @@ const connectTerminalSocket = (row, isReconnect = false) => {
       writeTerminal(event.data)
       return
     }
-    const decoder = new TextDecoder('utf-8')
-    writeTerminal(decoder.decode(event.data))
+    // 关键：直接将 Uint8Array 传给 xterm 保证多字节 UTF-8 中文字符流式拼接不乱码
+    if (term) {
+      term.write(new Uint8Array(event.data))
+    }
   }
 
   ws.onerror = () => {

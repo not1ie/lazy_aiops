@@ -49,7 +49,7 @@
         <el-header class="header">
           <div class="header-left">
             <el-button class="icon-btn collapse-btn" :icon="isCollapsed ? 'Expand' : 'Fold'" @click="isCollapsed = !isCollapsed" />
-            <div class="page-title-label">Dashboard</div>
+            <div class="page-title-label">{{ currentTitle }}</div>
           </div>
 
           <div class="header-right">
@@ -89,9 +89,7 @@
 
         <el-main class="main">
           <router-view v-slot="{ Component, route }">
-            <transition name="fade-page" mode="out-in" appear>
-              <component :is="Component" :key="route.fullPath" />
-            </transition>
+            <component :is="Component" :key="route.fullPath" />
           </router-view>
         </el-main>
       </el-container>
@@ -144,6 +142,10 @@ const passwordForm = reactive({ old: '', new: '', confirm: '' })
 
 const username = ref('Admin')
 const roleCode = ref(localStorage.getItem('role_code') || '')
+
+const currentTitle = computed(() => {
+  return route.meta?.title || 'Dashboard'
+})
 
 const breadcrumbs = computed(() => {
   const result = []

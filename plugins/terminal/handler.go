@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/lazyautoops/lazy-auto-ops/internal/core"
+	"github.com/lazyautoops/lazy-auto-ops/plugins/cmdb"
 	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
@@ -355,6 +356,100 @@ func (h *TerminalHandler) CreateSession(c *gin.Context) {
 
 	maskSessionSecrets(&session)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": session})
+}
+
+// QuickConnectHost 根据 CMDB 主机一键创建终端会话
+func (h *TerminalHandler) QuickConnectHost(c *gin.Context) {
+	hostID := strings.TrimSpace(c.Param("host_id"))
+	if hostID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "主机 ID 不能为空"})
+		return
+	}
+
+	var host cmdb.Host
+	if err := h.db.Preload("Credential").First(&host, "id = ?", hostID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "未找到指定主机"})
+		return
+	}
+
+	if host.IP == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "该主机未配置 IP 地址"})
+		return
+	}
+
+	port := host.Port
+	if port <= 0 {
+		port = 22
+	}
+
+	username := "root"
+	password := ""
+	privateKey := ""
+
+	if host.Credential != nil {
+		if strings.TrimSpace(host.Credential.Username) != "" {
+			username = strings.TrimSpace(host.Credential.Username)
+		}
+		password = host.Credential.Password
+		privateKey = host.Credential.PrivateKey
+	}
+
+	// 如果没有凭据，允许前端在请求体中传入临时用户名密码
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		KeyAuth  string `json:"key_auth"`
+	}
+	if err := c.ShouldBindJSON(&req); err == nil {
+		if strings.TrimSpace(req.Username) != "" {
+			username = strings.TrimSpace(req.Username)
+		}
+		if strings.TrimSpace(req.Password) != "" {
+			password = strings.TrimSpace(req.Password)
+		}
+		if strings.TrimSpace(req.KeyAuth) != "" {
+			privateKey = strings.TrimSpace(req.KeyAuth)
+		}
+	}
+
+	if password == "" && privateKey == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    4001, // 特殊 code 4001 表示需要用户补充凭据
+			"message": "该主机尚未绑定登录凭据，请提供密码或私钥",
+			"data": gin.H{
+				"host_id":   host.ID,
+				"host_name": host.Name,
+				"ip":        host.IP,
+				"port":      port,
+				"username":  username,
+			},
+		})
+		return
+	}
+
+	session := TerminalSession{
+		HostID:     host.ID,
+		Host:       host.IP,
+		Port:       port,
+		Username:   username,
+		Password:   password,
+		PrivateKey: privateKey,
+		UserID:     c.GetString("user_id"),
+		Operator:   c.GetString("username"),
+		Status:     0,
+	}
+
+	if err := h.db.Create(&session).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "创建终端会话失败: " + err.Error()})
+		return
+	}
+
+	maskSessionSecrets(&session)
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "会话初始化成功",
+		"data":    session,
+	})
 }
 
 // UpdateSession 编辑会话（在线会话需先关闭）

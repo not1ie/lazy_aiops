@@ -170,6 +170,7 @@ type JumpIntegrationConfigView struct {
 	OrgID          string     `json:"org_id"`
 	AuthType       string     `json:"auth_type"`
 	AuthUsername   string     `json:"auth_username"`
+	AuthSecret     string     `json:"auth_secret,omitempty"`
 	HasAuthSecret  bool       `json:"has_auth_secret"`
 	VerifyTLS      bool       `json:"verify_tls"`
 	AutoSync       bool       `json:"auto_sync"`

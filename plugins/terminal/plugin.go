@@ -89,6 +89,7 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/sessions", h.ListSessions)
 	g.GET("/sessions/:id", h.GetSession)
 	g.POST("/sessions", h.CreateSession)
+	g.POST("/quick-connect-host/:host_id", h.QuickConnectHost)
 	g.POST("/sessions/precheck", h.PrecheckConnection)
 	g.PUT("/sessions/:id", h.UpdateSession)
 	g.POST("/sessions/:id/share", h.ShareSession)

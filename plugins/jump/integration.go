@@ -81,7 +81,7 @@ func (h *JumpHandler) GetIntegrationConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": toJumpIntegrationView(cfg)})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": toJumpIntegrationView(cfg, h.secretKey)})
 }
 
 func (h *JumpHandler) UpdateIntegrationConfig(c *gin.Context) {
@@ -146,17 +146,46 @@ func (h *JumpHandler) UpdateIntegrationConfig(c *gin.Context) {
 		return
 	}
 	_ = h.db.First(cfg, "id = ?", cfg.ID).Error
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": toJumpIntegrationView(cfg)})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": toJumpIntegrationView(cfg, h.secretKey)})
 }
 
 func (h *JumpHandler) TestIntegrationConnection(c *gin.Context) {
-	client, err := h.newJumpServerClient(true)
+	cfg, err := h.getOrCreateJumpIntegrationConfig()
 	if err != nil {
-		status := http.StatusBadRequest
-		if !errors.Is(err, errJumpIntegrationNotConfigured) && !errors.Is(err, errJumpIntegrationDisabled) {
-			status = http.StatusInternalServerError
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+
+	var req jumpIntegrationUpdateRequest
+	_ = c.ShouldBindJSON(&req)
+
+	tempCfg := *cfg
+	if strings.TrimSpace(req.BaseURL) != "" {
+		tempCfg.BaseURL = strings.TrimSpace(req.BaseURL)
+	}
+	if strings.TrimSpace(req.AuthType) != "" {
+		tempCfg.AuthType = normalizeJumpAuthType(req.AuthType)
+	}
+	if req.AuthUsername != "" {
+		tempCfg.AuthUsername = strings.TrimSpace(req.AuthUsername)
+	}
+	if strings.TrimSpace(req.OrgID) != "" {
+		tempCfg.OrgID = strings.TrimSpace(req.OrgID)
+	}
+	if req.VerifyTLS != nil {
+		tempCfg.VerifyTLS = *req.VerifyTLS
+	}
+	if secret := strings.TrimSpace(req.AuthSecret); secret != "" {
+		enc, encErr := encryptJumpSecret(h.secretKey, secret)
+		if encErr == nil {
+			tempCfg.AuthSecret = enc
 		}
-		c.JSON(status, gin.H{"code": 400, "message": err.Error()})
+	}
+	tempCfg.Enabled = true // Allow test connection regardless of enabled toggle
+
+	client, err := h.newJumpServerClientFromConfig(&tempCfg)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
 		return
 	}
 
@@ -209,16 +238,9 @@ func (h *JumpHandler) TestIntegrationConnection(c *gin.Context) {
 		data["warnings"] = warnings
 	}
 	if !hostReadable && !dbReadable {
-		status := http.StatusBadGateway
-		for _, e := range []error{hostErr, dbErr} {
-			if apiErr := asJumpServerAPIError(e); apiErr != nil && (apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {
-				status = http.StatusForbidden
-				break
-			}
-		}
-		c.JSON(status, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"code":    403,
-			"message": "JumpServer 连接成功，但资产读取权限不足，请为账号授权主机/数据库资产读取权限",
+			"message": "JumpServer 连接成功，但资产读取权限不足，请在 JumpServer 侧为该账号授权主机/数据库资产读取权限",
 			"data":    data,
 		})
 		return
@@ -605,10 +627,11 @@ func (h *JumpHandler) getOrCreateJumpIntegrationConfig() (*JumpIntegrationConfig
 	return &cfg, nil
 }
 
-func toJumpIntegrationView(cfg *JumpIntegrationConfig) JumpIntegrationConfigView {
+func toJumpIntegrationView(cfg *JumpIntegrationConfig, secretKey string) JumpIntegrationConfigView {
 	if cfg == nil {
 		return JumpIntegrationConfigView{}
 	}
+	decSecret, _ := decryptJumpSecret(secretKey, strings.TrimSpace(cfg.AuthSecret))
 	return JumpIntegrationConfigView{
 		ID:             cfg.ID,
 		CreatedAt:      cfg.CreatedAt,
@@ -619,6 +642,7 @@ func toJumpIntegrationView(cfg *JumpIntegrationConfig) JumpIntegrationConfigView
 		OrgID:          cfg.OrgID,
 		AuthType:       cfg.AuthType,
 		AuthUsername:   cfg.AuthUsername,
+		AuthSecret:     decSecret,
 		HasAuthSecret:  strings.TrimSpace(cfg.AuthSecret) != "",
 		VerifyTLS:      cfg.VerifyTLS,
 		AutoSync:       cfg.AutoSync,
@@ -626,6 +650,58 @@ func toJumpIntegrationView(cfg *JumpIntegrationConfig) JumpIntegrationConfigView
 		LastSyncStatus: cfg.LastSyncStatus,
 		LastSyncMsg:    cfg.LastSyncMsg,
 	}
+}
+
+func (h *JumpHandler) newJumpServerClientFromConfig(cfg *JumpIntegrationConfig) (*jumpServerClient, error) {
+	if cfg == nil {
+		return nil, errJumpIntegrationNotConfigured
+	}
+	baseURL := normalizeBaseURL(cfg.BaseURL)
+	if baseURL == "" {
+		return nil, errors.New("JumpServer 地址不能为空")
+	}
+	if _, parseErr := url.Parse(baseURL); parseErr != nil {
+		return nil, fmt.Errorf("JumpServer 地址格式错误: %w", parseErr)
+	}
+	secret, err := decryptJumpSecret(h.secretKey, strings.TrimSpace(cfg.AuthSecret))
+	if err != nil {
+		return nil, errors.New("JumpServer 接入密钥解密失败，请重新输入密钥")
+	}
+	secret = strings.TrimSpace(secret)
+	authType := normalizeJumpAuthType(cfg.AuthType)
+	if authType == jumpAuthPassword && strings.TrimSpace(cfg.AuthUsername) == "" {
+		return nil, errors.New("密码认证模式下必须配置用户名")
+	}
+	if secret == "" {
+		return nil, errors.New("请提供认证密钥/Token/密码")
+	}
+
+	cfgCopy := *cfg
+	cfgCopy.BaseURL = baseURL
+	cfgCopy.AuthType = authType
+	if strings.TrimSpace(cfgCopy.OrgID) == "" {
+		cfgCopy.OrgID = defaultJumpOrgID
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+	}
+	if !cfgCopy.VerifyTLS {
+		tr.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	httpClient := &http.Client{
+		Transport: tr,
+		Timeout:   15 * time.Second,
+	}
+
+	return &jumpServerClient{
+		config: &cfgCopy,
+		secret: secret,
+		client: httpClient,
+	}, nil
 }
 
 func (h *JumpHandler) newJumpServerClient(strict bool) (*jumpServerClient, error) {

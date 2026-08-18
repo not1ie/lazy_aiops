@@ -247,12 +247,13 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="330" fixed="right" class-name="fixed-op-col">
+            <el-table-column label="操作" width="370" fixed="right" class-name="fixed-op-col">
               <template #default="{ row }">
                 <div class="op-row">
+                  <el-button size="small" type="primary" plain icon="Monitor" @click="openWebTerminal(row)">终端</el-button>
                   <el-button size="small" plain icon="View" @click="openDetail(row)">详情</el-button>
                   <el-button size="small" type="warning" plain icon="FirstAidKit" @click="handleTest(row)">检测</el-button>
-                  <el-button size="small" type="primary" plain icon="Edit" @click="handleEdit(row)">编辑</el-button>
+                  <el-button size="small" plain icon="Edit" @click="handleEdit(row)">编辑</el-button>
                   <el-dropdown trigger="click" @command="(command) => handleRowCommand(row, command)">
                     <el-button size="small" plain>
                       更多
@@ -260,6 +261,7 @@
                     </el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
+                        <el-dropdown-item command="terminal">Web 终端</el-dropdown-item>
                         <el-dropdown-item command="diagnose">网络诊断</el-dropdown-item>
                         <el-dropdown-item command="process">进程</el-dropdown-item>
                         <el-dropdown-item command="tcp">TCP</el-dropdown-item>
@@ -332,6 +334,7 @@
           </el-radio-group>
           <el-switch v-model="detailAutoRefresh" inline-prompt active-text="自动刷新" inactive-text="手动" />
           <el-button size="small" icon="Refresh" :loading="detailLoading" @click="fetchDetailMetrics()">刷新</el-button>
+          <el-button size="small" type="primary" plain icon="Monitor" @click="openWebTerminal(detailHost)">Web 终端</el-button>
           <el-button size="small" type="success" plain @click="openInspect(detailHost, 'process')">进程</el-button>
           <el-button size="small" type="info" plain @click="openInspect(detailHost, 'tcp')">TCP</el-button>
         </div>
@@ -641,6 +644,12 @@
         <el-button type="primary" :loading="batchGroupLoading" @click="submitBatchGroup">确认保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- Web SSH 终端抽屉组件 -->
+    <WebTerminalDrawer
+      v-model="terminalDrawerVisible"
+      :host-info="activeTerminalHost"
+    />
   </el-card>
 </template>
 
@@ -651,11 +660,31 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import WebTerminalDrawer from '@/components/common/WebTerminalDrawer.vue'
 import { cmdbHostStatusMeta } from '@/utils/status'
 import { useHostsStore } from '@/store/hosts'
 
 const router = useRouter()
 const hostsStore = useHostsStore()
+
+const terminalDrawerVisible = ref(false)
+const activeTerminalHost = ref(null)
+
+const openWebTerminal = (row) => {
+  if (!row) return
+  activeTerminalHost.value = {
+    id: row.id,
+    name: row.name,
+    hostname: row.name,
+    ip: row.ip,
+    port: row.port || 22,
+    username: row.credential?.username || 'root',
+    group_name: row.group?.name || '',
+    os: row.os || '',
+    provider: hostProvider(row)
+  }
+  terminalDrawerVisible.value = true
+}
 
 const UNGROUPED_GROUP_ID = '__ungrouped__'
 const DEFAULT_HOST_PORT = 22
@@ -855,16 +884,36 @@ const hostMetric = (row) => {
 
 const normalizeProvider = (value) => {
   const text = String(value || '').trim().toLowerCase()
-  if (!text) return 'unknown'
-  if (text.includes('aliyun') || text.includes('阿里')) return 'aliyun'
-  if (text.includes('aws')) return 'aws'
+  if (!text || text === 'unknown') return 'unknown'
+  if (text.includes('ali') || text.includes('alibaba')) return 'aliyun'
+  if (text.includes('aws') || text.includes('amazon')) return 'aws'
   if (text.includes('huawei') || text.includes('华为')) return 'huawei'
   if (text.includes('tencent') || text.includes('腾讯')) return 'tencent'
   if (text.includes('baidu') || text.includes('百度')) return 'baidu'
-  if (text.includes('azure')) return 'azure'
+  if (text.includes('azure') || text.includes('7783-7084')) return 'azure'
   if (text.includes('gcp') || text.includes('google')) return 'gcp'
-  if (text.includes('onprem') || text.includes('自建') || text.includes('private')) return 'onprem'
-  return text
+  if (
+    text.includes('onprem') ||
+    text.includes('自建') ||
+    text.includes('private') ||
+    text.includes('microsoft') ||
+    text.includes('hyper-v') ||
+    text.includes('hyperv') ||
+    text.includes('vmware') ||
+    text.includes('qemu') ||
+    text.includes('kvm') ||
+    text.includes('virtualbox') ||
+    text.includes('innotek') ||
+    text.includes('dell') ||
+    text.includes('hpe') ||
+    text.includes('hp') ||
+    text.includes('inspur') ||
+    text.includes('lenovo') ||
+    text.includes('supermicro') ||
+    text.includes('xen') ||
+    text.includes('bochs')
+  ) return 'onprem'
+  return 'onprem'
 }
 
 const providerLabel = (key) => (providerConfig[key] || providerConfig.unknown).label
@@ -872,19 +921,22 @@ const providerTagType = (key) => (providerConfig[key] || providerConfig.unknown)
 
 const parseProviderFromTags = (tags) => {
   const text = String(tags || '').toLowerCase()
-  if (!text) return 'unknown'
+  if (!text) return ''
   const providerMatch = text.match(/provider\s*[:=]\s*([a-zA-Z0-9_-]+)/)
   if (providerMatch?.[1]) return normalizeProvider(providerMatch[1])
-  return normalizeProvider(text)
+  const vendorMatch = text.match(/vendor\s*[:=]\s*([a-zA-Z0-9_-]+)/)
+  if (vendorMatch?.[1]) return normalizeProvider(vendorMatch[1])
+  return ''
 }
 
 const hostProvider = (row) => {
-  const ip = normalizeHostAddress(row?.ip)
-  if (ip && hostProviderMap.value[ip]) return hostProviderMap.value[ip]
   const providerFromMetric = normalizeProvider(hostMetric(row)?.provider)
-  if (providerFromMetric !== 'unknown') return providerFromMetric
+  if (providerFromMetric && providerFromMetric !== 'unknown') return providerFromMetric
+  const ip = normalizeHostAddress(row?.ip)
+  if (ip && hostProviderMap.value[ip] && hostProviderMap.value[ip] !== 'unknown') return hostProviderMap.value[ip]
   const providerFromTags = parseProviderFromTags(row?.tags)
-  return providerFromTags || 'unknown'
+  if (providerFromTags && providerFromTags !== 'unknown') return providerFromTags
+  return 'onprem'
 }
 
 const formatPercent = (metricValue, fallback = '') => {

@@ -28,12 +28,15 @@ service.interceptors.response.use(
     return response
   },
   (error) => {
+    const url = error.config?.url || ''
     if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      const currentPath = window.location.pathname
-      if (currentPath !== '/login') {
-        localStorage.clear()
-        router.push('/login')
-        ElMessage.error('登录状态已失效，请重新登录')
+      if (!url.includes('/api/v1/jump/integration/test')) {
+        const currentPath = window.location.pathname
+        if (currentPath !== '/login') {
+          localStorage.clear()
+          router.push('/login')
+          ElMessage.error('登录状态已失效，请重新登录')
+        }
       }
     } else {
       const msg = error.response?.data?.message || error.message || '请求失败'

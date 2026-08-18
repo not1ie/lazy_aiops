@@ -89,6 +89,7 @@ type HostMetrics struct {
 	Memory   float64   `json:"memory"`
 	Disk     float64   `json:"disk"`
 	Uptime   string    `json:"uptime"`
+	Provider string    `json:"provider"`
 	LastSeen time.Time `json:"last_seen"`
 }
 
@@ -344,6 +345,7 @@ func (c *Collector) collectHosts() []HostMetrics {
 				}
 
 				var cpu, mem, disk float64
+				var hostProvider string
 
 				// Try SSH if credential exists
 				if h.Credential != nil && h.IP != "" {
@@ -367,8 +369,9 @@ func (c *Collector) collectHosts() []HostMetrics {
 					out1, _, err1 := sshClient.ExecuteWithPool("top -bn1 | grep -i 'cpu' | head -n 1 | awk -F, '{for(i=1;i<=NF;i++) {if($i ~ /id/) {split($i,a,\" \"); sub(/%/,\"\",a[1]); print 100-a[1]}}}'")
 					out2, _, err2 := sshClient.ExecuteWithPool(`free -m | awk 'NR==2{print $2,$3}'`)
 					out3, _, err3 := sshClient.ExecuteWithPool(`df -h / | awk 'NR==2{print $5}'`)
+					out4, _, _ := sshClient.ExecuteWithPool(`cat /sys/class/dmi/id/sys_vendor 2>/dev/null; echo -n "###"; cat /sys/class/dmi/id/product_name 2>/dev/null; echo -n "###"; cat /sys/class/dmi/id/chassis_asset_tag 2>/dev/null; echo -n "###"; hostnamectl 2>/dev/null | grep -i 'Chassis\|Hardware' || true`)
 
-					log.Printf("[Monitor] SSH Exec detailed on %s: out1=%q, err1=%v; out2=%q, err2=%v; out3=%q, err3=%v", h.IP, out1, err1, out2, err2, out3, err3)
+					log.Printf("[Monitor] SSH Exec detailed on %s: out1=%q, err1=%v; out2=%q, err2=%v; out3=%q, err3=%v; vendor=%q", h.IP, out1, err1, out2, err2, out3, err3, out4)
 
 					if err1 == nil || err2 == nil || err3 == nil {
 						log.Printf("[Monitor] SSH Exec Success on %s", h.IP)
@@ -402,6 +405,27 @@ func (c *Collector) collectHosts() []HostMetrics {
 							dStr = strings.TrimRight(dStr, "%")
 							dVal, _ := strconv.ParseFloat(dStr, 64)
 							disk = dVal
+						}
+
+						// 解析真实云厂商 / 硬件 DMI 供应商
+						vendorLower := strings.ToLower(out4)
+						if strings.Contains(vendorLower, "alibaba") || strings.Contains(vendorLower, "aliyun") {
+							hostProvider = "aliyun"
+						} else if strings.Contains(vendorLower, "tencent") {
+							hostProvider = "tencent"
+						} else if strings.Contains(vendorLower, "huawei") && (strings.Contains(vendorLower, "cloud") || strings.Contains(vendorLower, "engine") || strings.Contains(vendorLower, "kvm")) {
+							hostProvider = "huawei"
+						} else if strings.Contains(vendorLower, "amazon") || strings.Contains(vendorLower, "ec2") {
+							hostProvider = "aws"
+						} else if strings.Contains(vendorLower, "azure") || strings.Contains(vendorLower, "7783-7084") {
+							hostProvider = "azure"
+						} else if strings.Contains(vendorLower, "google") || strings.Contains(vendorLower, "gcp") {
+							hostProvider = "gcp"
+						} else if strings.Contains(vendorLower, "baidu") {
+							hostProvider = "baidu"
+						} else {
+							// Microsoft Hyper-V / VMware / QEMU / KVM / Dell / Inspur 等均准确归类为自建/本地物理机/虚拟机
+							hostProvider = "onprem"
 						}
 					} else {
 						log.Printf("[Monitor] SSH Exec Failed on %s: cpu=%v, mem=%v, disk=%v", h.IP, err1, err2, err3)
@@ -470,6 +494,7 @@ func (c *Collector) collectHosts() []HostMetrics {
 					CPU:      cpu,
 					Memory:   mem,
 					Disk:     disk,
+					Provider: hostProvider,
 				})
 				mu.Unlock()
 			}

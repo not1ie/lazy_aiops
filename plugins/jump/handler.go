@@ -227,6 +227,27 @@ func (h *JumpHandler) DeleteAsset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "删除成功"})
 }
 
+func (h *JumpHandler) BatchAssets(c *gin.Context) {
+	var req struct {
+		Action string   `json:"action"`
+		IDs    []string `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"code": 400, "message": "参数错误"})
+		return
+	}
+	switch req.Action {
+	case "delete":
+		if err := h.db.Where("id IN ?", req.IDs).Delete(&JumpAsset{}).Error; err != nil {
+			c.JSON(500, gin.H{"code": 500, "message": "批量删除失败"})
+			return
+		}
+		c.JSON(200, gin.H{"code": 0, "message": fmt.Sprintf("成功删除 %d 项资产", len(req.IDs))})
+	default:
+		c.JSON(400, gin.H{"code": 400, "message": "不支持的操作"})
+	}
+}
+
 func (h *JumpHandler) ListAccounts(c *gin.Context) {
 	var items []JumpAccount
 	query := h.db.Model(&JumpAccount{}).Order("created_at DESC")

@@ -176,4 +176,21 @@ router.beforeEach((to, from, next) => {
   next()
 })
 
+router.onError((error, to) => {
+  const isChunkLoadFailed =
+    error?.message?.includes('Failed to fetch dynamically imported module') ||
+    error?.message?.includes('Importing a module script failed') ||
+    error?.message?.includes('Loading chunk') ||
+    error?.message?.includes('dynamically imported module')
+
+  if (isChunkLoadFailed) {
+    const key = 'chunk_reload_' + (to?.path || 'app')
+    const lastReload = sessionStorage.getItem(key)
+    if (!lastReload || Date.now() - Number(lastReload) > 10000) {
+      sessionStorage.setItem(key, String(Date.now()))
+      window.location.reload()
+    }
+  }
+})
+
 export default router
