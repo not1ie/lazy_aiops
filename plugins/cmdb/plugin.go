@@ -141,6 +141,7 @@ func (p *CMDBPlugin) RegisterRoutes(g *gin.RouterGroup) {
 		hosts.DELETE("/:id", h.Delete)
 		hosts.POST("/batch-delete", h.BatchDelete)
 		hosts.POST("/batch-update-group", h.BatchUpdateGroup)
+		hosts.POST("/batch-exec", h.BatchExec)
 		hosts.POST("/import", h.BatchImport)
 	}
 

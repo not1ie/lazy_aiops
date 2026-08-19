@@ -17,6 +17,9 @@
           <el-button type="primary" plain icon="Folder" :disabled="selectedRows.length === 0" @click="openBatchGroup">
             批量分组 ({{ selectedRows.length }})
           </el-button>
+          <el-button type="success" plain icon="VideoPlay" :disabled="selectedRows.length === 0" @click="openBatchExec">
+            批量执行 ({{ selectedRows.length }})
+          </el-button>
           <el-button type="danger" plain icon="Delete" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
             批量删除 ({{ selectedRows.length }})
           </el-button>
@@ -642,6 +645,124 @@
       <template #footer>
         <el-button @click="batchGroupVisible = false">取消</el-button>
         <el-button type="primary" :loading="batchGroupLoading" @click="submitBatchGroup">确认保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 批量命令执行弹窗 (含高危命令拦截) -->
+    <el-dialog
+      append-to-body
+      v-model="batchExecVisible"
+      title="主机批量下发 Shell 命令"
+      width="880px"
+      :close-on-click-modal="false"
+    >
+      <div class="batch-exec-container">
+        <div class="exec-targets-bar">
+          <span class="label">目标主机 ({{ selectedRows.length }} 台):</span>
+          <div class="host-tags-scroll">
+            <el-tag
+              v-for="h in selectedRows"
+              :key="h.id"
+              size="small"
+              type="info"
+              class="mr-1 mb-1"
+            >
+              {{ h.name }} ({{ h.ip }})
+            </el-tag>
+          </div>
+        </div>
+
+        <div class="preset-commands-bar">
+          <span class="preset-label">常用预设:</span>
+          <el-button
+            v-for="p in execPresets"
+            :key="p.label"
+            size="small"
+            class="preset-btn"
+            @click="applyPreset(p.cmd)"
+          >
+            {{ p.label }}
+          </el-button>
+        </div>
+
+        <div class="exec-input-wrap">
+          <el-input
+            v-model="batchExecCommand"
+            type="textarea"
+            :rows="3"
+            placeholder="输入要下发的 Shell 指令，如: uptime && df -h"
+            class="command-textarea"
+          />
+        </div>
+
+        <div v-if="isDangerousCommand" class="danger-warning-alert">
+          <el-alert
+            title="⚠️ 高危命令拦截防护"
+            type="error"
+            :description="dangerReason || '检测到潜在的高危破坏性指令，请仔细确认是否强制执行！'"
+            show-icon
+            :closable="false"
+          />
+          <div class="force-confirm-check">
+            <el-checkbox v-model="forceConfirmExec">
+              <span class="text-danger font-bold">我已知晓该命令风险，确认强制下发执行</span>
+            </el-checkbox>
+          </div>
+        </div>
+
+        <!-- 执行结果区 -->
+        <div v-if="batchExecResults.length > 0" class="exec-results-section">
+          <div class="results-summary">
+            <span><strong>执行结果：</strong></span>
+            <el-tag type="success" size="small">成功 {{ batchExecSummary.success }} 台</el-tag>
+            <el-tag type="danger" size="small" class="ml-2">失败 {{ batchExecSummary.failed }} 台</el-tag>
+          </div>
+
+          <div class="results-list">
+            <el-collapse v-model="activeCollapseHosts">
+              <el-collapse-item
+                v-for="res in batchExecResults"
+                :key="res.host_id"
+                :name="res.host_id"
+              >
+                <template #title>
+                  <div class="collapse-title-row">
+                    <el-tag :type="res.status === 'success' ? 'success' : 'danger'" size="small">
+                      {{ res.status === 'success' ? 'SUCCESS' : 'FAILED' }}
+                    </el-tag>
+                    <strong class="ml-2">{{ res.hostname }}</strong>
+                    <span class="text-gray-400 ml-1">({{ res.ip }}:{{ res.port }})</span>
+                    <span class="dur-tag ml-auto mr-2">{{ res.duration_ms }}ms</span>
+                  </div>
+                </template>
+                
+                <div class="terminal-output-box">
+                  <div v-if="res.stdout" class="stdout-block">
+                    <div class="out-label">标准输出 (Stdout):</div>
+                    <pre class="term-pre stdout-text">{{ res.stdout }}</pre>
+                  </div>
+                  <div v-if="res.stderr || res.error" class="stderr-block">
+                    <div class="out-label text-danger">错误输出 (Stderr):</div>
+                    <pre class="term-pre stderr-text">{{ res.stderr || res.error }}</pre>
+                  </div>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="batchExecVisible = false">关闭</el-button>
+        <el-button
+          type="primary"
+          icon="VideoPlay"
+          :loading="batchExecRunning"
+          :disabled="!batchExecCommand.trim() || (isDangerousCommand && !forceConfirmExec)"
+          @click="submitBatchExec"
+        >
+          立即并发执行
+        </el-button>
       </template>
     </el-dialog>
 
@@ -1568,6 +1689,113 @@ const submitBatchGroup = async () => {
   }
 }
 
+// 批量执行 Shell 命令
+const batchExecVisible = ref(false)
+const batchExecCommand = ref('')
+const batchExecRunning = ref(false)
+const forceConfirmExec = ref(false)
+const batchExecResults = ref([])
+const activeCollapseHosts = ref([])
+
+const execPresets = [
+  { label: '系统信息 (uptime)', cmd: 'uptime && uname -a' },
+  { label: '磁盘占用 (df -h)', cmd: 'df -h' },
+  { label: '内存使用 (free -m)', cmd: 'free -m' },
+  { label: '清理缓存 (drop_caches)', cmd: 'sync && echo 3 > /proc/sys/vm/drop_caches' },
+  { label: 'Docker 容器状态', cmd: 'docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" || true' },
+  { label: '端口监听 (netstat)', cmd: 'netstat -tulnp || ss -tulnp' }
+]
+
+const dangerRegexList = [
+  /\brm\s+-[rRfF]*\s+(\/|\*|\/\*)/i,
+  /\bmkfs\b/i,
+  /\bdd\s+if=/i,
+  />\s*\/dev\/sd[a-z]/i,
+  /\bdrop\s+database\b/i,
+  /\btruncate\s+table\b/i,
+  /\biptables\s+-F\b/i,
+  /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/,
+  /\bshutdown\b/i,
+  /\binit\s+0\b/i,
+  /\breboot\b/i
+]
+
+const isDangerousCommand = computed(() => {
+  const cmd = batchExecCommand.value.trim()
+  if (!cmd) return false
+  return dangerRegexList.some(r => r.test(cmd))
+})
+
+const dangerReason = computed(() => {
+  if (!isDangerousCommand.value) return ''
+  return '检测到可能包含关机/重启/删除根目录/格式化磁盘的高危指令！'
+})
+
+const batchExecSummary = computed(() => {
+  let success = 0
+  let failed = 0
+  let totalDuration = 0
+  for (const r of batchExecResults.value) {
+    if (r.status === 'success') success++
+    else failed++
+    totalDuration += (r.duration_ms || 0)
+  }
+  return { success, failed, totalDuration }
+})
+
+const applyPreset = (cmd) => {
+  batchExecCommand.value = cmd
+}
+
+const openBatchExec = () => {
+  if (selectedRows.value.length === 0) {
+    ElMessage.warning('请至少选择一台主机')
+    return
+  }
+  batchExecCommand.value = 'uptime && df -h'
+  forceConfirmExec.value = false
+  batchExecResults.value = []
+  activeCollapseHosts.value = []
+  batchExecVisible.value = true
+}
+
+const submitBatchExec = async () => {
+  if (!batchExecCommand.value.trim()) {
+    ElMessage.warning('请输入要执行的指令')
+    return
+  }
+  if (isDangerousCommand.value && !forceConfirmExec.value) {
+    ElMessage.error('高危命令已被拦截，如需执行请勾选下方强制确认')
+    return
+  }
+
+  batchExecRunning.value = true
+  try {
+    const host_ids = selectedRows.value.map(r => r.id)
+    const res = await axios.post('/api/v1/cmdb/hosts/batch-exec', {
+      host_ids,
+      command: batchExecCommand.value.trim(),
+      timeout_seconds: 30,
+      force_confirm: forceConfirmExec.value
+    }, { headers: authHeaders() })
+
+    if (res.data?.code === 0) {
+      batchExecResults.value = res.data.data.results || []
+      // 默认展开所有主机的输出结果
+      activeCollapseHosts.value = batchExecResults.value.map(r => r.host_id)
+      ElMessage.success(res.data.message || '批量执行完成')
+    } else if (res.data?.code === 403) {
+      ElMessage.error(res.data.message || '命令被安全策略拦截')
+    } else {
+      ElMessage.error(res.data?.message || '批量执行失败')
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, '下发批量命令失败'))
+  } finally {
+    batchExecRunning.value = false
+  }
+}
+
 const handleTest = async (row) => {
   testVisible.value = true
   testLoading.value = true
@@ -2470,5 +2698,123 @@ const saveDescription = async (row) => {
   .host-layout { grid-template-columns: 1fr; }
   .detail-chart-grid { grid-template-columns: 1fr; }
   .inspect-process-grid { grid-template-columns: 1fr; }
+}
+
+/* 批量命令执行样式 */
+.batch-exec-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.exec-targets-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+.exec-targets-bar .label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.host-tags-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  max-height: 80px;
+  overflow-y: auto;
+}
+.preset-commands-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.preset-label {
+  font-size: 12.5px;
+  color: #64748b;
+  font-weight: 600;
+}
+.preset-btn {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  font-size: 12px;
+}
+.preset-btn:hover {
+  background: #e2e8f0;
+  color: #0284c7;
+}
+.command-textarea :deep(textarea) {
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  background: #0f172a;
+  color: #38bdf8;
+  border-radius: 6px;
+}
+.danger-warning-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.force-confirm-check {
+  padding-left: 4px;
+}
+.text-danger {
+  color: #ef4444;
+}
+.exec-results-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px;
+}
+.results-summary {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.collapse-title-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding-right: 12px;
+}
+.dur-tag {
+  font-size: 12px;
+  color: #64748b;
+}
+.terminal-output-box {
+  background: #0d1117;
+  padding: 10px 14px;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.out-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 2px;
+}
+.term-pre {
+  margin: 0;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.stdout-text {
+  color: #38bdf8;
+}
+.stderr-text {
+  color: #f87171;
 }
 </style>
