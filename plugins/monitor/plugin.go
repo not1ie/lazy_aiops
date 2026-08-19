@@ -118,4 +118,7 @@ func (p *MonitorPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	g.GET("/agents", h.ListAgents)
 	g.GET("/agents/:id", h.GetAgent)
 	g.GET("/agents/:id/history", h.GetAgentHistory)
+
+	// 系统资产智能体检与健康巡检
+	g.GET("/inspection/report", h.GetInspectionReport)
 }

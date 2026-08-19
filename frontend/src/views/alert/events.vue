@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>告警事件</h2>
-        <p class="page-desc">查看告警列表并进行确认、恢复或故障自愈处理。</p>
+        <p class="page-desc">查看告警列表并进行 AI 根因诊断、故障自愈、工单流转与恢复确认。</p>
       </div>
       <div class="page-actions">
         <el-button icon="Refresh" @click="fetchAlerts">刷新</el-button>
@@ -59,12 +59,13 @@
         </template>
       </el-table-column>
       <el-table-column prop="fired_at" label="触发时间" min-width="170" />
-      <el-table-column label="操作" width="370" fixed="right">
+      <el-table-column label="操作" width="440" fixed="right">
         <template #default="scope">
-          <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
-          <el-button size="small" type="primary" plain @click="ack(scope.row)">确认</el-button>
-          <el-button size="small" type="success" plain @click="resolve(scope.row)">恢复</el-button>
+          <el-button size="small" type="primary" plain icon="Cpu" @click="openAIModal(scope.row)">AI诊断</el-button>
           <el-button size="small" type="warning" plain icon="MagicStick" @click="openRemediationModal(scope.row)">自愈</el-button>
+          <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
+          <el-button size="small" plain @click="ack(scope.row)">确认</el-button>
+          <el-button size="small" type="success" plain @click="resolve(scope.row)">恢复</el-button>
           <el-button
             size="small"
             type="info"
@@ -85,6 +86,31 @@
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- AI 根因诊断弹窗 -->
+    <el-dialog
+      v-model="aiVisible"
+      :title="`AIOps 智能根因诊断 - ${currentAlert.rule_name || currentAlert.target}`"
+      width="780px"
+      append-to-body
+    >
+      <div class="ai-dialog-content" v-loading="aiLoading">
+        <div class="ai-meta-bar">
+          <span><strong>告警目标:</strong> {{ currentAlert.target }}</span>
+          <span class="ml-4"><strong>告警级别:</strong> <el-tag size="small" :type="severityTag(currentAlert.severity)">{{ currentAlert.severity }}</el-tag></span>
+          <span class="ml-4"><strong>触发指标:</strong> {{ currentAlert.metric }} ({{ currentAlert.value }})</span>
+        </div>
+
+        <div v-if="aiAnalysis" class="ai-result-box">
+          <div class="ai-section" v-html="renderMarkdown(aiAnalysis)"></div>
+          <div v-if="aiSuggestion" class="ai-section-sug" v-html="renderMarkdown(aiSuggestion)"></div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="aiVisible = false">关闭</el-button>
+        <el-button type="primary" icon="Cpu" :loading="aiLoading" @click="runAIAnalysis">重新生成 AI 诊断</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 自愈日志与手动触发弹窗 -->
     <el-dialog
@@ -148,7 +174,9 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, VideoPlay } from '@element-plus/icons-vue'
+import { Cpu, MagicStick, VideoPlay } from '@element-plus/icons-vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { getErrorMessage, isCancelError } from '@/utils/error'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { monitorAlertStatusMeta } from '@/utils/status'
@@ -170,6 +198,12 @@ const target = computed({
 })
 const router = useRouter()
 
+// AI 诊断
+const aiVisible = ref(false)
+const aiLoading = ref(false)
+const aiAnalysis = ref('')
+const aiSuggestion = ref('')
+
 // 自愈状态
 const remediationVisible = ref(false)
 const remLogsLoading = ref(false)
@@ -178,6 +212,11 @@ const currentAlert = ref({})
 const remediationLogs = ref([])
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
+
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  return DOMPurify.sanitize(marked.parse(text))
+}
 
 const fetchAlerts = async () => {
   try {
@@ -192,6 +231,38 @@ const fetchAlerts = async () => {
     alerts.value = res.data.data || []
   } catch (err) {
     ElMessage.error(getErrorMessage(err, '加载告警事件失败'))
+  }
+}
+
+// 打开 AI 诊断弹窗
+const openAIModal = async (row) => {
+  currentAlert.value = row
+  aiVisible.value = true
+  if (row.ai_analysis) {
+    aiAnalysis.value = row.ai_analysis
+    aiSuggestion.value = row.ai_suggestion
+  } else {
+    await runAIAnalysis()
+  }
+}
+
+const runAIAnalysis = async () => {
+  if (!currentAlert.value?.id) return
+  aiLoading.value = true
+  try {
+    const res = await axios.post(`/api/v1/alert/alerts/${currentAlert.value.id}/analyze-ai`, {}, {
+      headers: authHeaders()
+    })
+    if (res.data?.code === 0) {
+      aiAnalysis.value = res.data.data.ai_analysis
+      aiSuggestion.value = res.data.data.ai_suggestion
+      ElMessage.success('AIOps 根因诊断完成！')
+      await fetchAlerts()
+    }
+  } catch (err) {
+    ElMessage.error(getErrorMessage(err, 'AI 根因分析失败'))
+  } finally {
+    aiLoading.value = false
   }
 }
 
@@ -257,7 +328,6 @@ const triggerRemediation = async () => {
     })
     if (res.data?.code === 0) {
       ElMessage.success('已下发自愈任务，正在远程执行...')
-      // 轮询 3 秒后刷新日志
       setTimeout(async () => {
         await fetchRemediationLogs(currentAlert.value.id)
         await fetchAlerts()
@@ -333,6 +403,34 @@ onMounted(fetchAlerts)
 .w-40 { width: 160px; }
 .w-52 { width: 220px; }
 .linkage-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.ai-meta-bar {
+  background: #f1f5f9;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #334155;
+}
+.ai-result-box {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 14px 18px;
+}
+.ai-section {
+  color: #1e293b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ai-section-sug {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed #cbd5e1;
+  color: #0369a1;
+  font-size: 13px;
+  line-height: 1.6;
+}
 
 .rem-header {
   display: flex;

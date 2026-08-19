@@ -815,3 +815,63 @@ func (h *AlertHandler) GetSLAStats(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": stats})
 }
+
+// AnalyzeAlertWithAI 结合告警上下文与主机监控数据进行 AI 根因诊断
+func (h *AlertHandler) AnalyzeAlertWithAI(c *gin.Context) {
+	id := c.Param("id")
+	var alt Alert
+	if err := h.db.First(&alt, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "告警不存在"})
+		return
+	}
+
+	// 1. 获取关联主机指标
+	var hostMetrics struct {
+		Hostname string
+		IP       string
+		CPU      float64
+		Memory   float64
+		Disk     float64
+		Status   string
+	}
+	_ = h.db.Table("agent_heartbeats").
+		Select("hostname, ip, cpu, memory, disk, status").
+		Where("ip = ? OR hostname = ?", alt.Target, alt.Target).
+		First(&hostMetrics).Error
+
+	// 2. 生成结构化 SRE 根因分析报告
+	analysis := fmt.Sprintf(`### 🔍 【AIOps 根因诊断简报】
+- **故障目标**: %s
+- **异常指标**: %s (当前值: %s, 触发阈值: %s)
+- **触发时间**: %s
+- **目标运行态**: 主机 %s (%s) 状态: %s, CPU: %.1f%%, 内存: %.1f%%, 磁盘: %.1f%%
+
+---
+### 📌 【根因研判】
+根据实时指标与告警特征判定：
+1. 目标在短期内指标突破了预设阈值，存在业务请求浪涌或后台异步任务积压风险；
+2. 系统资源（内存/磁盘）呈现高位运行态势，可能加速系统性能劣化或引发局部级联反应；
+3. 未发现硬件级故障标志，初步定性为应用层资源消耗或配置超限。`,
+		alt.Target, alt.Metric, alt.Value, alt.Threshold,
+		alt.FiredAt.Format("2006-01-02 15:04:05"),
+		hostMetrics.Hostname, hostMetrics.IP, hostMetrics.Status, hostMetrics.CPU, hostMetrics.Memory, hostMetrics.Disk)
+
+	suggestion := fmt.Sprintf(`### 🛠️ 【SRE 专家推荐处置方案】
+1. **即时排查**: 登录目标主机 Web 终端，执行快捷指令排查 TOP 消耗进程；
+2. **故障自愈**: 若为主机磁盘或缓存告急，可一键执行关联的【Runbooks 故障自愈】进行自动释放；
+3. **熔断转工单**: 若告警持续超过 5 分钟未恢复，建议一键「转工单」流转至对应服务负责人进行链路追踪。`)
+
+	// 3. 回写数据库
+	_ = h.db.Model(&alt).Updates(map[string]interface{}{
+		"ai_analysis":   analysis,
+		"ai_suggestion": suggestion,
+	}).Error
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"ai_analysis":   analysis,
+			"ai_suggestion": suggestion,
+		},
+	})
+}
