@@ -103,6 +103,16 @@ func (p *TerminalPlugin) RegisterRoutes(g *gin.RouterGroup) {
 	// WebSocket连接
 	g.GET("/ws/:id", h.HandleWebSocket)
 
+	// SFTP 文件管理
+	g.GET("/sftp/:id/list", h.SFTPList)
+	g.GET("/sftp/:id/read", h.SFTPReadFile)
+	g.POST("/sftp/:id/write", h.SFTPWriteFile)
+	g.POST("/sftp/:id/upload", h.SFTPUploadFile)
+	g.GET("/sftp/:id/download", h.SFTPDownloadFile)
+	g.POST("/sftp/:id/mkdir", h.SFTPMkdir)
+	g.POST("/sftp/:id/rename", h.SFTPRename)
+	g.DELETE("/sftp/:id/delete", h.SFTPDelete)
+
 	// 录像回放
 	g.GET("/records", h.ListRecords)
 	g.GET("/audits", h.ListCommandAudits)

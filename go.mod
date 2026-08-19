@@ -10,6 +10,7 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/gosnmp/gosnmp v1.37.0
 	github.com/lib/pq v1.10.9
+	github.com/pkg/sftp v1.13.6
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/viper v1.18.2
 	golang.org/x/crypto v0.31.0
@@ -55,6 +56,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

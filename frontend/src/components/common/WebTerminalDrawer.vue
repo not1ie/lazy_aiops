@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     v-model="visible"
-    :size="isFullscreen ? '100%' : '80%'"
+    :size="isFullscreen ? '100%' : '82%'"
     :with-header="false"
     :destroy-on-close="false"
     :before-close="handleBeforeClose"
@@ -9,7 +9,7 @@
     direction="rtl"
   >
     <div class="terminal-container" :class="{ 'is-fullscreen': isFullscreen }">
-      <!-- 终端头部工具栏 -->
+      <!-- 抽屉顶部多功能导航与工具栏 -->
       <div class="terminal-header">
         <div class="header-left">
           <div class="host-badge">
@@ -17,10 +17,30 @@
             <span class="host-name">{{ hostInfo?.name || hostInfo?.hostname || hostInfo?.ip || 'SSH Terminal' }}</span>
             <span class="host-ip">({{ hostInfo?.username || 'root' }}@{{ hostInfo?.ip || 'localhost' }}:{{ hostInfo?.port || 22 }})</span>
           </div>
-          <el-tag :type="statusTagType" size="small" effect="dark" class="status-tag">
+
+          <!-- 模式切换 Tabs: 终端 / SFTP 文件管理 -->
+          <div class="mode-tabs">
+            <button 
+              class="mode-tab-btn" 
+              :class="{ active: activeMode === 'terminal' }" 
+              @click="switchMode('terminal')"
+            >
+              <el-icon><Platform /></el-icon> 交互终端
+            </button>
+            <button 
+              class="mode-tab-btn" 
+              :class="{ active: activeMode === 'sftp' }" 
+              @click="switchMode('sftp')"
+            >
+              <el-icon><FolderOpened /></el-icon> 文件管理 (SFTP)
+            </button>
+          </div>
+
+          <el-tag v-if="activeMode === 'terminal'" :type="statusTagType" size="small" effect="dark" class="status-tag">
             <span class="status-dot" :class="statusClass"></span>
             {{ statusText }}
           </el-tag>
+
           <transition name="fade">
             <span v-if="copyTipVisible" class="copy-tip">
               <el-icon><Check /></el-icon> 已复制选中内容
@@ -29,31 +49,55 @@
         </div>
 
         <div class="header-right">
-          <!-- 快捷指令栏切换 -->
-          <el-tooltip content="常用运维快捷指令" placement="bottom">
-            <el-button 
-              size="small" 
-              :type="showSnippets ? 'primary' : 'default'" 
-              plain 
-              @click="showSnippets = !showSnippets"
-            >
-              <el-icon><Collection /></el-icon> 快捷指令
-            </el-button>
-          </el-tooltip>
+          <!-- 终端模式下的专用操作 -->
+          <template v-if="activeMode === 'terminal'">
+            <el-tooltip content="常用运维快捷指令" placement="bottom">
+              <el-button 
+                size="small" 
+                :type="showSnippets ? 'primary' : 'default'" 
+                plain 
+                @click="showSnippets = !showSnippets"
+              >
+                <el-icon><Collection /></el-icon> 快捷指令
+              </el-button>
+            </el-tooltip>
 
-          <!-- 清屏 -->
-          <el-tooltip content="清空终端 (Ctrl+L)" placement="bottom">
-            <el-button size="small" plain @click="clearTerminal">
-              <el-icon><Delete /></el-icon> 清屏
-            </el-button>
-          </el-tooltip>
+            <el-tooltip content="清空终端 (Ctrl+L)" placement="bottom">
+              <el-button size="small" plain @click="clearTerminal">
+                <el-icon><Delete /></el-icon> 清屏
+              </el-button>
+            </el-tooltip>
 
-          <!-- 重新连接 -->
-          <el-tooltip content="重新连接当前主机" placement="bottom">
-            <el-button size="small" plain :loading="status === 'connecting'" @click="reconnect">
-              <el-icon><RefreshRight /></el-icon> 重连
+            <el-tooltip content="重新连接当前主机" placement="bottom">
+              <el-button size="small" plain :loading="status === 'connecting'" @click="reconnect">
+                <el-icon><RefreshRight /></el-icon> 重连
+              </el-button>
+            </el-tooltip>
+          </template>
+
+          <!-- SFTP 模式下的专用操作 -->
+          <template v-else>
+            <el-button size="small" type="primary" icon="Upload" @click="triggerUploadDialog">
+              上传文件
             </el-button>
-          </el-tooltip>
+            <input 
+              ref="fileInputRef" 
+              type="file" 
+              multiple 
+              style="display: none;" 
+              @change="handleFileInputChange" 
+            />
+
+            <el-button size="small" plain icon="FolderAdd" @click="promptNewFolder">
+              新建目录
+            </el-button>
+            <el-button size="small" plain icon="DocumentAdd" @click="promptNewFile">
+              新建文件
+            </el-button>
+            <el-button size="small" plain icon="Refresh" :loading="sftpLoading" @click="loadSFTPList(currentSftpPath)">
+              刷新
+            </el-button>
+          </template>
 
           <!-- 全屏切换 -->
           <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏模式'" placement="bottom">
@@ -70,38 +114,205 @@
         </div>
       </div>
 
-      <!-- 快捷命令指令条 -->
-      <transition name="el-zoom-in-top">
-        <div v-if="showSnippets" class="snippets-bar">
-          <span class="snippets-label">快捷执行:</span>
-          <el-button 
-            v-for="item in snippetList" 
-            :key="item.cmd" 
-            size="small" 
-            class="snippet-btn"
-            @click="sendSnippet(item.cmd)"
-          >
-            {{ item.label }}
-          </el-button>
-        </div>
-      </transition>
+      <!-- ================= 模式 1: 终端命令行 ================= -->
+      <div v-show="activeMode === 'terminal'" class="terminal-body-wrapper">
+        <!-- 快捷命令指令条 -->
+        <transition name="el-zoom-in-top">
+          <div v-if="showSnippets" class="snippets-bar">
+            <span class="snippets-label">快捷执行:</span>
+            <el-button 
+              v-for="item in snippetList" 
+              :key="item.cmd" 
+              size="small" 
+              class="snippet-btn"
+              @click="sendSnippet(item.cmd)"
+            >
+              {{ item.label }}
+            </el-button>
+          </div>
+        </transition>
 
-      <!-- 终端渲染主体 -->
+        <!-- 终端渲染主体 -->
+        <div 
+          ref="xtermRef" 
+          class="xterm-wrapper" 
+          @contextmenu.prevent="handleContextMenu"
+        ></div>
+
+        <!-- 终端底部状态与提示信息 -->
+        <div class="terminal-footer">
+          <div class="footer-tips">
+            <span>💡 提示：支持鼠标<strong>划选自动复制</strong>，<strong>Ctrl+C</strong>（无选中中断，有选中复制），<strong>Ctrl+V</strong> 直接粘贴</span>
+          </div>
+          <div class="footer-meta">
+            <span>编码: UTF-8</span>
+            <span class="meta-sep">|</span>
+            <span>终端类型: xterm-256color</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= 模式 2: SFTP 文件管理 ================= -->
       <div 
-        ref="xtermRef" 
-        class="xterm-wrapper" 
-        @contextmenu.prevent="handleContextMenu"
-      ></div>
-
-      <!-- 终端底部状态与提示信息 -->
-      <div class="terminal-footer">
-        <div class="footer-tips">
-          <span>💡 提示：支持鼠标<strong>划选自动复制</strong>，<strong>Ctrl+C</strong>（无选中时中断，有选中时复制），<strong>Ctrl+V</strong> 直接粘贴</span>
+        v-show="activeMode === 'sftp'" 
+        class="sftp-container"
+        @dragover.prevent="isDragging = true"
+        @dragleave.prevent="isDragging = false"
+        @drop.prevent="handleDropUpload"
+      >
+        <!-- 拖拽上传覆盖遮罩 -->
+        <div v-if="isDragging" class="sftp-drop-overlay">
+          <el-icon class="drop-icon"><UploadFilled /></el-icon>
+          <div class="drop-text">松开鼠标，直接上传到当前目录 ({{ currentSftpPath }})</div>
         </div>
-        <div class="footer-meta">
-          <span>编码: UTF-8</span>
-          <span class="meta-sep">|</span>
-          <span>终端类型: xterm-256color</span>
+
+        <!-- 路径导航与常用快捷路径 -->
+        <div class="sftp-nav-bar">
+          <div class="path-input-group">
+            <el-button size="small" icon="Back" :disabled="currentSftpPath === '/'" @click="goParentDir">
+              上级
+            </el-button>
+            <el-input 
+              v-model="currentSftpPath" 
+              size="small" 
+              placeholder="输入绝对路径按回车直达"
+              class="path-input"
+              @keyup.enter="loadSFTPList(currentSftpPath)"
+            >
+              <template #prefix>
+                <el-icon class="text-gray-400"><Folder /></el-icon>
+              </template>
+            </el-input>
+            <el-button size="small" type="primary" plain @click="loadSFTPList(currentSftpPath)">
+              直达
+            </el-button>
+          </div>
+
+          <div class="quick-paths">
+            <span class="quick-label">常用路径:</span>
+            <el-tag 
+              v-for="qp in quickPaths" 
+              :key="qp.path" 
+              size="small" 
+              effect="plain" 
+              class="quick-tag"
+              @click="loadSFTPList(qp.path)"
+            >
+              {{ qp.label }}
+            </el-tag>
+          </div>
+        </div>
+
+        <!-- 面包屑路径条 -->
+        <div class="sftp-breadcrumb-bar">
+          <span class="crumb-root" @click="loadSFTPList('/')">/ 根目录</span>
+          <template v-for="(crumb, idx) in pathCrumbs" :key="crumb.fullPath">
+            <span class="crumb-sep">/</span>
+            <span 
+              class="crumb-item" 
+              :class="{ 'is-last': idx === pathCrumbs.length - 1 }"
+              @click="loadSFTPList(crumb.fullPath)"
+            >
+              {{ crumb.name }}
+            </span>
+          </template>
+        </div>
+
+        <!-- 文件列表表格 -->
+        <div class="sftp-table-wrapper" v-loading="sftpLoading" element-loading-background="rgba(13, 17, 23, 0.8)">
+          <el-table 
+            :data="sftpFiles" 
+            size="small" 
+            style="width: 100%"
+            class="sftp-table"
+            empty-text="当前目录为空"
+            @row-dblclick="handleRowDblClick"
+          >
+            <el-table-column label="名称" min-width="260">
+              <template #default="{ row }">
+                <div class="file-name-cell" @click="handleRowClick(row)">
+                  <el-icon :class="getFileIconClass(row)"><component :is="getFileIcon(row)" /></el-icon>
+                  <span class="file-title" :class="{ 'is-dir': row.is_dir }">{{ row.name }}</span>
+                </div>
+              </template>
+            </el-table-column>
+
+            <el-table-column prop="size_human" label="大小" width="110" align="right">
+              <template #default="{ row }">
+                <span v-if="!row.is_dir" class="file-size">{{ row.size_human }}</span>
+                <span v-else class="text-gray-500">-</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column prop="mode" label="权限" width="130" align="center">
+              <template #default="{ row }">
+                <code class="perm-code">{{ row.mode }}</code>
+              </template>
+            </el-table-column>
+
+            <el-table-column prop="mod_time" label="修改时间" width="165" align="center" />
+
+            <el-table-column label="操作" width="220" fixed="right">
+              <template #default="{ row }">
+                <div class="sftp-op-cell">
+                  <el-button 
+                    v-if="!row.is_dir && isEditableFile(row.name)" 
+                    size="small" 
+                    type="primary" 
+                    link 
+                    icon="Edit"
+                    @click="openFileEditor(row)"
+                  >
+                    编辑
+                  </el-button>
+                  <el-button 
+                    v-if="!row.is_dir" 
+                    size="small" 
+                    type="success" 
+                    link 
+                    icon="Download"
+                    @click="downloadSFTPFile(row)"
+                  >
+                    下载
+                  </el-button>
+                  <el-button 
+                    size="small" 
+                    type="warning" 
+                    link 
+                    icon="EditPen"
+                    @click="promptRename(row)"
+                  >
+                    重命名
+                  </el-button>
+                  <el-popconfirm 
+                    :title="`确定删除 ${row.is_dir ? '目录及其所有内容' : '文件'} [${row.name}] 吗？`"
+                    confirm-button-text="删除"
+                    cancel-button-text="取消"
+                    confirm-button-type="danger"
+                    @confirm="deleteSFTPItem(row)"
+                  >
+                    <template #reference>
+                      <el-button size="small" type="danger" link icon="Delete">
+                        删除
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <!-- 底部文件统计与提示 -->
+        <div class="sftp-footer">
+          <div class="sftp-stats">
+            <span>当前路径: <code>{{ currentSftpPath }}</code></span>
+            <span class="meta-sep">|</span>
+            <span>总计: {{ sftpFiles.length }} 项 ({{ dirCount }} 目录, {{ fileCount }} 文件)</span>
+          </div>
+          <div class="sftp-tips">
+            <span>💡 提示：双击文件夹进入，双击文本/配置文件直接在线编辑；支持直接从电脑拖拽文件到窗口上传。</span>
+          </div>
         </div>
       </div>
 
@@ -131,6 +342,48 @@
         </div>
       </div>
     </div>
+
+    <!-- ================= 在线代码 / 配置文件暗黑编辑器弹窗 ================= -->
+    <el-dialog
+      v-model="editorVisible"
+      :title="`在线编辑 - ${currentEditingFile.name}`"
+      width="80%"
+      top="5vh"
+      append-to-body
+      :destroy-on-close="true"
+      class="sftp-editor-dialog"
+    >
+      <div class="editor-header-bar">
+        <div class="editor-file-info">
+          <el-tag size="small" effect="dark" type="info">{{ currentEditingFile.ext || 'text' }}</el-tag>
+          <span class="editor-file-path">{{ currentEditingFile.path }}</span>
+          <span class="editor-file-size">({{ currentEditingFile.size_human }})</span>
+        </div>
+        <div class="editor-actions">
+          <span class="editor-shortcut-tip">💡 支持 <strong>Ctrl+S / Cmd+S</strong> 快速保存</span>
+          <el-button size="small" :loading="editorSaving" type="primary" icon="Check" @click="saveEditingFile">
+            保存并应用 (Ctrl+S)
+          </el-button>
+        </div>
+      </div>
+
+      <div class="editor-body">
+        <textarea
+          ref="editorTextareaRef"
+          v-model="editingContent"
+          class="code-editor-textarea"
+          spellcheck="false"
+          @keydown="handleEditorKeyDown"
+        ></textarea>
+      </div>
+
+      <template #footer>
+        <el-button @click="editorVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="editorSaving" @click="saveEditingFile">
+          保存更改
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- 凭据补充弹窗（若主机未绑定凭据） -->
     <el-dialog
@@ -184,18 +437,30 @@ import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Monitor,
+  Platform,
+  FolderOpened,
+  Folder,
+  FolderAdd,
+  DocumentAdd,
+  Document,
+  DocumentCopy,
+  CopyDocument,
   Check,
   Collection,
   Delete,
   RefreshRight,
+  Refresh,
   FullScreen,
   Crop,
   Close,
-  DocumentCopy,
-  CopyDocument
+  Upload,
+  UploadFilled,
+  Download,
+  Edit,
+  EditPen
 } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -219,6 +484,9 @@ const visible = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val)
 })
+
+// 模式切换: terminal (命令行) | sftp (文件管理)
+const activeMode = ref('terminal')
 
 const xtermRef = ref(null)
 const isFullscreen = ref(false)
@@ -248,7 +516,32 @@ let ws = null
 let wsGeneration = 0
 let resizeObserver = null
 let pingTimer = null
-let activeSessionId = ref('')
+const activeSessionId = ref('')
+
+// ================= SFTP 文件管理器相关状态 =================
+const fileInputRef = ref(null)
+const sftpLoading = ref(false)
+const isDragging = ref(false)
+const currentSftpPath = ref('/root')
+const sftpFiles = ref([])
+
+// 常用快捷路径
+const quickPaths = [
+  { label: 'root 主目录', path: '/root' },
+  { label: '/etc 配置', path: '/etc' },
+  { label: '/var/log 日志', path: '/var/log' },
+  { label: '/tmp 临时', path: '/tmp' },
+  { label: '/data 数据', path: '/data' },
+  { label: '/opt 应用', path: '/opt' },
+  { label: '/ 根目录', path: '/' }
+]
+
+// 在线编辑器
+const editorVisible = ref(false)
+const editorSaving = ref(false)
+const editorTextareaRef = ref(null)
+const currentEditingFile = ref({})
+const editingContent = ref('')
 
 // 快捷运维指令列表
 const snippetList = [
@@ -296,6 +589,24 @@ const statusClass = computed(() => {
   }
 })
 
+// 面包屑路径拆分
+const pathCrumbs = computed(() => {
+  const p = currentSftpPath.value.trim()
+  if (!p || p === '/') return []
+  const segments = p.split('/').filter(Boolean)
+  let accum = ''
+  return segments.map(seg => {
+    accum += '/' + seg
+    return {
+      name: seg,
+      fullPath: accum
+    }
+  })
+})
+
+const dirCount = computed(() => sftpFiles.value.filter(f => f.is_dir).length)
+const fileCount = computed(() => sftpFiles.value.filter(f => !f.is_dir).length)
+
 const authHeaders = () => {
   const token = localStorage.getItem('token') || ''
   return { Authorization: `Bearer ${token}` }
@@ -309,7 +620,25 @@ const triggerCopyTip = () => {
   }, 2000)
 }
 
-// 初始化 xterm 终端实例（针对 256 色高亮、UTF-8 中文、智能复制粘贴深度配置）
+// 模式切换
+const switchMode = (mode) => {
+  activeMode.value = mode
+  if (mode === 'terminal') {
+    nextTick(() => {
+      if (fitAddon) {
+        fitAddon.fit()
+        sendResize()
+      }
+      term?.focus()
+    })
+  } else if (mode === 'sftp') {
+    if (sftpFiles.value.length === 0) {
+      loadSFTPList(currentSftpPath.value)
+    }
+  }
+}
+
+// 初始化 xterm 终端实例
 const initTerminal = async () => {
   await nextTick()
   if (!xtermRef.value) return
@@ -370,18 +699,16 @@ const initTerminal = async () => {
 
   // 2. 快捷键拦截适配 (Ctrl+C / Ctrl+V / Cmd+C / Cmd+V)
   term.attachCustomKeyEventHandler((e) => {
-    // 处理 Ctrl+C / Cmd+C
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
       if (term.hasSelection()) {
         const text = term.getSelection()
         navigator.clipboard?.writeText(text).catch(() => {})
         triggerCopyTip()
-        return false // 阻止向终端发送 SIGINT，完成复制
+        return false
       }
-      return true // 无选区，向终端发送 SIGINT (\x03)
+      return true
     }
 
-    // 处理 Ctrl+V / Cmd+V / Ctrl+Shift+V
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
       if (e.type === 'keydown') {
         navigator.clipboard?.readText().then(text => {
@@ -406,7 +733,7 @@ const initTerminal = async () => {
   // 4. 自适应尺寸监听
   if (!resizeObserver && xtermRef.value) {
     resizeObserver = new ResizeObserver(() => {
-      if (fitAddon && term) {
+      if (fitAddon && term && activeMode.value === 'terminal') {
         fitAddon.fit()
         sendResize()
       }
@@ -446,7 +773,6 @@ const connectWebSocket = (sessionId) => {
     term?.writeln('\x1b[32m[系统] SSH 终端连接成功，已建立交互式会话。\x1b[0m\r\n')
     sendResize()
 
-    // 保活心跳
     if (pingTimer) clearInterval(pingTimer)
     pingTimer = setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -455,7 +781,6 @@ const connectWebSocket = (sessionId) => {
     }, 15000)
   }
 
-  // 接收数据（原生二进制 UTF-8 字节流解码）
   ws.onmessage = (event) => {
     if (currentGen !== wsGeneration) return
     if (typeof event.data === 'string') {
@@ -466,7 +791,6 @@ const connectWebSocket = (sessionId) => {
       term?.write(event.data)
       return
     }
-    // 关键：直接将 Uint8Array 传给 xterm 保证多字节 UTF-8 中文字符流式拼接不乱码
     term?.write(new Uint8Array(event.data))
   }
 
@@ -520,7 +844,6 @@ const startSessionConnect = async (customCreds = null) => {
       activeSessionId.value = res.data.data.id
       connectWebSocket(res.data.data.id)
     } else if (res.data?.code === 4001) {
-      // 需要补充凭据
       credentialForm.value.username = res.data.data?.username || 'root'
       credentialDialogVisible.value = true
       status.value = 'idle'
@@ -583,7 +906,7 @@ const sendSnippet = (cmd) => {
 const toggleFullscreen = () => {
   isFullscreen.value = !isFullscreen.value
   nextTick(() => {
-    if (fitAddon) {
+    if (fitAddon && activeMode.value === 'terminal') {
       fitAddon.fit()
       sendResize()
     }
@@ -622,6 +945,345 @@ const closeContextMenu = () => {
   contextMenuVisible.value = false
 }
 
+// ================= SFTP 文件管理核心方法 =================
+const getActiveSession = async () => {
+  if (activeSessionId.value) return activeSessionId.value
+  if (props.hostInfo?.id) {
+    const res = await axios.post(`/api/v1/terminal/quick-connect-host/${props.hostInfo.id}`, {}, {
+      headers: authHeaders()
+    })
+    if (res.data?.code === 0 && res.data?.data?.id) {
+      activeSessionId.value = res.data.data.id
+      return res.data.data.id
+    }
+  }
+  return ''
+}
+
+const loadSFTPList = async (targetPath = '/root') => {
+  const sessId = await getActiveSession()
+  if (!sessId) {
+    ElMessage.warning('无法建立 SFTP 会话，请确认主机凭据')
+    return
+  }
+
+  sftpLoading.value = true
+  try {
+    const res = await axios.get(`/api/v1/terminal/sftp/${sessId}/list`, {
+      params: { path: targetPath },
+      headers: authHeaders()
+    })
+
+    if (res.data?.code === 0) {
+      currentSftpPath.value = res.data.data.path
+      sftpFiles.value = res.data.data.files || []
+    } else {
+      ElMessage.error(res.data?.message || '读取目录失败')
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '无法访问该目录')
+  } finally {
+    sftpLoading.value = false
+  }
+}
+
+const goParentDir = () => {
+  const p = currentSftpPath.value
+  if (p === '/') return
+  const parent = p.substring(0, p.lastIndexOf('/')) || '/'
+  loadSFTPList(parent)
+}
+
+const handleRowClick = (row) => {
+  if (row.is_dir) {
+    loadSFTPList(row.path)
+  }
+}
+
+const handleRowDblClick = (row) => {
+  if (row.is_dir) {
+    loadSFTPList(row.path)
+  } else if (isEditableFile(row.name)) {
+    openFileEditor(row)
+  }
+}
+
+// 图标适配
+const getFileIcon = (row) => {
+  if (row.is_dir) return Folder
+  return Document
+}
+
+const getFileIconClass = (row) => {
+  if (row.is_dir) return 'icon-dir'
+  const ext = (row.ext || '').toLowerCase()
+  if (['conf', 'yaml', 'yml', 'json', 'ini', 'toml', 'env'].includes(ext)) return 'icon-config'
+  if (['sh', 'bash', 'py', 'go', 'js', 'sql'].includes(ext)) return 'icon-code'
+  if (['log', 'txt', 'md'].includes(ext)) return 'icon-text'
+  if (['tar', 'gz', 'zip', 'rar', 'tgz'].includes(ext)) return 'icon-archive'
+  return 'icon-file'
+}
+
+const isEditableFile = (fileName) => {
+  const name = (fileName || '').toLowerCase()
+  const exts = ['.conf', '.yaml', '.yml', '.json', '.sh', '.bash', '.py', '.go', '.js', '.sql', '.log', '.txt', '.md', '.env', '.ini', '.toml', '.xml', '.properties', 'dockerfile', 'makefile', 'hosts']
+  return exts.some(ext => name.endsWith(ext) || name === ext)
+}
+
+// 上传处理
+const triggerUploadDialog = () => {
+  fileInputRef.value?.click()
+}
+
+const handleFileInputChange = (e) => {
+  const files = e.target.files
+  if (files && files.length > 0) {
+    uploadFiles(files)
+  }
+  e.target.value = ''
+}
+
+const handleDropUpload = (e) => {
+  isDragging.value = false
+  const files = e.dataTransfer.files
+  if (files && files.length > 0) {
+    uploadFiles(files)
+  }
+}
+
+const uploadFiles = async (fileList) => {
+  const sessId = await getActiveSession()
+  if (!sessId) return
+
+  const formData = new FormData()
+  formData.append('target_dir', currentSftpPath.value)
+  for (let i = 0; i < fileList.length; i++) {
+    formData.append('files', fileList[i])
+  }
+
+  sftpLoading.value = true
+  try {
+    const res = await axios.post(`/api/v1/terminal/sftp/${sessId}/upload`, formData, {
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+    if (res.data?.code === 0) {
+      ElMessage.success(res.data.message || '上传成功')
+      await loadSFTPList(currentSftpPath.value)
+    } else {
+      ElMessage.error(res.data?.message || '上传失败')
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '文件上传发生异常')
+  } finally {
+    sftpLoading.value = false
+  }
+}
+
+// 下载处理
+const downloadSFTPFile = async (row) => {
+  const sessId = await getActiveSession()
+  if (!sessId) return
+
+  const downloadUrl = `/api/v1/terminal/sftp/${sessId}/download?path=${encodeURIComponent(row.path)}`
+  const link = document.createElement('a')
+  link.href = downloadUrl
+  link.setAttribute('download', row.name)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+// 新建目录
+const promptNewFolder = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新建目录名称', '新建目录', {
+      confirmButtonText: '创建',
+      cancelButtonText: '取消',
+      inputPattern: /^[^/]+$/,
+      inputErrorMessage: '目录名不能包含 / 字符'
+    })
+
+    if (!value?.trim()) return
+    const sessId = await getActiveSession()
+    const targetDir = currentSftpPath.value === '/' ? `/${value.trim()}` : `${currentSftpPath.value}/${value.trim()}`
+
+    const res = await axios.post(`/api/v1/terminal/sftp/${sessId}/mkdir`, { path: targetDir }, {
+      headers: authHeaders()
+    })
+    if (res.data?.code === 0) {
+      ElMessage.success('目录创建成功')
+      await loadSFTPList(currentSftpPath.value)
+    } else {
+      ElMessage.error(res.data?.message || '创建失败')
+    }
+  } catch {}
+}
+
+// 新建文件
+const promptNewFile = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新建文件名 (如 test.conf, app.sh)', '新建文件', {
+      confirmButtonText: '创建并编辑',
+      cancelButtonText: '取消',
+      inputPattern: /^[^/]+$/,
+      inputErrorMessage: '文件名不能包含 / 字符'
+    })
+
+    if (!value?.trim()) return
+    const sessId = await getActiveSession()
+    const targetFile = currentSftpPath.value === '/' ? `/${value.trim()}` : `${currentSftpPath.value}/${value.trim()}`
+
+    const res = await axios.post(`/api/v1/terminal/sftp/${sessId}/write`, {
+      path: targetFile,
+      content: ''
+    }, { headers: authHeaders() })
+
+    if (res.data?.code === 0) {
+      ElMessage.success('文件创建成功')
+      await loadSFTPList(currentSftpPath.value)
+      // 直接打开在线编辑
+      openFileEditor({
+        name: value.trim(),
+        path: targetFile,
+        size_human: '0 B',
+        ext: value.trim().split('.').pop()
+      })
+    } else {
+      ElMessage.error(res.data?.message || '创建失败')
+    }
+  } catch {}
+}
+
+// 重命名
+const promptRename = async (row) => {
+  try {
+    const { value } = await ElMessageBox.prompt(`重命名 [${row.name}]`, '重命名', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      inputValue: row.name,
+      inputPattern: /^[^/]+$/,
+      inputErrorMessage: '文件名不能包含 / 字符'
+    })
+
+    if (!value || value.trim() === row.name) return
+    const sessId = await getActiveSession()
+    const parentDir = currentSftpPath.value === '/' ? '' : currentSftpPath.value
+    const newPath = `${parentDir}/${value.trim()}`
+
+    const res = await axios.post(`/api/v1/terminal/sftp/${sessId}/rename`, {
+      old_path: row.path,
+      new_path: newPath
+    }, { headers: authHeaders() })
+
+    if (res.data?.code === 0) {
+      ElMessage.success('重命名成功')
+      await loadSFTPList(currentSftpPath.value)
+    } else {
+      ElMessage.error(res.data?.message || '重命名失败')
+    }
+  } catch {}
+}
+
+// 删除
+const deleteSFTPItem = async (row) => {
+  const sessId = await getActiveSession()
+  if (!sessId) return
+
+  try {
+    const res = await axios.delete(`/api/v1/terminal/sftp/${sessId}/delete`, {
+      params: { path: row.path },
+      headers: authHeaders()
+    })
+    if (res.data?.code === 0) {
+      ElMessage.success('删除成功')
+      await loadSFTPList(currentSftpPath.value)
+    } else {
+      ElMessage.error(res.data?.message || '删除失败')
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '删除发生异常')
+  }
+}
+
+// 打开在线编辑器
+const openFileEditor = async (row) => {
+  const sessId = await getActiveSession()
+  if (!sessId) return
+
+  currentEditingFile.value = row
+  editingContent.value = ''
+  editorVisible.value = true
+
+  try {
+    const res = await axios.get(`/api/v1/terminal/sftp/${sessId}/read`, {
+      params: { path: row.path },
+      headers: authHeaders()
+    })
+    if (res.data?.code === 0) {
+      editingContent.value = res.data.data.content || ''
+      nextTick(() => {
+        editorTextareaRef.value?.focus()
+      })
+    } else {
+      ElMessage.error(res.data?.message || '读取文件失败')
+      editorVisible.value = false
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '读取文件发生异常')
+    editorVisible.value = false
+  }
+}
+
+// 快捷键 Ctrl+S / Tab 键拦截
+const handleEditorKeyDown = (e) => {
+  // Ctrl+S / Cmd+S 保存
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    saveEditingFile()
+    return
+  }
+
+  // Tab 键缩进 2 空格
+  if (e.key === 'Tab') {
+    e.preventDefault()
+    const textarea = editorTextareaRef.value
+    if (!textarea) return
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    editingContent.value = editingContent.value.substring(0, start) + '  ' + editingContent.value.substring(end)
+    nextTick(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + 2
+    })
+  }
+}
+
+// 保存编辑文件
+const saveEditingFile = async () => {
+  const sessId = await getActiveSession()
+  if (!sessId || !currentEditingFile.value?.path) return
+
+  editorSaving.value = true
+  try {
+    const res = await axios.post(`/api/v1/terminal/sftp/${sessId}/write`, {
+      path: currentEditingFile.value.path,
+      content: editingContent.value
+    }, { headers: authHeaders() })
+
+    if (res.data?.code === 0) {
+      ElMessage.success('🎉 文件已成功保存至远程服务器！')
+    } else {
+      ElMessage.error(res.data?.message || '保存失败')
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '保存文件发生异常')
+  } finally {
+    editorSaving.value = false
+  }
+}
+
 const handleBeforeClose = (done) => {
   closeWebSocket()
   done()
@@ -637,6 +1299,8 @@ watch(() => props.modelValue, (val) => {
   if (val) {
     isFullscreen.value = false
     status.value = 'idle'
+    activeMode.value = 'terminal'
+    sftpFiles.value = []
     nextTick(() => {
       startSessionConnect()
     })
@@ -681,12 +1345,14 @@ onBeforeUnmount(() => {
   background: #161b22;
   border-bottom: 1px solid #30363d;
   flex-shrink: 0;
+  gap: 12px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 .host-badge {
@@ -707,6 +1373,42 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: #8b949e;
   font-weight: normal;
+}
+
+/* 模式切换 Tab 样式 */
+.mode-tabs {
+  display: flex;
+  align-items: center;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mode-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  color: #8b949e;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-tab-btn:hover {
+  color: #c9d1d9;
+}
+
+.mode-tab-btn.active {
+  background: #21262d;
+  color: #58a6ff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
 .status-tag {
@@ -757,6 +1459,13 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.terminal-body-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 
 .snippets-bar {
@@ -819,8 +1528,296 @@ onBeforeUnmount(() => {
 
 .meta-sep {
   color: #30363d;
+  margin: 0 4px;
 }
 
+/* ================= SFTP 文件管理样式 ================= */
+.sftp-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  background: #0d1117;
+  overflow: hidden;
+}
+
+.sftp-drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(13, 17, 23, 0.92);
+  border: 2px dashed #58a6ff;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  color: #58a6ff;
+  pointer-events: none;
+}
+
+.drop-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  animation: bounce 1.2s infinite ease-in-out;
+}
+
+.drop-text {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.sftp-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.path-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 540px;
+}
+
+.path-input :deep(.el-input__wrapper) {
+  background-color: #0d1117;
+  border-color: #30363d;
+  box-shadow: none;
+  color: #f0f6fc;
+}
+
+.quick-paths {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.quick-label {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.quick-tag {
+  background: #21262d;
+  border-color: #30363d;
+  color: #c9d1d9;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-tag:hover {
+  background: #30363d;
+  color: #58a6ff;
+  border-color: #58a6ff;
+}
+
+.sftp-breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  padding: 6px 16px;
+  background: #11161d;
+  border-bottom: 1px solid #21262d;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.crumb-root, .crumb-item {
+  color: #58a6ff;
+  cursor: pointer;
+}
+
+.crumb-root:hover, .crumb-item:hover {
+  text-decoration: underline;
+}
+
+.crumb-item.is-last {
+  color: #f0f6fc;
+  font-weight: 600;
+  cursor: default;
+  text-decoration: none;
+}
+
+.crumb-sep {
+  color: #484f58;
+  margin: 0 6px;
+}
+
+.sftp-table-wrapper {
+  flex: 1;
+  overflow: auto;
+  background: #0d1117;
+}
+
+.sftp-table {
+  background-color: transparent !important;
+}
+
+.sftp-table :deep(tr),
+.sftp-table :deep(th.el-table__cell) {
+  background-color: #0d1117 !important;
+  color: #c9d1d9 !important;
+  border-bottom: 1px solid #21262d !important;
+}
+
+.sftp-table :deep(.el-table__row:hover > td.el-table__cell) {
+  background-color: #161b22 !important;
+}
+
+.file-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: text;
+}
+
+.file-title {
+  color: #e6edf3;
+}
+
+.file-title.is-dir {
+  color: #58a6ff;
+  font-weight: 500;
+}
+
+.file-title:hover {
+  text-decoration: underline;
+}
+
+.icon-dir { color: #58a6ff; font-size: 16px; }
+.icon-config { color: #f59e0b; font-size: 16px; }
+.icon-code { color: #34d399; font-size: 16px; }
+.icon-text { color: #60a5fa; font-size: 16px; }
+.icon-archive { color: #a855f7; font-size: 16px; }
+.icon-file { color: #8b949e; font-size: 16px; }
+
+.file-size {
+  color: #8b949e;
+  font-family: monospace;
+}
+
+.perm-code {
+  font-family: monospace;
+  font-size: 11.5px;
+  color: #8b949e;
+  background: #161b22;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sftp-op-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sftp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #161b22;
+  border-top: 1px solid #30363d;
+  font-size: 11.5px;
+  color: #8b949e;
+  flex-shrink: 0;
+}
+
+.sftp-stats code {
+  color: #58a6ff;
+  background: #0d1117;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* ================= 在线编辑器暗黑样式 ================= */
+.sftp-editor-dialog :deep(.el-dialog__body) {
+  padding: 12px 20px;
+  background: #0d1117;
+}
+
+.editor-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px 6px 0 0;
+}
+
+.editor-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-file-path {
+  font-weight: 600;
+  color: #f0f6fc;
+  font-size: 13px;
+}
+
+.editor-file-size {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.editor-shortcut-tip {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.editor-body {
+  border: 1px solid #30363d;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: #0d1117;
+}
+
+.code-editor-textarea {
+  width: 100%;
+  height: 480px;
+  background-color: #0d1117;
+  color: #e6edf3;
+  border: none;
+  padding: 12px;
+  font-family: Consolas, "Fira Code", Monaco, Menlo, monospace;
+  font-size: 13.5px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.code-editor-textarea:focus {
+  background-color: #090d13;
+}
+
+/* 右键菜单 */
 .custom-context-menu {
   position: fixed;
   z-index: 3000;
