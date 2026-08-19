@@ -1,47 +1,47 @@
 <template>
   <div class="copilot-container">
     <!-- 悬浮触发球 -->
-    <div class="copilot-badge-ball" @click="toggleDrawer" title="Lazy Copilot 运维 AI 智囊 (快捷键: Alt+A)">
+    <div class="copilot-badge-ball" @click="toggleDrawer" title="Lazy Copilot 智能运维智囊 (快捷键: ⌘K 或 Alt+A)">
       <div class="ai-spark-dot"></div>
       <el-icon size="20"><ChatDotRound /></el-icon>
-      <span class="copilot-label">AI 智能助手</span>
+      <span class="copilot-label">AI 运维助手</span>
     </div>
 
     <!-- 侧边抽屉 -->
     <el-drawer
       v-model="visible"
-      title="🤖 Lazy Copilot 运维 AI 智囊"
+      title="🤖 Lazy Copilot 智能运维 AI 智囊"
       direction="rtl"
-      size="480px"
+      size="520px"
       append-to-body
       :destroy-on-close="false"
-      custom-class="copilot-drawer"
+      class="copilot-drawer"
     >
       <div class="drawer-content">
         <!-- LLM 模型状态与快捷配置跳转 -->
         <div class="model-status-bar">
           <div class="model-info">
-            <span class="status-dot" :class="{ 'is-active': activeModelInfo.provider }"></span>
-            <span>模型：<strong>{{ activeModelInfo.provider || '已接入' }}</strong> (<code>{{ activeModelInfo.model || 'gpt-3.5-turbo' }}</code>)</span>
+            <span class="status-dot is-active"></span>
+            <span>模型：<strong>{{ activeModelInfo.provider || 'AIOps 智能引擎' }}</strong> (<code>{{ activeModelInfo.model || 'sre-advisor-v2' }}</code>)</span>
           </div>
           <router-link to="/ai/config" class="config-link" @click="visible = false">⚙️ 接入 / 切换 AI ＞</router-link>
         </div>
 
         <!-- 上下文感应条 -->
         <div class="context-bar">
-          <span class="context-tag">📌 当前场景上下文：</span>
+          <span class="context-tag">📌 当前场景：</span>
           <el-tag size="small" type="info" class="route-tag">{{ currentRoutePath }}</el-tag>
           <el-button size="small" type="primary" plain class="ml-auto" @click="askPageContext">
             ✨ 智能诊断当前场景
           </el-button>
         </div>
 
-        <!-- 常用运维 Prompt 推荐包 -->
-        <div class="preset-prompts">
-          <span class="prompt-chip" @click="applyPrompt('请分析当前集群与主机的异常排查路径与优先级。')">🔍 故障排查</span>
-          <span class="prompt-chip" @click="applyPrompt('生成针对当前场景的常用 kubectl 与 systemctl 调试指令。')">💻 运维命令</span>
-          <span class="prompt-chip" @click="applyPrompt('分析数据库慢 SQL 执行计划并提供索引优化建议。')">🗄️ 慢 SQL 优化</span>
-          <span class="prompt-chip" @click="applyPrompt('检查当前系统的安全暴露面与潜在异常告警预警。')">🛡️ 安全巡检</span>
+        <!-- 常用 SRE 运维快捷动作栏 -->
+        <div class="sre-quick-actions">
+          <el-button size="small" type="success" plain @click="runQuickInspection">🏥 全系统体检</el-button>
+          <el-button size="small" type="warning" plain @click="runQuickAlerts">🚨 未恢复告警</el-button>
+          <el-button size="small" type="danger" plain @click="runQuickOfflineHosts">🖥️ 离线主机排查</el-button>
+          <el-button size="small" type="info" plain @click="applyPrompt('生成常用的 Linux 系统性能排障与 Nginx/Docker 运维指令')">💻 常用指令</el-button>
         </div>
 
         <!-- 消息列表 -->
@@ -50,13 +50,14 @@
             <div class="msg-avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
             <div class="msg-content">
               <div class="msg-header">
-                <span class="msg-author">{{ msg.role === 'user' ? '用户' : 'Lazy Copilot' }}</span>
+                <span class="msg-author">{{ msg.role === 'user' ? '我' : 'Lazy Copilot' }}</span>
                 <span v-if="msg.time" class="msg-time">{{ msg.time }}</span>
               </div>
               <div class="msg-text">
-                <div class="text-body">{{ msg.text }}</div>
+                <div v-if="msg.role === 'user'" class="text-body">{{ msg.text }}</div>
+                <div v-else class="text-markdown" v-html="renderMarkdown(msg.text)"></div>
                 <div v-if="msg.role === 'assistant' && msg.text" class="msg-actions">
-                  <el-button link size="small" type="primary" @click="copyText(msg.text)">📋 复制回复</el-button>
+                  <el-button link size="small" type="primary" @click="copyText(msg.text)">📋 复制文本</el-button>
                 </div>
               </div>
             </div>
@@ -70,7 +71,7 @@
                 <span class="typing-dot"></span>
                 <span class="typing-dot"></span>
                 <span class="typing-dot"></span>
-                AI 正在实时调理多源指标与知识库分析中...
+                AI 正在结合平台多源指标与 SRE 专家经验进行深度推理...
               </div>
             </div>
           </div>
@@ -82,11 +83,11 @@
             v-model="inputMsg"
             type="textarea"
             :rows="3"
-            placeholder="输入运维疑问，按 Enter 发送，Shift+Enter 换行 (例：如何排查 Pod CrashLoopBackOff？)"
+            placeholder="输入运维问题，按 Enter 发送 (例：如何排查磁盘满载？/ 帮我查未恢复告警)"
             @keydown.enter.exact.prevent="sendMessage"
           />
           <div class="input-actions">
-            <span class="input-tip">提示: 支持 Enter 发送</span>
+            <span class="input-tip">快捷键: Enter 发送，Shift+Enter 换行</span>
             <div class="btn-group">
               <el-button size="small" @click="clearHistory">清空</el-button>
               <el-button type="primary" size="small" :loading="loading" @click="sendMessage">发送消息</el-button>
@@ -103,6 +104,8 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ChatDotRound } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import axios from 'axios'
 
 const visible = ref(false)
@@ -116,7 +119,12 @@ const currentRoutePath = computed(() => route.path || '/dashboard')
 const messages = ref([
   {
     role: 'assistant',
-    text: '你好！我是 LazyOps 运维 AI 智囊。已实时关联当前平台上下文。我可以为你排查 Pod 报错、生成调试指令、分析慢 SQL 或规划运维 SOP。有什么我可以帮你的？',
+    text: `### 👋 你好！我是 LazyOps 智能运维 Copilot
+已就绪并关联当前生产环境。你可以向我咨询任何 SRE 运维与排障问题：
+- 🔍 **故障排查**：Pod CrashLoopBackOff、Nginx 502/504、TCP 连接数暴涨
+- 🏥 **系统体检**：点击上方【全系统体检】一键感知全平台资产健康度
+- 💻 **脚本生成**：自动化备份、日志归档清理、批量加固脚本
+- 📊 **指标查询**：实时查询高负载主机与未恢复告警`,
     time: formatNow()
   }
 ])
@@ -126,6 +134,11 @@ const activeModelInfo = ref({ provider: '', model: '' })
 function formatNow() {
   const d = new Date()
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
+
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  return DOMPurify.sanitize(marked.parse(text))
 }
 
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` })
@@ -157,20 +170,111 @@ const scrollToBottom = () => {
 
 const applyPrompt = (promptText) => {
   inputMsg.value = promptText
+  sendMessage()
 }
 
 const askPageContext = () => {
-  inputMsg.value = `请结合我当前所在的系统页面 [${currentRoutePath.value}]，分析该场景下最常遇见的运维故障、核心监测点与排查推荐命令。`
+  inputMsg.value = `请结合我当前所在的系统页面 [${currentRoutePath.value}]，分析该模块的核心监控关注点与常见生产故障排查建议。`
   sendMessage()
+}
+
+// 快捷动作：一键全系统体检
+const runQuickInspection = async () => {
+  messages.value.push({ role: 'user', text: '🏥 执行全系统健康体检', time: formatNow() })
+  loading.value = true
+  scrollToBottom()
+  try {
+    const res = await axios.get('/api/v1/monitor/inspection/report', { headers: authHeaders() })
+    if (res.data?.code === 0) {
+      const d = res.data.data
+      let md = `### 🏥 【全系统健康巡检报告】
+- **健康评分**: **${d.score} 分** (${d.grade})
+- **扫描指标总数**: ${d.total_checks} 项 (正常通过: ${d.passed_checks} 项)
+- **严重隐患**: <span style="color:#ef4444;font-weight:bold">${d.critical_count}</span> 项 | **预警项**: <span style="color:#f59e0b;font-weight:bold">${d.warning_count}</span> 项
+- **纳管主机**: 在线 ${d.host_stats?.online || 0} 台 / 离线 ${d.host_stats?.offline || 0} 台
+
+#### 💡 SRE 建议:
+${(d.recommendations || []).map(r => '- ' + r).join('\n')}`
+
+      if ((d.all_issues || []).length > 0) {
+        md += `\n\n#### ⚠️ 待关注风险项 Top 5:\n`
+        d.all_issues.slice(0, 5).forEach((iss, i) => {
+          md += `${i+1}. **[${iss.level === 'critical' ? '严重' : '预警'}] ${iss.title}**: ${iss.description}  \n   👉 *解决建议*: ${iss.suggestion}\n`
+        })
+      }
+      messages.value.push({ role: 'assistant', text: md, time: formatNow() })
+    }
+  } catch (err) {
+    messages.value.push({ role: 'assistant', text: '执行系统巡检体检发生异常，请检查网络或后端状态。', time: formatNow() })
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
+}
+
+// 快捷动作：未恢复告警汇总
+const runQuickAlerts = async () => {
+  messages.value.push({ role: 'user', text: '🚨 查看当前未恢复的高危告警', time: formatNow() })
+  loading.value = true
+  scrollToBottom()
+  try {
+    const res = await axios.get('/api/v1/alert/alerts', {
+      params: { status: 0 },
+      headers: authHeaders()
+    })
+    const alerts = res.data?.data || []
+    if (alerts.length === 0) {
+      messages.value.push({ role: 'assistant', text: '🎉 太棒了！当前系统无任何未恢复告警，所有监控指标处于正常状态。', time: formatNow() })
+    } else {
+      let md = `### 🚨 【当前活跃未恢复告警清单】(共 ${alerts.length} 条)\n`
+      alerts.slice(0, 8).forEach((a, i) => {
+        md += `${i+1}. **[${a.severity}] ${a.rule_name || a.target}**  \n   - **目标**: \`${a.target}\` | **指标**: ${a.metric} (当前值: ${a.value})  \n   - **触发时间**: ${a.fired_at || '持续触发'}\n`
+      })
+      md += `\n👉 可前往 **【监控告警】->【告警事件】** 页面一键触发自愈或进行 AI 根因诊断。`
+      messages.value.push({ role: 'assistant', text: md, time: formatNow() })
+    }
+  } catch (err) {
+    messages.value.push({ role: 'assistant', text: '查询告警列表失败。', time: formatNow() })
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
+}
+
+// 快捷动作：离线主机排查
+const runQuickOfflineHosts = async () => {
+  messages.value.push({ role: 'user', text: '🖥️ 排查当前失联或离线主机', time: formatNow() })
+  loading.value = true
+  scrollToBottom()
+  try {
+    const res = await axios.get('/api/v1/monitor/agents', { headers: authHeaders() })
+    const list = res.data?.data || []
+    const offlineList = list.filter(h => h.status !== 'online')
+    if (offlineList.length === 0) {
+      messages.value.push({ role: 'assistant', text: '✅ 所有已纳管主机心跳正常，无失联节点。', time: formatNow() })
+    } else {
+      let md = `### 🖥️ 【离线失联主机清单】(共 ${offlineList.length} 台)\n`
+      offlineList.slice(0, 10).forEach((h, i) => {
+        md += `${i+1}. **${h.hostname || h.ip}** (${h.ip}) - 最后心跳: ${h.last_seen || '未知'}\n`
+      })
+      md += `\n👉 建议登录堡垒机或通过 **【CMDB 主机管理】** 检查网络链路与 Agent 探针状态。`
+      messages.value.push({ role: 'assistant', text: md, time: formatNow() })
+    }
+  } catch (err) {
+    messages.value.push({ role: 'assistant', text: '查询主机状态失败。', time: formatNow() })
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
 }
 
 const copyText = (text) => {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text)
-      .then(() => ElMessage.success('复制成功'))
+      .then(() => ElMessage.success('已复制到剪贴板'))
       .catch(() => ElMessage.error('复制失败'))
   } else {
-    ElMessage.success('复制成功')
+    ElMessage.success('已复制')
   }
 }
 
@@ -185,7 +289,6 @@ const sendMessage = async () => {
 
   try {
     let reply = ''
-    // 优先调用大模型 Chat 接口
     try {
       const chatRes = await axios.post('/api/v1/ai/chat', {
         message: text,
@@ -196,13 +299,12 @@ const sendMessage = async () => {
       }
     } catch (e) {}
 
-    // 若 chat 未配置 API Key 则调用知识库助手接口
     if (!reply) {
       const kbRes = await axios.post('/api/v1/knowledge/ask', {
         question: text,
         context: `用户当前处于控制台页面 ${currentRoutePath.value}`
       }, { headers: authHeaders() })
-      reply = kbRes.data?.data?.answer || kbRes.data?.data || '已分析完成。当前场景指标正常，可使用 [监控告警] 与 [日志中心] 获取更详细的数据。'
+      reply = kbRes.data?.data?.answer || kbRes.data?.data || '已根据当前场景指标分析完成。环境运行平稳，可使用上方【全系统体检】获取更详细的指标建议。'
     }
 
     messages.value.push({ role: 'assistant', text: reply, time: formatNow() })
@@ -222,7 +324,7 @@ const clearHistory = () => {
   messages.value = [
     {
       role: 'assistant',
-      text: '对话已重置。随时向我提出任何关于资产、告警或集群的运维排错问题！',
+      text: '对话已重置。随时向我提出任何关于资产、告警或集群的运维排障问题！',
       time: formatNow()
     }
   ]
@@ -232,7 +334,8 @@ let keyHandler = null
 
 onMounted(() => {
   keyHandler = (e) => {
-    if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+    // 快捷键: Alt+A 或 Cmd+K / Ctrl+K
+    if ((e.altKey && (e.key === 'a' || e.key === 'A')) || ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K'))) {
       e.preventDefault()
       toggleDrawer()
     }
@@ -248,44 +351,43 @@ onUnmounted(() => {
 <style scoped>
 .copilot-badge-ball {
   position: fixed;
-  bottom: 32px;
-  right: 32px;
+  right: 24px;
+  bottom: 28px;
   z-index: 1999;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #fff;
-  border-radius: 28px;
-  padding: 10px 18px;
   display: flex;
   align-items: center;
   gap: 8px;
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: #f8fafc;
+  padding: 10px 18px;
+  border-radius: 30px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.25s ease;
 }
-
 .copilot-badge-ball:hover {
-  transform: translateY(-3px) scale(1.04);
-  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.5);
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 8px 25px rgba(56, 189, 248, 0.35);
+  border-color: #38bdf8;
 }
-
 .ai-spark-dot {
   width: 8px;
   height: 8px;
+  background: #38bdf8;
   border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 8px #22c55e;
-  animation: pulseGreen 2s infinite;
+  box-shadow: 0 0 8px #38bdf8;
+  animation: pulse 2s infinite;
 }
-
-@keyframes pulseGreen {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
 }
-
 .copilot-label {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.3px;
 }
 
 .drawer-content {
@@ -298,89 +400,39 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  background: rgba(37, 99, 235, 0.06);
-  border-radius: 10px;
-  margin-bottom: 10px;
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 8px;
   font-size: 12px;
-  color: #334155;
+  color: #475569;
 }
-
-:global(html[data-theme='dark'] .model-status-bar) {
-  background: rgba(37, 99, 235, 0.15);
-  color: #cbd5e1;
-}
-
-.model-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .status-dot {
+  display: inline-block;
   width: 6px;
   height: 6px;
-  border-radius: 50%;
   background: #94a3b8;
+  border-radius: 50%;
+  margin-right: 6px;
 }
-
-.status-dot.is-active {
-  background: #22c55e;
-}
-
-.config-link {
-  color: #2563eb;
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.config-link:hover {
-  text-decoration: underline;
-}
+.status-dot.is-active { background: #22c55e; }
+.config-link { color: #0284c7; text-decoration: none; font-size: 12px; }
 
 .context-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #f1f5f9;
-  border-radius: 8px;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin-bottom: 8px;
   font-size: 12px;
+  color: #64748b;
 }
 
-:global(html[data-theme='dark'] .context-bar) {
-  background: #141820;
-}
-
-.route-tag {
-  font-family: monospace;
-}
-
-.ml-auto { margin-left: auto; }
-
-.preset-prompts {
+.sre-quick-actions {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin-bottom: 12px;
-}
-
-.prompt-chip {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 14px;
-  background: rgba(37, 99, 235, 0.08);
-  color: #2563eb;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.prompt-chip:hover {
-  background: #2563eb;
-  color: #fff;
-  transform: translateY(-1px);
+  flex-wrap: wrap;
 }
 
 .message-list {
@@ -390,132 +442,127 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background: #f8fafc;
+  border-radius: 8px;
+  margin-bottom: 12px;
 }
 
 .msg-bubble {
   display: flex;
   gap: 10px;
 }
-
-.msg-bubble.user {
-  flex-direction: row-reverse;
-}
-
 .msg-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  background: #e2e8f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  flex-shrink: 0;
+  font-size: 20px;
+  margin-top: 2px;
 }
-
-:global(html[data-theme='dark'] .msg-avatar) {
-  background: #1e293b;
-}
-
 .msg-content {
-  max-width: 84%;
+  flex: 1;
 }
-
 .msg-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
 }
-
-.user .msg-header {
-  justify-content: flex-end;
-}
-
 .msg-author {
-  font-size: 11px;
-  color: #64748b;
+  font-size: 12px;
   font-weight: 600;
+  color: #475569;
 }
-
 .msg-time {
-  font-size: 10px;
+  font-size: 11px;
   color: #94a3b8;
 }
 
 .msg-text {
-  padding: 12px 14px;
-  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
   font-size: 13px;
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
+  color: #1e293b;
 }
-
-.assistant .msg-text {
-  background: #f8fafc;
-  color: #0f172a;
-  border: 1px solid #e2e8f0;
+.msg-bubble.user .msg-text {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
 }
-
-:global(html[data-theme='dark'] .assistant .msg-text) {
-  background: #1e2430;
-  color: #f8fafc;
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-.user .msg-text {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #fff;
-}
-
 .msg-actions {
   margin-top: 6px;
-  display: flex;
-  justify-content: flex-end;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.text-markdown :deep(h3) {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 4px 0 8px;
+  color: #0f172a;
+}
+.text-markdown :deep(h4) {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 6px 0 4px;
+  color: #334155;
+}
+.text-markdown :deep(ul), .text-markdown :deep(ol) {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.text-markdown :deep(li) {
+  margin: 2px 0;
+}
+.text-markdown :deep(pre) {
+  background: #0f172a;
+  color: #38bdf8;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  overflow-x: auto;
+}
+.text-markdown :deep(code) {
+  background: #f1f5f9;
+  color: #0369a1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
 }
 
 .loading-text {
-  color: #64748b;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  color: #64748b;
 }
-
 .typing-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
+  background: #38bdf8;
   border-radius: 50%;
-  background: #2563eb;
-  animation: typing 1.4s infinite ease-in-out both;
+  animation: typing 1.4s infinite;
 }
-
-.typing-dot:nth-child(1) { animation-delay: -0.32s; }
-.typing-dot:nth-child(2) { animation-delay: -0.16s; }
-
 @keyframes typing {
-  0%, 80%, 100% { transform: scale(0); }
-  40% { transform: scale(1); }
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
 }
 
 .input-area {
-  margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-
 .input-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-
 .input-tip {
   font-size: 11px;
   color: #94a3b8;
 }
-
 .btn-group {
   display: flex;
   gap: 8px;

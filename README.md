@@ -146,7 +146,7 @@ docker run -d --name lazy-aiops \
   -e TZ=Asia/Shanghai \
   -e LAO_ALLOW_INSECURE_BOOTSTRAP=true \
   -v $(pwd)/lazy-aiops/data:/app/data \
-  crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.48
+  crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.49
 ```
 
 - **访问地址**：`http://<服务器IP>:8080`
@@ -162,7 +162,7 @@ docker run -d --name lazy-aiops \
 ```bash
 REGISTRY=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com
 IMAGE=$REGISTRY/lazyops/lazyops
-VERSION=v1.0.48
+VERSION=v1.0.49
 
 # 拉取镜像
 docker pull $IMAGE:$VERSION
@@ -173,7 +173,7 @@ docker pull $IMAGE:$VERSION
 ```bash
 REGISTRY=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com
 IMAGE=$REGISTRY/lazyops/lazyops
-VERSION=v1.0.48
+VERSION=v1.0.49
 
 mkdir -p $(pwd)/lazy-aiops/{data,configs}
 
@@ -251,7 +251,7 @@ curl -s http://127.0.0.1:8080/health
 git clone https://github.com/not1ie/lazy_aiops.git
 cd lazy_aiops
 
-IMAGE=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.48
+IMAGE=crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.49
 docker pull $IMAGE
 
 kubectl apply -k deploy/k8s
@@ -321,18 +321,18 @@ curl -s http://127.0.0.1:8080/health
 
 ```bash
 # Kubernetes
-REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.48 deploy/scripts/deploy.sh k8s
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.49 deploy/scripts/deploy.sh k8s
 
 # Docker Swarm
-REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.48 deploy/scripts/deploy.sh swarm
+REGISTRY_IMAGE=registry.example.com/lazy-aiops:v1.0.49 deploy/scripts/deploy.sh swarm
 ```
 
 ## 版本信息
 
-- 当前推荐版本：`v1.0.48`（亦支持 `latest`）
-- 对应代码提交：请以 `git rev-list -n 1 v1.0.48` 的结果为准
+- 当前推荐版本：`v1.0.49`（亦支持 `latest`）
+- 对应代码提交：请以 `git rev-list -n 1 v1.0.49` 的结果为准
 - ACR 镜像示例：
-  - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.48`
+  - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:v1.0.49`
   - `crpi-iihofxt94xlrdrvd.cn-shanghai.personal.cr.aliyuncs.com/lazyops/lazyops:latest`
 
 ## 开发与验证
