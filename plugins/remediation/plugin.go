@@ -62,9 +62,10 @@ func (p *RemediationPlugin) Migrate() error {
 }
 
 func (p *RemediationPlugin) RegisterRoutes(g *gin.RouterGroup) {
-	h := &RemediationHandler{db: p.db}
+	h := &RemediationHandler{plugin: p, db: p.db}
 	g.GET("/logs", h.ListLogs)
 	g.GET("/logs/:id", h.GetLog)
+	g.POST("/trigger/:alert_id", h.TriggerRemediation)
 }
 
 func (p *RemediationPlugin) worker() {
@@ -85,12 +86,10 @@ func (p *RemediationPlugin) worker() {
 }
 
 func (p *RemediationPlugin) checkAndRemediate() {
-	// 1. 查找未处理且开启自愈的告警
-	// 我们需要关联 Alert 和 AlertRule
 	var alerts []alert.Alert
 
-	// 查找 status = 0 (触发中) 的告警
-	// 并且没有对应的成功或正在运行的 RemediationLog
+	// 查找 status = 0 (触发中) 的告警，并且对应规则开启了 auto_recover
+	// 并且没有在 running 或最近成功的自愈日志
 	err := p.db.Table("alerts").
 		Select("alerts.*").
 		Joins("JOIN alert_rules ON alerts.rule_id = alert_rules.id").
@@ -140,7 +139,6 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 
 	// 查找主机及其凭据
 	var host cmdb.Host
-	// 假设 Target 是主机名或 IP
 	err := p.db.Preload("Credential").Where("ip = ? OR name = ?", a.Target, a.Target).First(&host).Error
 
 	var stdout, stderr string
@@ -163,14 +161,13 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 	}
 
 	if execErr == nil && host.Credential != nil {
-		// 执行远程脚本
 		client := &core.SSHClient{
 			Host:     host.IP,
 			Port:     host.Port,
 			Username: host.Credential.Username,
 			Password: host.Credential.Password,
 			Key:      host.Credential.PrivateKey,
-			Timeout:  30 * time.Second,
+			Timeout:  45 * time.Second,
 		}
 		stdout, stderr, execErr = client.ExecuteWithPool(rule.RecoverScript)
 	}
@@ -186,10 +183,11 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 		remLog.Error = execErr.Error()
 	} else {
 		remLog.Status = "success"
-		// 自动解决告警
-		p.db.Model(&a).Updates(map[string]interface{}{
-			"status":      2, // 已恢复
-			"resolved_at": now,
+		// 自动恢复告警状态
+		p.db.Model(&alert.Alert{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+			"status":        2, // 已恢复
+			"resolved_at":   now,
+			"status_reason": "故障自愈脚本执行成功，告警已自动恢复",
 		})
 	}
 
@@ -198,12 +196,20 @@ func (p *RemediationPlugin) executeRemediation(a alert.Alert) {
 }
 
 type RemediationHandler struct {
-	db *gorm.DB
+	plugin *RemediationPlugin
+	db     *gorm.DB
 }
 
 func (h *RemediationHandler) ListLogs(c *gin.Context) {
+	query := h.db.Order("created_at DESC")
+	if alertID := c.Query("alert_id"); alertID != "" {
+		query = query.Where("alert_id = ?", alertID)
+	}
+	if target := c.Query("target"); target != "" {
+		query = query.Where("target LIKE ?", "%"+target+"%")
+	}
 	var logs []RemediationLog
-	h.db.Order("created_at DESC").Limit(100).Find(&logs)
+	query.Limit(100).Find(&logs)
 	c.JSON(200, gin.H{"code": 0, "data": logs})
 }
 
@@ -214,4 +220,15 @@ func (h *RemediationHandler) GetLog(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"code": 0, "data": log})
+}
+
+func (h *RemediationHandler) TriggerRemediation(c *gin.Context) {
+	alertID := c.Param("alert_id")
+	var a alert.Alert
+	if err := h.db.First(&a, "id = ?", alertID).Error; err != nil {
+		c.JSON(404, gin.H{"code": 404, "message": "告警事件不存在"})
+		return
+	}
+	go h.plugin.executeRemediation(a)
+	c.JSON(200, gin.H{"code": 0, "message": "已触发故障自愈执行"})
 }

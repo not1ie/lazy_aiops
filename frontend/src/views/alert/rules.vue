@@ -97,11 +97,27 @@
         </el-form-item>
         <el-form-item label="自动修复">
           <el-switch v-model="form.auto_recover" />
-          <span class="form-hint">开启后，触发告警时将自动执行修复脚本</span>
+          <span class="form-hint">开启后，触发告警时将自动通过 SSH 执行自愈修复脚本</span>
         </el-form-item>
-        <el-form-item label="修复脚本" v-if="form.auto_recover">
-          <el-input v-model="form.recover_script" type="textarea" :rows="3" placeholder="Shell 脚本，将在目标主机上通过 SSH 执行" />
-        </el-form-item>
+        <template v-if="form.auto_recover">
+          <el-form-item label="自愈预设库">
+            <el-select v-model="selectedPreset" placeholder="选择常用自愈脚本模板 (Runbooks)" class="w-full" clearable @change="applyPreset">
+              <el-option label="【磁盘清理】清理 /tmp 临时文件与 7 天以上历史压缩日志" value="disk_clean" />
+              <el-option label="【内存缓存】释放 Linux 页面与目录缓存 (drop_caches)" value="mem_cache" />
+              <el-option label="【Docker】自动拉起所有异常退出的容器 (docker start)" value="docker_restart" />
+              <el-option label="【Nginx】配置语法检查与服务平滑重载 (reload/restart)" value="nginx_reload" />
+              <el-option label="【Systemd】检查并自动重启核心守护进程" value="service_restart" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="修复脚本">
+            <el-input 
+              v-model="form.recover_script" 
+              type="textarea" 
+              :rows="4" 
+              placeholder="#!/bin/bash&#10;# 在目标主机上通过 SSH 执行的 Shell 脚本" 
+            />
+          </el-form-item>
+        </template>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />
         </el-form-item>
@@ -146,7 +162,60 @@ const currentId = ref('')
 const groups = ref([])
 const templates = ref([])
 const selectedTemplateId = ref('')
+const selectedPreset = ref('')
 const markdownEnabled = ref(true)
+
+const remediationPresets = {
+  disk_clean: `#!/bin/bash
+# 自动清理 /tmp 临时文件与 7 天以上系统/应用归档日志
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 开始执行磁盘清理自愈..."
+find /tmp -type f -atime +3 -delete 2>/dev/null || true
+find /var/log -type f -name "*.gz" -mtime +7 -delete 2>/dev/null || true
+journalctl --vacuum-time=3d 2>/dev/null || true
+echo "清理完成，当前磁盘状态："
+df -h /`,
+  mem_cache: `#!/bin/bash
+# 释放 Linux 页面缓存与目录项缓存
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 开始执行内存缓存清理..."
+sync
+echo 3 > /proc/sys/vm/drop_caches
+echo "内存缓存清理完毕，当前内存状态："
+free -m`,
+  docker_restart: `#!/bin/bash
+# 自动拉起所有非正常退出的 Docker 容器
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 检查并恢复异常退出的 Docker 容器..."
+EXITED=$(docker ps -a -q -f status=exited 2>/dev/null)
+if [ -n "$EXITED" ]; then
+  docker start $EXITED
+  echo "成功重启以下容器: $EXITED"
+else
+  echo "未发现异常退出的容器。"
+fi
+docker ps`,
+  nginx_reload: `#!/bin/bash
+# 语法检查与 Nginx 平滑重载
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 校验 Nginx 配置并重载..."
+if nginx -t; then
+  systemctl reload nginx || systemctl restart nginx
+  echo "Nginx 重载成功！"
+else
+  echo "Nginx 配置文件存在语法错误，放弃重载以避免服务中断！" >&2
+  exit 1
+fi`,
+  service_restart: `#!/bin/bash
+# 重启核心守护进程
+SERVICE_NAME="lazy-auto-ops"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 重启服务: $SERVICE_NAME"
+systemctl restart $SERVICE_NAME || true
+systemctl status $SERVICE_NAME --no-pager`
+}
+
+const applyPreset = (val) => {
+  if (val && remediationPresets[val]) {
+    form.value.recover_script = remediationPresets[val]
+  }
+}
+
 const form = ref({
   name: '',
   type: 'host',
